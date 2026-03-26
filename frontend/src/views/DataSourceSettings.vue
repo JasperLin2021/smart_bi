@@ -239,7 +239,7 @@ const handleSave = async () => {
       // For new datasources, set empty metadata_prompt (will be filled via schema modal)
       payload.metadata_prompt = ""
       await axios.post("/api/datasources", payload)
-      ElMessage.success("数据源已创建，请点击"表结构"按钮配置表结构")
+      ElMessage.success("数据源已创建，请点击「表结构」按钮配置表结构")
     }
 
     dialogVisible.value = false

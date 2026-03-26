@@ -155,7 +155,7 @@
       </div>
 
       <!-- Empty State -->
-      <el-empty v-if="schema.tables.length === 0" description="暂无表结构，请点击"自动检测"或手动添加" />
+      <el-empty v-if="schema.tables.length === 0" description="暂无表结构，请点击「自动检测」或手动添加" />
     </div>
 
     <template #footer>
