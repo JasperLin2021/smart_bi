@@ -13,6 +13,13 @@
           <el-table :data="datasources" stripe>
             <el-table-column prop="name" label="名称" width="160" />
             <el-table-column prop="slug" label="标识" width="120" />
+            <el-table-column prop="source_type" label="类型" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.source_type === 'excel' ? 'warning' : 'primary'" size="small">
+                  {{ row.source_type === 'excel' ? 'Excel' : '数据库' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="is_active" label="状态" width="80">
               <template #default="{ row }">
                 <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
@@ -46,20 +53,26 @@
         <el-form-item label="标识 (slug)" required>
           <el-input v-model="form.slug" placeholder="如：carsem（英文标识，URL友好）" />
         </el-form-item>
-        <el-form-item label="数据库连接" required>
+        <el-form-item label="数据源类型" required>
+          <el-select v-model="form.source_type" placeholder="选择类型" style="width: 100%">
+            <el-option label="数据库 (PostgreSQL等)" value="database" />
+            <el-option label="Excel 文件" value="excel" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="form.source_type === 'excel' ? '文件路径' : '数据库连接'" required>
           <el-input
             v-model="form.database_url"
-            placeholder="postgresql+psycopg2://user:pass@host:port/dbname"
+            :placeholder="form.source_type === 'excel' ? '/path/to/file.xlsx' : 'postgresql+psycopg2://user:pass@host:port/dbname'"
             type="textarea"
             :rows="2"
           />
         </el-form-item>
-        <el-form-item label="表结构描述" required>
+        <el-form-item label="表结构描述" :required="form.source_type !== 'excel'">
           <el-input
             v-model="form.metadata_prompt"
             type="textarea"
             :rows="8"
-            placeholder="描述数据库的表结构信息，供LLM生成SQL时参考。&#10;例如：&#10;- users 表：用户信息&#10;  - id: 主键&#10;  - name: 用户名"
+            :placeholder="form.source_type === 'excel' ? '留空则自动从Excel文件生成' : '描述数据库的表结构信息，供LLM生成SQL时参考。\n例如：\n- users 表：用户信息\n  - id: 主键\n  - name: 用户名'"
           />
         </el-form-item>
         <el-form-item label="指标描述">
@@ -99,6 +112,7 @@ interface DataSourceDetail {
   id: number
   name: string
   slug: string
+  source_type: string
   database_url?: string
   metadata_prompt: string
   metrics_prompt: string | null
@@ -120,6 +134,7 @@ const saving = ref(false)
 const form = reactive({
   name: "",
   slug: "",
+  source_type: "database",
   database_url: "",
   metadata_prompt: "",
   metrics_prompt: "",
@@ -141,6 +156,7 @@ const openCreate = () => {
   editId.value = null
   form.name = ""
   form.slug = ""
+  form.source_type = "database"
   form.database_url = ""
   form.metadata_prompt = ""
   form.metrics_prompt = ""
@@ -153,6 +169,7 @@ const openEdit = (row: DataSourceDetail) => {
   editId.value = row.id
   form.name = row.name
   form.slug = row.slug
+  form.source_type = row.source_type || "database"
   form.database_url = ""  // Don't show existing URL for security
   form.metadata_prompt = row.metadata_prompt
   form.metrics_prompt = row.metrics_prompt || ""
@@ -161,7 +178,9 @@ const openEdit = (row: DataSourceDetail) => {
 }
 
 const handleSave = async () => {
-  if (!form.name || !form.slug || (!isEdit.value && !form.database_url) || !form.metadata_prompt) {
+  // Validate required fields - metadata_prompt is optional for Excel
+  const metadataRequired = form.source_type !== 'excel'
+  if (!form.name || !form.slug || (!isEdit.value && !form.database_url) || (metadataRequired && !form.metadata_prompt)) {
     ElMessage.warning("请填写必填字段")
     return
   }
@@ -176,7 +195,8 @@ const handleSave = async () => {
     const payload: any = {
       name: form.name,
       slug: form.slug,
-      metadata_prompt: form.metadata_prompt,
+      source_type: form.source_type,
+      metadata_prompt: form.metadata_prompt || "",
       metrics_prompt: form.metrics_prompt || null,
       recommend_questions: questions.length > 0 ? questions : null,
     }
