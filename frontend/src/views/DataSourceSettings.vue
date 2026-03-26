@@ -289,7 +289,7 @@ onMounted(async () => {
   content: '';
   width: 4px;
   height: 18px;
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   border-radius: 2px;
 }
 

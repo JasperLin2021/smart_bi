@@ -13,8 +13,8 @@
             <path d="M12 28V12h4v16h-4zm6-8V12h4v8h-4zm6 4V12h4v12h-4z" fill="white"/>
             <defs>
               <linearGradient id="logo-gradient" x1="0" y1="0" x2="40" y2="40">
-                <stop stop-color="#06b6d4"/>
-                <stop offset="1" stop-color="#0891b2"/>
+                <stop stop-color="#6366f1"/>
+                <stop offset="1" stop-color="#8b5cf6"/>
               </linearGradient>
             </defs>
           </svg>
@@ -113,7 +113,7 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   position: relative;
   overflow: hidden;
 }
@@ -224,14 +224,14 @@ const submit = async () => {
   height: 48px;
   font-size: 16px;
   font-weight: 600;
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border: none;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .login-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4);
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
 }
 
 .login-hint {
