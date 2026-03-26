@@ -6,6 +6,7 @@ class DataSourceCreate(BaseModel):
     name: str
     slug: str
     database_url: str
+    source_type: Optional[str] = "database"  # "database" | "excel"
     metadata_prompt: str
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
@@ -16,6 +17,7 @@ class DataSourceUpdate(BaseModel):
     name: Optional[str] = None
     slug: Optional[str] = None
     database_url: Optional[str] = None
+    source_type: Optional[str] = None
     metadata_prompt: Optional[str] = None
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
@@ -27,6 +29,7 @@ class DataSourceOut(BaseModel):
     id: int
     name: str
     slug: str
+    source_type: str
     metadata_prompt: str
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
