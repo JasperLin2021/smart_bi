@@ -226,6 +226,17 @@ onMounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  border: none;
+  box-shadow: var(--app-shadow-soft);
+}
+
+.chat-card:hover {
+  transform: none;
+}
+
+.chat-card :deep(.el-card__header) {
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .chat-card :deep(.el-card__body) {
@@ -245,20 +256,31 @@ onMounted(() => {
 .card-header-title {
   font-weight: 600;
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-header-title::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-radius: 2px;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 /* 聊天区域 */
 .chat-container {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
-  background: linear-gradient(180deg, #f5f7fa 0%, #fff 100%);
+  padding: 24px;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
 }
 
 /* 欢迎消息 */
@@ -269,86 +291,126 @@ onMounted(() => {
   justify-content: center;
   height: 100%;
   text-align: center;
-  color: #606266;
+  padding: 40px;
 }
 
 .welcome-icon {
-  color: #409eff;
-  margin-bottom: 16px;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-radius: 20px;
+  margin-bottom: 24px;
+  color: white;
 }
 
 .welcome-message h3 {
-  margin: 0 0 8px;
-  font-size: 20px;
-  color: #303133;
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--app-text);
 }
 
 .welcome-message p {
-  margin: 0 0 24px;
-  color: #909399;
+  margin: 0 0 32px;
+  color: var(--app-text-muted);
+  font-size: 15px;
 }
 
 .welcome-examples {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
+  max-width: 500px;
 }
 
 .example-label {
   width: 100%;
   margin-bottom: 8px;
   font-size: 13px;
-  color: #909399;
+  color: var(--app-text-light);
 }
 
 .example-tag {
   cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 20px;
   transition: all 0.2s;
+  background: white;
+  border: 1px solid var(--app-border);
 }
 
 .example-tag:hover {
-  background: #409eff;
-  color: #fff;
-  border-color: #409eff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  border-color: transparent;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 
 /* 消息列表 */
 .messages-list {
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
 /* 输入区域 */
 .input-area {
-  padding: 16px 20px;
-  border-top: 1px solid #e4e7ed;
-  background: #fff;
+  padding: 20px 24px;
+  border-top: 1px solid var(--app-border-light);
+  background: white;
+}
+
+.input-area :deep(.el-input__wrapper) {
+  border-radius: 12px;
+  padding: 4px 4px 4px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .input-area :deep(.el-input-group__append) {
-  background: #409eff;
-  border-color: #409eff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border: none;
   padding: 0;
+  border-radius: 0 12px 12px 0;
 }
 
 .input-area :deep(.el-input-group__append .el-button) {
   margin: 0;
-  padding: 0 20px;
+  padding: 0 24px;
   height: 100%;
   border: none;
-  color: #fff;
+  color: white;
+  font-weight: 500;
+}
+
+.input-area :deep(.el-input-group__append .el-button:hover) {
+  background: transparent;
 }
 
 .input-tips {
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-light);
 }
 
 /* 历史记录 */
 .history-card {
   height: 100%;
+  border: none;
+  box-shadow: var(--app-shadow-soft);
+}
+
+.history-card:hover {
+  transform: none;
+}
+
+.history-card :deep(.el-card__header) {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .history-card :deep(.el-card__body) {
@@ -362,33 +424,33 @@ onMounted(() => {
 }
 
 .history-item {
-  padding: 12px 16px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--app-border-light);
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
 .history-item:hover {
-  background: #f5f7fa;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.04) 100%);
 }
 
 .history-content {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .history-icon {
   flex-shrink: 0;
-  color: #909399;
+  color: var(--app-primary);
   margin-top: 2px;
 }
 
 .history-text {
   font-size: 13px;
-  color: #303133;
-  line-height: 1.5;
+  color: var(--app-text);
+  line-height: 1.6;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -406,31 +468,39 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.history-item:hover .history-actions {
+  opacity: 1;
 }
 
 .history-date {
-  font-size: 12px;
-  color: #c0c4cc;
+  font-size: 11px;
+  color: var(--app-text-light);
 }
 
 .favorite-icon {
-  color: #c0c4cc;
+  color: var(--app-text-light);
   cursor: pointer;
-  transition: color 0.2s;
+  transition: all 0.2s;
 }
 
 .favorite-icon:hover,
 .favorite-icon.is-favorite {
-  color: #e6a23c;
+  color: #f59e0b;
+  transform: scale(1.1);
 }
 
 .delete-icon {
-  color: #c0c4cc;
+  color: var(--app-text-light);
   cursor: pointer;
-  transition: color 0.2s;
+  transition: all 0.2s;
 }
 
 .delete-icon:hover {
-  color: #f56c6c;
+  color: #ef4444;
+  transform: scale(1.1);
 }
 </style>

@@ -156,6 +156,20 @@ onMounted(() => {
 <style scoped>
 .pinned-chart-card {
   height: 100%;
+  border: none;
+  box-shadow: var(--app-shadow-soft);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pinned-chart-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.15);
+}
+
+.pinned-chart-card :deep(.el-card__header) {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid var(--app-border-light);
 }
 
 .card-header {
@@ -167,17 +181,33 @@ onMounted(() => {
 .card-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-weight: 500;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--app-text);
 }
 
 .info-icon {
-  color: #909399;
+  color: var(--app-text-light);
   cursor: pointer;
+  transition: color 0.2s;
+}
+
+.info-icon:hover {
+  color: var(--app-primary);
+}
+
+.card-actions :deep(.el-button) {
+  color: var(--app-text-light);
+}
+
+.card-actions :deep(.el-button:hover) {
+  color: var(--app-primary);
 }
 
 .chart-body {
   width: 100%;
   height: 280px;
+  padding: 8px;
 }
 </style>

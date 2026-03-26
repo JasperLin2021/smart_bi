@@ -257,6 +257,20 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.page :deep(.el-card) {
+  border: none;
+  box-shadow: var(--app-shadow-soft);
+}
+
+.page :deep(.el-card:hover) {
+  transform: none;
+}
+
+.page :deep(.el-card__header) {
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -266,10 +280,64 @@ onMounted(async () => {
 .card-header-title {
   font-weight: 600;
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-header-title::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-radius: 2px;
+}
+
+.page :deep(.el-table) {
+  --el-table-border-color: var(--app-border-light);
+}
+
+.page :deep(.el-table th) {
+  background: var(--app-surface-muted) !important;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.page :deep(.el-table td) {
+  padding: 14px 12px;
+}
+
+.page :deep(.el-table .el-button) {
+  padding: 6px 12px;
 }
 
 .truncate-text {
-  color: #909399;
-  font-size: 12px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Dialog styling */
+:deep(.el-dialog) {
+  border-radius: var(--app-radius);
+}
+
+:deep(.el-dialog__header) {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--app-border-light);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+:deep(.el-dialog__body) {
+  padding: 24px;
+}
+
+:deep(.el-dialog__footer) {
+  padding: 16px 24px;
+  border-top: 1px solid var(--app-border-light);
+}
+
+:deep(.el-form-item__label) {
+  font-weight: 500;
 }
 </style>
