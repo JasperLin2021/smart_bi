@@ -6,6 +6,7 @@ from fastapi_cache.decorator import cache
 
 from app.api.auth import get_current_user
 from app.core.llm import generate_sql_query, generate_summary, chat
+from app.core.excel_executor import execute_excel_query
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.query import QueryHistory
@@ -83,16 +84,20 @@ async def ask(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
 
-    # 使用数据源的数据库连接执行SQL
+    # Execute SQL based on source type
     result = {"columns": [], "rows": []}
     rows = []
     try:
-        ds_engine = get_datasource_engine(datasource.database_url)
-        with ds_engine.connect() as conn:
-            result_proxy = conn.execute(text(sql_query))
-            columns = list(result_proxy.keys())
-            rows = [dict(row._mapping) for row in result_proxy.fetchall()]
-            result = {"columns": columns, "rows": rows}
+        if datasource.source_type == "excel":
+            result = execute_excel_query(datasource.database_url, sql_query)
+            rows = result["rows"]
+        else:
+            ds_engine = get_datasource_engine(datasource.database_url)
+            with ds_engine.connect() as conn:
+                result_proxy = conn.execute(text(sql_query))
+                columns = list(result_proxy.keys())
+                rows = [dict(row._mapping) for row in result_proxy.fetchall()]
+                result = {"columns": columns, "rows": rows}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"SQL执行失败: {exc}")
 
