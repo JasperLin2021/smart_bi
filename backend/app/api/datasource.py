@@ -14,6 +14,7 @@ from app.schemas.datasource import (
     DataSourceOut,
     DataSourceListItem,
 )
+from app.core.excel_executor import test_excel_connection, generate_excel_metadata
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
@@ -45,11 +46,20 @@ def create_datasource(
     if existing:
         raise HTTPException(status_code=400, detail="数据源名称或标识已存在")
 
+    # Auto-generate metadata for Excel sources if not provided
+    metadata_prompt = payload.metadata_prompt
+    if payload.source_type == "excel" and not metadata_prompt:
+        try:
+            metadata_prompt = generate_excel_metadata(payload.database_url)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"无法读取Excel文件: {e}")
+
     ds = DataSource(
         name=payload.name,
         slug=payload.slug,
         database_url=payload.database_url,
-        metadata_prompt=payload.metadata_prompt,
+        source_type=payload.source_type or "database",
+        metadata_prompt=metadata_prompt,
         metrics_prompt=payload.metrics_prompt,
         text2sql_prompt=payload.text2sql_prompt,
         recommend_questions=json.dumps(payload.recommend_questions, ensure_ascii=False)
@@ -86,7 +96,7 @@ def update_datasource(
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    for field in ["name", "slug", "database_url", "metadata_prompt", "metrics_prompt", "text2sql_prompt", "is_active"]:
+    for field in ["name", "slug", "database_url", "source_type", "metadata_prompt", "metrics_prompt", "text2sql_prompt", "is_active"]:
         val = getattr(payload, field, None)
         if val is not None:
             setattr(ds, field, val)
@@ -123,6 +133,12 @@ def test_datasource(
     ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    
+    # Handle Excel sources differently
+    if ds.source_type == "excel":
+        return test_excel_connection(ds.database_url)
+    
+    # Database sources use SQLAlchemy
     try:
         test_engine = create_engine(ds.database_url, pool_pre_ping=True)
         with test_engine.connect() as conn:
@@ -144,6 +160,7 @@ def _to_out(ds: DataSource) -> dict:
         "id": ds.id,
         "name": ds.name,
         "slug": ds.slug,
+        "source_type": ds.source_type or "database",
         "metadata_prompt": ds.metadata_prompt,
         "metrics_prompt": ds.metrics_prompt,
         "text2sql_prompt": ds.text2sql_prompt,
