@@ -1,5 +1,29 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
+
+
+class ColumnSchema(BaseModel):
+    name: str
+    type: str
+    description: Optional[str] = None
+
+
+class TableSchema(BaseModel):
+    name: str
+    description: Optional[str] = None
+    columns: List[ColumnSchema] = []
+
+
+class RelationshipSchema(BaseModel):
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+
+
+class SchemaMetadata(BaseModel):
+    tables: List[TableSchema] = []
+    relationships: List[RelationshipSchema] = []
 
 
 class DataSourceCreate(BaseModel):
@@ -8,6 +32,7 @@ class DataSourceCreate(BaseModel):
     database_url: str
     source_type: Optional[str] = "database"  # "database" | "excel"
     metadata_prompt: str
+    schema_metadata: Optional[SchemaMetadata] = None
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
     recommend_questions: Optional[List[str]] = None
@@ -20,6 +45,7 @@ class DataSourceUpdate(BaseModel):
     database_url: Optional[str] = None
     source_type: Optional[str] = None
     metadata_prompt: Optional[str] = None
+    schema_metadata: Optional[SchemaMetadata] = None
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
     recommend_questions: Optional[List[str]] = None
@@ -33,6 +59,7 @@ class DataSourceOut(BaseModel):
     slug: str
     source_type: str
     metadata_prompt: str
+    schema_metadata: Optional[SchemaMetadata] = None
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
     recommend_questions: Optional[List[str]] = None

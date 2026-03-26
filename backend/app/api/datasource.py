@@ -13,8 +13,10 @@ from app.schemas.datasource import (
     DataSourceUpdate,
     DataSourceOut,
     DataSourceListItem,
+    SchemaMetadata,
 )
 from app.core.excel_executor import test_excel_connection, generate_excel_metadata
+from app.core.schema_detector import detect_schema, schema_to_prompt
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
@@ -70,6 +72,9 @@ def create_datasource(
         database_url=payload.database_url,
         source_type=payload.source_type or "database",
         metadata_prompt=metadata_prompt,
+        schema_metadata=json.dumps(payload.schema_metadata.model_dump(), ensure_ascii=False)
+        if payload.schema_metadata
+        else None,
         metrics_prompt=payload.metrics_prompt,
         text2sql_prompt=payload.text2sql_prompt,
         recommend_questions=json.dumps(payload.recommend_questions, ensure_ascii=False)
@@ -116,6 +121,8 @@ def update_datasource(
             setattr(ds, field, val)
     if payload.recommend_questions is not None:
         ds.recommend_questions = json.dumps(payload.recommend_questions, ensure_ascii=False)
+    if payload.schema_metadata is not None:
+        ds.schema_metadata = json.dumps(payload.schema_metadata.model_dump(), ensure_ascii=False)
 
     db.commit()
     db.refresh(ds)
@@ -172,14 +179,60 @@ def _to_out(ds: DataSource) -> dict:
             recommend = json.loads(ds.recommend_questions)
         except (json.JSONDecodeError, TypeError):
             recommend = None
+    schema_meta = None
+    if ds.schema_metadata:
+        try:
+            schema_meta = json.loads(ds.schema_metadata)
+        except (json.JSONDecodeError, TypeError):
+            schema_meta = None
     return {
         "id": ds.id,
         "name": ds.name,
         "slug": ds.slug,
         "source_type": ds.source_type or "database",
         "metadata_prompt": ds.metadata_prompt,
+        "schema_metadata": schema_meta,
         "metrics_prompt": ds.metrics_prompt,
         "text2sql_prompt": ds.text2sql_prompt,
         "recommend_questions": recommend,
         "is_active": ds.is_active,
+        "org_id": ds.org_id,
     }
+
+
+@router.post("/{datasource_id}/detect-schema")
+def detect_datasource_schema(
+    datasource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Auto-detect schema from Excel file or database."""
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+    
+    try:
+        schema = detect_schema(ds.database_url, ds.source_type)
+        return schema
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"检测schema失败: {e}")
+
+
+@router.post("/{datasource_id}/generate-prompt")
+def generate_prompt_from_schema(
+    datasource_id: int,
+    schema: SchemaMetadata,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate metadata_prompt text from schema metadata."""
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+    
+    prompt = schema_to_prompt(schema)
+    return {"metadata_prompt": prompt}

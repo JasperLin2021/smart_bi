@@ -32,8 +32,9 @@
                 <span class="truncate-text">{{ row.metadata_prompt?.substring(0, 80) }}...</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="240" fixed="right">
+            <el-table-column label="操作" width="280" fixed="right">
               <template #default="{ row }">
+                <el-button size="small" @click="openSchemaModal(row)">表结构</el-button>
                 <el-button size="small" @click="testConnection(row.id)">测试连接</el-button>
                 <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
@@ -67,14 +68,6 @@
             :rows="2"
           />
         </el-form-item>
-        <el-form-item label="表结构描述" :required="form.source_type !== 'excel'">
-          <el-input
-            v-model="form.metadata_prompt"
-            type="textarea"
-            :rows="8"
-            :placeholder="form.source_type === 'excel' ? '留空则自动从Excel文件生成' : '描述数据库的表结构信息，供LLM生成SQL时参考。\n例如：\n- users 表：用户信息\n  - id: 主键\n  - name: 用户名'"
-          />
-        </el-form-item>
         <el-form-item label="指标描述">
           <el-input
             v-model="form.metrics_prompt"
@@ -97,6 +90,14 @@
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 表结构管理模态框 -->
+    <SchemaMetadataModal
+      v-model="schemaModalVisible"
+      :datasource-id="currentDatasourceId"
+      :initial-schema="currentSchema"
+      @save="handleSaveSchema"
+    />
   </div>
 </template>
 
@@ -107,6 +108,31 @@ import { ElMessage, ElMessageBox } from "element-plus"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import { useRouter } from "vue-router"
+import SchemaMetadataModal from "@/components/SchemaMetadataModal.vue"
+
+interface SchemaColumn {
+  name: string
+  type: string
+  description: string | null
+}
+
+interface SchemaTable {
+  name: string
+  description: string | null
+  columns: SchemaColumn[]
+}
+
+interface SchemaRelationship {
+  from_table: string
+  from_column: string
+  to_table: string
+  to_column: string
+}
+
+interface SchemaMetadata {
+  tables: SchemaTable[]
+  relationships: SchemaRelationship[]
+}
 
 interface DataSourceDetail {
   id: number
@@ -115,6 +141,7 @@ interface DataSourceDetail {
   source_type: string
   database_url?: string
   metadata_prompt: string
+  schema_metadata: SchemaMetadata | null
   metrics_prompt: string | null
   text2sql_prompt: string | null
   recommend_questions: string[] | null
@@ -131,12 +158,16 @@ const isEdit = ref(false)
 const editId = ref<number | null>(null)
 const saving = ref(false)
 
+// Schema modal state
+const schemaModalVisible = ref(false)
+const currentDatasourceId = ref<number | null>(null)
+const currentSchema = ref<SchemaMetadata | null>(null)
+
 const form = reactive({
   name: "",
   slug: "",
   source_type: "database",
   database_url: "",
-  metadata_prompt: "",
   metrics_prompt: "",
 })
 
@@ -158,7 +189,6 @@ const openCreate = () => {
   form.slug = ""
   form.source_type = "database"
   form.database_url = ""
-  form.metadata_prompt = ""
   form.metrics_prompt = ""
   recommendQuestionsText.value = ""
   dialogVisible.value = true
@@ -171,16 +201,14 @@ const openEdit = (row: DataSourceDetail) => {
   form.slug = row.slug
   form.source_type = row.source_type || "database"
   form.database_url = ""  // Don't show existing URL for security
-  form.metadata_prompt = row.metadata_prompt
   form.metrics_prompt = row.metrics_prompt || ""
   recommendQuestionsText.value = (row.recommend_questions || []).join("\n")
   dialogVisible.value = true
 }
 
 const handleSave = async () => {
-  // Validate required fields - metadata_prompt is optional for Excel
-  const metadataRequired = form.source_type !== 'excel'
-  if (!form.name || !form.slug || (!isEdit.value && !form.database_url) || (metadataRequired && !form.metadata_prompt)) {
+  // Validate required fields
+  if (!form.name || !form.slug || (!isEdit.value && !form.database_url)) {
     ElMessage.warning("请填写必填字段")
     return
   }
@@ -196,7 +224,6 @@ const handleSave = async () => {
       name: form.name,
       slug: form.slug,
       source_type: form.source_type,
-      metadata_prompt: form.metadata_prompt || "",
       metrics_prompt: form.metrics_prompt || null,
       recommend_questions: questions.length > 0 ? questions : null,
     }
@@ -209,8 +236,10 @@ const handleSave = async () => {
       await axios.put(`/api/datasources/${editId.value}`, payload)
       ElMessage.success("数据源已更新")
     } else {
+      // For new datasources, set empty metadata_prompt (will be filled via schema modal)
+      payload.metadata_prompt = ""
       await axios.post("/api/datasources", payload)
-      ElMessage.success("数据源已创建")
+      ElMessage.success("数据源已创建，请点击"表结构"按钮配置表结构")
     }
 
     dialogVisible.value = false
@@ -245,6 +274,37 @@ const testConnection = async (id: number) => {
     }
   } catch {
     ElMessage.error("测试失败")
+  }
+}
+
+const openSchemaModal = (row: DataSourceDetail) => {
+  currentDatasourceId.value = row.id
+  currentSchema.value = row.schema_metadata
+  schemaModalVisible.value = true
+}
+
+const handleSaveSchema = async (schema: SchemaMetadata) => {
+  if (!currentDatasourceId.value) return
+  
+  try {
+    // First generate the prompt from schema
+    const promptResponse = await axios.post(
+      `/api/datasources/${currentDatasourceId.value}/generate-prompt`,
+      schema
+    )
+    const metadataPrompt = promptResponse.data.metadata_prompt
+    
+    // Save both schema_metadata and metadata_prompt
+    await axios.put(`/api/datasources/${currentDatasourceId.value}`, {
+      schema_metadata: schema,
+      metadata_prompt: metadataPrompt
+    })
+    
+    ElMessage.success("表结构已保存")
+    schemaModalVisible.value = false
+    await fetchAll()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "保存失败")
   }
 }
 

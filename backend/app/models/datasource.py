@@ -12,6 +12,7 @@ class DataSource(Base):
     database_url = Column(String(512), nullable=False)
     source_type = Column(String(32), default="database")  # "database" | "excel"
     metadata_prompt = Column(Text, nullable=False)
+    schema_metadata = Column(Text, nullable=True)  # JSON: {tables, relationships}
     metrics_prompt = Column(Text, nullable=True)
     text2sql_prompt = Column(Text, nullable=True)
     recommend_questions = Column(Text, nullable=True)  # JSON array
