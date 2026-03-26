@@ -59,14 +59,23 @@ def startup():
     Base.metadata.create_all(bind=engine)
 
     # Add datasource_id columns to existing tables if missing
-    with engine.begin() as conn:
-        for table in ["query_history", "pinned_charts", "metrics"]:
-            try:
+    for table in ["query_history", "pinned_charts", "metrics"]:
+        try:
+            with engine.begin() as conn:
                 conn.execute(
                     text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS datasource_id INTEGER")
                 )
-            except Exception:
-                pass
+        except Exception:
+            pass
+
+    # Add source_type column to datasources table if missing
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE datasources ADD COLUMN IF NOT EXISTS source_type VARCHAR(32) DEFAULT 'database'")
+            )
+    except Exception:
+        pass
 
     init_cache()
     db: Session = SessionLocal()
@@ -122,7 +131,7 @@ def startup():
             if row and row[1]:
                 metrics = row[1]
         except Exception:
-            pass
+            db.rollback()  # Rollback failed transaction
 
         ds = DataSource(
             name="嘉盛半导体",
