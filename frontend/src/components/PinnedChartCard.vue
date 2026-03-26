@@ -163,7 +163,7 @@ onMounted(() => {
 
 .pinned-chart-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(6, 182, 212, 0.15);
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.15);
 }
 
 .pinned-chart-card :deep(.el-card__header) {

@@ -75,7 +75,7 @@
         </div>
       </el-card>
       
-      <p class="login-footer">© 2026 Smart BI - Powered by AI</p>
+      <p class="login-footer">© 2026 Smart BI - Powered by Chinatelecom</p>
     </div>
   </div>
 </template>

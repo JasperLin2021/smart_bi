@@ -110,7 +110,7 @@ def update_datasource(
     if not check_datasource_access(current_user, ds):
         raise HTTPException(status_code=403, detail="无权修改此数据源")
 
-    for field in ["name", "slug", "database_url", "source_type", "metadata_prompt", "metrics_prompt", "text2sql_prompt", "is_active"]:
+    for field in ["name", "slug", "database_url", "source_type", "metadata_prompt", "metrics_prompt", "text2sql_prompt", "is_active", "org_id"]:
         val = getattr(payload, field, None)
         if val is not None:
             setattr(ds, field, val)
