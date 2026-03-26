@@ -1,0 +1,12 @@
+node_modules/
+.env
+__pycache__/
+*.pyc
+.qoder/
+
+# Accidental files from mistyped commands
+,
+e()
+leep 2
+ycopg2
+ql -h *
