@@ -265,7 +265,7 @@ onMounted(() => {
   content: '';
   width: 4px;
   height: 18px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   border-radius: 2px;
 }
 
@@ -300,7 +300,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   border-radius: 20px;
   margin-bottom: 24px;
   color: white;
@@ -344,11 +344,11 @@ onMounted(() => {
 }
 
 .example-tag:hover {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   color: white;
   border-color: transparent;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
 }
 
 /* 消息列表 */
@@ -372,7 +372,7 @@ onMounted(() => {
 }
 
 .input-area :deep(.el-input-group__append) {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   border: none;
   padding: 0;
   border-radius: 0 12px 12px 0;
@@ -431,7 +431,7 @@ onMounted(() => {
 }
 
 .history-item:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.04) 100%);
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.04) 0%, rgba(8, 145, 178, 0.04) 100%);
 }
 
 .history-content {

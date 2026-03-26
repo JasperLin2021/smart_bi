@@ -148,13 +148,13 @@ const formatTime = (date: Date) => {
 }
 
 .avatar-user {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #06b6d4, #0891b2);
   color: #fff;
   font-weight: 600;
 }
 
 .avatar-assistant {
-  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  background: linear-gradient(135deg, #164e63, #0e7490);
   color: #fff;
   font-weight: 600;
 }
@@ -184,10 +184,10 @@ const formatTime = (date: Date) => {
 }
 
 .chat-bubble--user .bubble-text {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   color: #fff;
   border-bottom-right-radius: 6px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
 }
 
 .chat-bubble--assistant .bubble-text {
@@ -255,7 +255,7 @@ const formatTime = (date: Date) => {
 }
 
 .sql-code {
-  background: #1e1b4b;
+  background: #164e63;
   color: #e0e7ff;
   padding: 16px;
   border-radius: 0 0 12px 12px;
@@ -328,7 +328,7 @@ const formatTime = (date: Date) => {
 }
 
 .summary-text.markdown-body :deep(pre) {
-  background: #1e1b4b;
+  background: #164e63;
   color: #e0e7ff;
   padding: 14px;
   border-radius: 8px;

@@ -9,8 +9,8 @@
             <path d="M9 24V8h3v16H9zm5-6V8h3v10h-3zm5 3V8h3v13h-3z" fill="white"/>
             <defs>
               <linearGradient id="brand-gradient" x1="0" y1="0" x2="32" y2="32">
-                <stop stop-color="#6366f1"/>
-                <stop offset="1" stop-color="#8b5cf6"/>
+                <stop stop-color="#06b6d4"/>
+                <stop offset="1" stop-color="#0891b2"/>
               </linearGradient>
             </defs>
           </svg>
@@ -228,7 +228,7 @@ onMounted(async () => {
 }
 
 .app-sidebar {
-  background: linear-gradient(180deg, #1e1b4b 0%, #312e81 100%);
+  background: linear-gradient(180deg, #164e63 0%, #0e7490 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -342,7 +342,7 @@ onMounted(async () => {
 }
 
 .app-menu :deep(.el-menu-item.is-active) {
-  background: rgba(99, 102, 241, 0.3);
+  background: rgba(6, 182, 212, 0.3);
   color: white;
 }
 
@@ -367,7 +367,7 @@ onMounted(async () => {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   display: flex;
   align-items: center;
   justify-content: center;

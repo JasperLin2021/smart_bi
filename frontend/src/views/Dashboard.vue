@@ -183,7 +183,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 28px 32px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 50%, #0e7490 100%);
   border-radius: var(--app-radius);
   color: white;
   position: relative;
