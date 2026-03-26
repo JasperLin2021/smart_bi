@@ -132,10 +132,6 @@ onMounted(async () => {
   if (!authStore.profile && authStore.token) {
     await authStore.fetchProfile()
   }
-  if (authStore.profile && authStore.profile.role !== "admin") {
-    router.push("/dashboard")
-    return
-  }
   loadConfig()
 })
 </script>
