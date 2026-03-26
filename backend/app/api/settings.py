@@ -11,7 +11,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 def ensure_admin(user: User):
-    if user.role != "admin":
+    if user.role != "super_admin":
         raise HTTPException(status_code=403, detail="无权限")
 
 
