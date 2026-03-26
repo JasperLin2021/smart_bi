@@ -231,7 +231,7 @@ const submit = async () => {
 
 .login-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4);
 }
 
 .login-hint {
