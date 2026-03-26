@@ -21,9 +21,11 @@
       <el-menu :default-active="activePath" router class="app-menu">
         <el-menu-item index="/dashboard">Dashboard 仪表板</el-menu-item>
         <el-menu-item index="/smart-query">智能问数</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/datasource-settings">数据源管理</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/metric-settings">指标配置</el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/llm-settings">大模型配置</el-menu-item>
+        <el-menu-item index="/datasource-settings">数据源管理</el-menu-item>
+        <el-menu-item v-if="isOrgAdmin" index="/user-management">用户管理</el-menu-item>
+        <el-menu-item v-if="isSuperAdmin" index="/org-management">企业管理</el-menu-item>
+        <el-menu-item index="/metric-settings">指标配置</el-menu-item>
+        <el-menu-item v-if="isSuperAdmin" index="/llm-settings">大模型配置</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -68,11 +70,16 @@ const activePath = computed(() => route.path)
 const pageTitle = computed(() => {
   if (route.path === "/smart-query") return "智能问数"
   if (route.path === "/datasource-settings") return "数据源管理"
+  if (route.path === "/user-management") return "用户管理"
+  if (route.path === "/org-management") return "企业管理"
   if (route.path === "/metric-settings") return "指标配置"
   if (route.path === "/llm-settings") return "大模型配置"
   return "Dashboard 仪表板"
 })
-const isAdmin = computed(() => authStore.profile?.role === "admin")
+const isOrgAdmin = computed(() => 
+  authStore.profile?.role === 'org_admin' || authStore.profile?.role === 'super_admin'
+)
+const isSuperAdmin = computed(() => authStore.profile?.role === 'super_admin')
 
 const onDatasourceChange = (id: number) => {
   datasourceStore.switchDatasource(id)

@@ -38,9 +38,17 @@ def get_current_user(
 
 
 @router.get("/me", response_model=UserProfile)
-def me(current_user: User = Depends(get_current_user)):
+def me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    org_name = None
+    if current_user.org_id:
+        from app.models.organization import Organization
+        org = db.query(Organization).filter(Organization.id == current_user.org_id).first()
+        if org:
+            org_name = org.name
     return {
         "id": current_user.id,
         "username": current_user.username,
         "role": current_user.role,
+        "org_id": current_user.org_id,
+        "org_name": org_name,
     }

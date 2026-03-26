@@ -5,7 +5,9 @@ import { ElMessage } from "element-plus"
 export interface UserProfile {
   id: number
   username: string
-  role: string
+  role: 'user' | 'org_admin' | 'super_admin'
+  org_id: number | null
+  org_name: string | null
 }
 
 export const useAuthStore = defineStore("auth", {
@@ -13,6 +15,14 @@ export const useAuthStore = defineStore("auth", {
     token: localStorage.getItem("smart-bi-token") || "",
     profile: null as UserProfile | null
   }),
+  getters: {
+    isOrgAdmin(): boolean {
+      return this.profile?.role === 'org_admin' || this.profile?.role === 'super_admin'
+    },
+    isSuperAdmin(): boolean {
+      return this.profile?.role === 'super_admin'
+    }
+  },
   actions: {
     async login(username: string, password: string) {
       try {

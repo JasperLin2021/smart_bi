@@ -11,6 +11,7 @@ class DataSourceCreate(BaseModel):
     metrics_prompt: Optional[str] = None
     text2sql_prompt: Optional[str] = None
     recommend_questions: Optional[List[str]] = None
+    org_id: Optional[int] = None
 
 
 class DataSourceUpdate(BaseModel):
@@ -23,6 +24,7 @@ class DataSourceUpdate(BaseModel):
     text2sql_prompt: Optional[str] = None
     recommend_questions: Optional[List[str]] = None
     is_active: Optional[int] = None
+    org_id: Optional[int] = None
 
 
 class DataSourceOut(BaseModel):
@@ -35,6 +37,7 @@ class DataSourceOut(BaseModel):
     text2sql_prompt: Optional[str] = None
     recommend_questions: Optional[List[str]] = None
     is_active: int
+    org_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -45,6 +48,8 @@ class DataSourceListItem(BaseModel):
     name: str
     slug: str
     is_active: int
+    org_id: Optional[int] = None
+    source_type: Optional[str] = None
 
     class Config:
         from_attributes = True

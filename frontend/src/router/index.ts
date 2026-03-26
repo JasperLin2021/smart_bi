@@ -1,32 +1,55 @@
 import { createRouter, createWebHistory } from "vue-router"
-import DashboardView from "@/views/Dashboard.vue"
-import SmartQueryView from "@/views/SmartQuery.vue"
-import LoginView from "@/views/Login.vue"
-import LlmSettingsView from "@/views/LlmSettings.vue"
-import MetricSettingsView from "@/views/MetricSettings.vue"
-import DataSourceSettingsView from "@/views/DataSourceSettings.vue"
+import { useAuthStore } from "@/store/auth"
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", redirect: "/dashboard" },
-    { path: "/login", component: LoginView },
-    { path: "/dashboard", component: DashboardView },
-    { path: "/smart-query", component: SmartQueryView },
-    { path: "/llm-settings", component: LlmSettingsView },
-    { path: "/metric-settings", component: MetricSettingsView },
-    { path: "/datasource-settings", component: DataSourceSettingsView },
+    { path: "/login", component: () => import("@/views/Login.vue") },
+    { path: "/dashboard", component: () => import("@/views/Dashboard.vue") },
+    { path: "/smart-query", component: () => import("@/views/SmartQuery.vue") },
+    { path: "/datasource-settings", component: () => import("@/views/DataSourceSettings.vue") },
+    { 
+      path: "/user-management", 
+      component: () => import("@/views/UserManagement.vue"),
+      meta: { requiredRole: ['org_admin', 'super_admin'] }
+    },
+    { 
+      path: "/org-management", 
+      component: () => import("@/views/OrgManagement.vue"),
+      meta: { requiredRole: ['super_admin'] }
+    },
+    { path: "/metric-settings", component: () => import("@/views/MetricSettings.vue") },
+    { 
+      path: "/llm-settings", 
+      component: () => import("@/views/LlmSettings.vue"),
+      meta: { requiredRole: ['super_admin'] }
+    },
   ]
 })
 
-router.beforeEach((to) => {
-  if (to.path === "/login") {
-    return true
-  }
+router.beforeEach(async (to) => {
+  if (to.path === "/login") return true
+  
   const token = localStorage.getItem("smart-bi-token")
-  if (!token) {
-    return "/login"
+  if (!token) return "/login"
+  
+  const authStore = useAuthStore()
+  if (!authStore.profile) {
+    try {
+      await authStore.fetchProfile()
+    } catch {
+      return "/login"
+    }
   }
+  
+  const requiredRoles = to.meta.requiredRole as string[] | undefined
+  if (requiredRoles && authStore.profile) {
+    if (!requiredRoles.includes(authStore.profile.role)) {
+      return "/dashboard"
+    }
+  }
+  
   return true
 })
 

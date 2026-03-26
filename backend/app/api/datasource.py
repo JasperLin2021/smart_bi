@@ -19,9 +19,11 @@ from app.core.excel_executor import test_excel_connection, generate_excel_metada
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
 
-def ensure_admin(user: User):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="无权限")
+def check_datasource_access(user: User, ds: DataSource):
+    """Check if user can access this datasource"""
+    if user.role == "super_admin":
+        return True
+    return ds.org_id == user.org_id
 
 
 @router.get("", response_model=List[DataSourceListItem])
@@ -29,8 +31,10 @@ def list_datasources(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    items = db.query(DataSource).filter(DataSource.is_active == 1).all()
-    return items
+    query = db.query(DataSource).filter(DataSource.is_active == 1)
+    if current_user.role != "super_admin":
+        query = query.filter(DataSource.org_id == current_user.org_id)
+    return query.all()
 
 
 @router.post("", response_model=DataSourceOut)
@@ -39,7 +43,6 @@ def create_datasource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ensure_admin(current_user)
     existing = db.query(DataSource).filter(
         (DataSource.slug == payload.slug) | (DataSource.name == payload.name)
     ).first()
@@ -54,6 +57,13 @@ def create_datasource(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"无法读取Excel文件: {e}")
 
+    # Determine org_id
+    org_id = None
+    if current_user.role != "super_admin":
+        org_id = current_user.org_id
+    elif payload.org_id:
+        org_id = payload.org_id
+
     ds = DataSource(
         name=payload.name,
         slug=payload.slug,
@@ -65,6 +75,7 @@ def create_datasource(
         recommend_questions=json.dumps(payload.recommend_questions, ensure_ascii=False)
         if payload.recommend_questions
         else None,
+        org_id=org_id,
     )
     db.add(ds)
     db.commit()
@@ -81,6 +92,8 @@ def get_datasource(
     ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
     return _to_out(ds)
 
 
@@ -91,10 +104,11 @@ def update_datasource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ensure_admin(current_user)
     ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权修改此数据源")
 
     for field in ["name", "slug", "database_url", "source_type", "metadata_prompt", "metrics_prompt", "text2sql_prompt", "is_active"]:
         val = getattr(payload, field, None)
@@ -114,10 +128,11 @@ def delete_datasource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ensure_admin(current_user)
     ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权删除此数据源")
     db.delete(ds)
     db.commit()
     return {"status": "ok"}
@@ -129,10 +144,11 @@ def test_datasource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ensure_admin(current_user)
     ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
     
     # Handle Excel sources differently
     if ds.source_type == "excel":

@@ -12,6 +12,7 @@ from app.db.session import engine, SessionLocal
 from app.models.user import User
 from app.models.llm_setting import LlmSetting
 from app.models.datasource import DataSource
+from app.models.organization import Organization
 from app.models.pinned_chart import PinnedChart  # noqa: F401
 
 app = FastAPI(title=settings.app_name)
@@ -77,20 +78,77 @@ def startup():
     except Exception:
         pass
 
+    # Add org_id column to users table if missing
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id INTEGER")
+            )
+    except Exception:
+        pass
+
+    # Add org_id column to datasources table if missing
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE datasources ADD COLUMN IF NOT EXISTS org_id INTEGER")
+            )
+    except Exception:
+        pass
+
     init_cache()
     db: Session = SessionLocal()
 
-    # Ensure admin user
-    user = db.query(User).filter(User.username == "admin").first()
-    if not user:
-        db.add(
-            User(
-                username="admin",
-                hashed_password=get_password_hash("admin123"),
-                role="admin",
-            )
-        )
+    # === RBAC Seed Data ===
+    # Create organizations
+    org_nexteer = db.query(Organization).filter(Organization.slug == "nexteer").first()
+    if not org_nexteer:
+        org_nexteer = Organization(name="Nexteer", slug="nexteer")
+        db.add(org_nexteer)
         db.commit()
+        db.refresh(org_nexteer)
+
+    org_carsem = db.query(Organization).filter(Organization.slug == "carsem").first()
+    if not org_carsem:
+        org_carsem = Organization(name="嘉盛半导体", slug="carsem")
+        db.add(org_carsem)
+        db.commit()
+        db.refresh(org_carsem)
+
+    # Ensure admin user (super_admin)
+    admin_user = db.query(User).filter(User.username == "admin").first()
+    if not admin_user:
+        admin_user = User(
+            username="admin",
+            hashed_password=get_password_hash("admin123"),
+            role="super_admin",
+            org_id=None,
+        )
+        db.add(admin_user)
+        db.commit()
+    else:
+        # Update existing admin to super_admin
+        if admin_user.role != "super_admin":
+            admin_user.role = "super_admin"
+            admin_user.org_id = None
+            db.commit()
+
+    # Create org users
+    seed_users = [
+        ("nexteer_admin", "nexteer123", "org_admin", org_nexteer.id),
+        ("nexteer", "nexteer123", "user", org_nexteer.id),
+        ("carsem_admin", "carsem123", "org_admin", org_carsem.id),
+        ("carsem", "carsem123", "user", org_carsem.id),
+    ]
+    for uname, pwd, role, oid in seed_users:
+        if not db.query(User).filter(User.username == uname).first():
+            db.add(User(
+                username=uname,
+                hashed_password=get_password_hash(pwd),
+                role=role,
+                org_id=oid,
+            ))
+    db.commit()
 
     # Ensure LLM settings
     llm_record = db.query(LlmSetting).first()
@@ -140,6 +198,7 @@ def startup():
             metadata_prompt=metadata,
             metrics_prompt=metrics,
             recommend_questions=_CARSEM_RECOMMEND_QUESTIONS,
+            org_id=org_carsem.id,
         )
         db.add(ds)
         db.commit()
@@ -155,6 +214,18 @@ def startup():
             db.commit()
         except Exception:
             db.rollback()
+
+    # Assign org_id to existing datasources without org_id
+    carsem_ds = db.query(DataSource).filter(DataSource.slug == "carsem").first()
+    if carsem_ds and not carsem_ds.org_id:
+        carsem_ds.org_id = org_carsem.id
+        db.commit()
+
+    # Assign Excel datasource to carsem org
+    excel_ds = db.query(DataSource).filter(DataSource.source_type == "excel").first()
+    if excel_ds and not excel_ds.org_id:
+        excel_ds.org_id = org_carsem.id
+        db.commit()
 
     db.close()
 

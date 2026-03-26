@@ -1,4 +1,5 @@
-from sqlalchemy import Column, DateTime, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
 
@@ -15,5 +16,8 @@ class DataSource(Base):
     text2sql_prompt = Column(Text, nullable=True)
     recommend_questions = Column(Text, nullable=True)  # JSON array
     is_active = Column(Integer, default=1)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    organization = relationship("Organization", backref="datasources")
