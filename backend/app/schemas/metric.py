@@ -4,6 +4,7 @@ from datetime import datetime
 
 
 class MetricBase(BaseModel):
+    datasource_id: int
     name: str
     description: Optional[str] = None
     definition: str
@@ -18,6 +19,7 @@ class MetricCreate(MetricBase):
 
 
 class MetricUpdate(BaseModel):
+    datasource_id: Optional[int] = None
     name: Optional[str] = None
     description: Optional[str] = None
     definition: Optional[str] = None

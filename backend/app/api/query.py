@@ -7,11 +7,15 @@ from fastapi_cache.decorator import cache
 from app.api.auth import get_current_user
 from app.core.llm import generate_sql_query, generate_summary, chat
 from app.core.excel_executor import execute_excel_query
+from app.core.sql_guard import detect_excel_join_risk
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.query import QueryHistory
 from app.models.user import User
 from app.schemas.query import QueryAskRequest, QueryAskResponse, HistoryListResponse
+from app.schemas.query import DrillPreviewRequest, DrillPreviewResponse
+from app.core.drill_runtime import build_drill_actions
+from app.core.drill_suggester import suggest_drill_actions
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -28,10 +32,59 @@ def _get_datasource(db: Session, datasource_id: int | None) -> DataSource | None
 def _get_recommendations(datasource: DataSource | None) -> list[str]:
     if not datasource or not datasource.recommend_questions:
         return []
+
+
+def _normalize_summary(question: str, result: dict, summary: str) -> str:
+    rows = result.get("rows", []) if isinstance(result, dict) else []
+    if not rows:
+        return summary
+    no_data_patterns = [
+        "未找到",
+        "没有找到",
+        "无符合条件",
+        "未查询到",
+        "查询结果为空",
+    ]
+    if any(pattern in summary for pattern in no_data_patterns):
+        return f"查询返回 {len(rows)} 条记录，请直接查看下方结果表。"
+    return summary
+
+
+def _get_drill_config(datasource: DataSource | None) -> dict | None:
+    if not datasource or not datasource.drill_config:
+        return None
+    try:
+        return json.loads(datasource.drill_config)
+    except (json.JSONDecodeError, TypeError):
+        return None
     try:
         return json.loads(datasource.recommend_questions)
     except (json.JSONDecodeError, TypeError):
         return []
+
+
+async def _generate_safe_sql(question: str, datasource: DataSource) -> str:
+    sql_response = await generate_sql_query(question, datasource=datasource)
+    sql_query = sql_response.get("sql", "")
+    if datasource.source_type != "excel":
+        return sql_query
+
+    risk = detect_excel_join_risk(datasource.database_url, sql_query)
+    if not risk:
+        return sql_query
+
+    retry_context = (
+        "上一版 SQL 被风险检查判定为高风险。\n"
+        f"原因：{risk['message']}\n"
+        f"改写要求：{risk['hint']}\n"
+        "请重写为更稳妥的 SQL，只输出最终 SQL。"
+    )
+    retry_response = await generate_sql_query(question, datasource=datasource, context=retry_context)
+    retried_sql = retry_response.get("sql", "")
+    retry_risk = detect_excel_join_risk(datasource.database_url, retried_sql)
+    if retry_risk:
+        raise ValueError(f"检测到高风险JOIN。{retry_risk['message']}")
+    return retried_sql
 
 
 @router.post("/ask", response_model=QueryAskResponse)
@@ -44,6 +97,8 @@ async def ask(
     question = payload.question.strip()
     mode = payload.mode or "text2sql"
     datasource_id = getattr(payload, "datasource_id", None)
+    drill_context = payload.drill_context
+    parent_history_id = payload.parent_history_id
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
 
@@ -59,9 +114,11 @@ async def ask(
         history = QueryHistory(
             user_id=current_user.id,
             datasource_id=datasource.id if datasource else None,
+            parent_history_id=parent_history_id,
             question=f"[闲聊] {question}",
             summary=answer,
             mode="chat",
+            drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
         )
         db.add(history)
         db.commit()
@@ -70,6 +127,7 @@ async def ask(
             "answer": answer,
             "result": {"columns": [], "rows": []},
             "summary": "",
+            "history_id": history.id,
             "recommendations": [],
             "mode": "chat",
         }
@@ -79,8 +137,7 @@ async def ask(
         raise HTTPException(status_code=400, detail="请先选择或配置数据源")
 
     try:
-        sql_response = await generate_sql_query(question, datasource=datasource)
-        sql_query = sql_response.get("sql", "")
+        sql_query = await _generate_safe_sql(question, datasource)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
 
@@ -106,17 +163,20 @@ async def ask(
         summary = await generate_summary(question, result)
     except Exception:
         summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
+    summary = _normalize_summary(question, result, summary)
 
     recommendations = _get_recommendations(datasource)
 
     history = QueryHistory(
         user_id=current_user.id,
         datasource_id=datasource.id,
+        parent_history_id=parent_history_id,
         question=f"[SQL] {question}",
         sql_query=sql_query,
         result_json=json.dumps(result, ensure_ascii=False, default=str),
         summary=summary,
         mode="text2sql",
+        drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
     )
     db.add(history)
     db.commit()
@@ -126,6 +186,7 @@ async def ask(
         "result": result,
         "summary": summary,
         "sql_query": sql_query,
+        "history_id": history.id,
         "recommendations": recommendations,
         "mode": "text2sql",
     }
@@ -148,6 +209,7 @@ def history(
                 "question": item.question,
                 "created_at": item.created_at.strftime("%Y-%m-%d"),
                 "favorite": item.favorite,
+                "parent_history_id": item.parent_history_id,
             }
             for item in items
         ]
@@ -218,5 +280,32 @@ def get_history_detail(
         "result": result,
         "summary": item.summary or "",
         "mode": item.mode or "text2sql",
+        "drill_context": json.loads(item.drill_context) if item.drill_context else None,
+        "parent_history_id": item.parent_history_id,
         "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),
     }
+
+
+@router.post("/drill-preview", response_model=DrillPreviewResponse)
+async def drill_preview(
+    payload: DrillPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    datasource = _get_datasource(db, payload.datasource_id)
+    if not datasource:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+
+    del db, current_user, datasource
+    preview = {"actions": [], "detail_action": None}
+    try:
+        preview = await suggest_drill_actions(
+            question=payload.question,
+            sql_query=payload.sql_query,
+            columns=payload.columns,
+            row=payload.row,
+            selected_column=payload.selected_column,
+        )
+    except Exception:
+        preview = {"actions": [], "detail_action": None}
+    return preview

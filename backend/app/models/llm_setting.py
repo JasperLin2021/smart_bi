@@ -11,5 +11,6 @@ class LlmSetting(Base):
     api_key = Column(String(256), nullable=False)
     model = Column(String(128), nullable=False)
     temperature = Column(Float, default=0.3)
+    agent_planner_mode = Column(String(32), default="llm_only")
     text2sql_prompt = Column(Text, nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

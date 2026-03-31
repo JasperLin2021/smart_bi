@@ -30,6 +30,24 @@
         
         <!-- 助手消息 -->
         <div v-else class="assistant-content">
+          <div v-if="message.drillContext" class="drill-context">
+            <span class="drill-context-label">钻取路径</span>
+            <div class="drill-context-body">
+              <span class="drill-context-text">
+                {{ breadcrumbText }}
+              </span>
+              <el-button
+                v-if="message.drillContext.parentQuestion"
+                size="small"
+                text
+                class="drill-back-btn"
+                @click="goBackOneLevel"
+              >
+                返回上一层
+              </el-button>
+            </div>
+          </div>
+
           <!-- 文字回复 -->
           <div v-if="message.content" class="bubble-text">
             {{ message.content }}
@@ -54,6 +72,7 @@
           <!-- 查询结果图表 -->
           <div v-if="hasResult" class="chart-container">
             <MessageChart 
+              :message="message"
               :columns="message.result!.columns" 
               :rows="message.result!.rows" 
               :sql-query="message.sqlQuery"
@@ -62,7 +81,7 @@
           
           <!-- 查询结果表格 -->
           <div v-if="hasResult" class="table-container">
-            <MessageTable :columns="message.result!.columns" :rows="message.result!.rows" />
+            <MessageTable :message="message" :columns="message.result!.columns" :rows="message.result!.rows" />
           </div>
           
           <!-- 推荐标签 -->
@@ -87,13 +106,15 @@
 import { computed } from "vue"
 import { Loading, WarningFilled, DataAnalysis } from "@element-plus/icons-vue"
 import { marked } from "marked"
-import type { ChatMessage } from "@/store/query"
+import { useQueryStore, type ChatMessage, type DrillContext } from "@/store/query"
 import MessageChart from "./MessageChart.vue"
 import MessageTable from "./MessageTable.vue"
 
 const props = defineProps<{
   message: ChatMessage
 }>()
+
+const queryStore = useQueryStore()
 
 const hasResult = computed(() => {
   return props.message.result && 
@@ -106,6 +127,24 @@ const renderedSummary = computed(() => {
   if (!props.message.summary) return ""
   return marked(props.message.summary, { breaks: true })
 })
+
+const buildBreadcrumb = (context?: DrillContext): string[] => {
+  if (!context) return []
+  const previous = buildBreadcrumb(context.parentContext)
+  return [
+    ...previous,
+    `${context.sourceLabel} = ${context.sourceValue}`,
+    context.targetLabel,
+  ]
+}
+
+const breadcrumbText = computed(() => buildBreadcrumb(props.message.drillContext).join(" -> "))
+
+const goBackOneLevel = async () => {
+  const drillContext = props.message.drillContext
+  if (!drillContext?.parentQuestion) return
+  await queryStore.ask(drillContext.parentQuestion, "text2sql", drillContext.parentContext)
+}
 
 const formatTime = (date: Date) => {
   const d = new Date(date)
@@ -233,6 +272,37 @@ const formatTime = (date: Date) => {
   flex-direction: column;
   gap: 14px;
   width: 100%;
+}
+
+.drill-context {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  border: 1px solid #c7d2fe;
+}
+
+.drill-context-label {
+  font-weight: 600;
+}
+
+.drill-context-arrow {
+  margin: 0 4px;
+}
+
+.drill-context-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.drill-back-btn {
+  padding: 0;
 }
 
 .sql-collapse {

@@ -2,12 +2,11 @@
   <el-dialog
     v-model="visible"
     title="表结构管理"
-    width="900px"
+    width="1200px"
     :close-on-click-modal="false"
     @close="handleClose"
   >
     <div class="schema-modal">
-      <!-- Toolbar -->
       <div class="schema-toolbar">
         <el-button type="primary" size="small" @click="detectSchema" :loading="detecting">
           <el-icon><RefreshRight /></el-icon>
@@ -17,145 +16,205 @@
           <el-icon><Plus /></el-icon>
           添加表
         </el-button>
-        <el-button size="small" @click="addRelationship">
-          <el-icon><Connection /></el-icon>
-          添加关联
-        </el-button>
       </div>
 
-      <!-- Tables Accordion -->
-      <el-collapse v-model="activeTableNames" class="tables-collapse">
-        <el-collapse-item
-          v-for="(table, tableIndex) in schema.tables"
-          :key="table.name"
-          :name="table.name"
-        >
-          <template #title>
-            <div class="table-header">
-              <el-icon><Grid /></el-icon>
-              <span class="table-name">{{ table.name }}</span>
-              <el-tag size="small" type="info">{{ table.columns.length }} 列</el-tag>
-              <span v-if="table.description" class="table-desc">{{ table.description }}</span>
+      <el-empty
+        v-if="schema.tables.length === 0"
+        description="暂无表结构，请点击「自动检测」或手动添加"
+      />
+
+      <div v-else class="schema-workspace">
+        <aside class="schema-sidebar">
+          <div class="sidebar-header">
+            <span class="sidebar-title">数据表</span>
+            <el-tag size="small" type="info">{{ schema.tables.length }}</el-tag>
+          </div>
+
+          <div class="table-nav">
+            <button
+              v-for="(table, tableIndex) in schema.tables"
+              :key="`${table.name}-${tableIndex}`"
+              type="button"
+              class="table-nav-item"
+              :class="{ 'is-active': tableIndex === selectedTableIndex }"
+              @click="selectTable(tableIndex)"
+            >
+              <span class="table-nav-main">
+                <el-icon><Grid /></el-icon>
+                <span class="table-nav-name">{{ table.name || `未命名表 ${tableIndex + 1}` }}</span>
+              </span>
+              <span class="table-nav-meta">{{ table.columns.length }} 列</span>
+            </button>
+          </div>
+        </aside>
+
+        <section class="schema-content">
+          <div v-if="selectedTable" class="editor-panel">
+            <div class="editor-header">
+              <div class="editor-heading">
+                <div class="editor-title-row">
+                  <span class="editor-title">{{ selectedTable.name || "未命名表" }}</span>
+                  <el-tag size="small" type="info">{{ selectedTable.columns.length }} 列</el-tag>
+                </div>
+                <span v-if="selectedTable.description" class="editor-desc">{{ selectedTable.description }}</span>
+              </div>
+              <el-button type="danger" size="small" text @click="removeTable(selectedTableIndex)">
+                删除表
+              </el-button>
             </div>
-          </template>
-          
-          <div class="table-content">
-            <!-- Table Info -->
+
             <el-form :inline="true" size="small" class="table-info-form">
               <el-form-item label="表名">
-                <el-input v-model="table.name" style="width: 150px" />
+                <el-input v-model="selectedTable.name" style="width: 180px" />
               </el-form-item>
               <el-form-item label="描述">
-                <el-input v-model="table.description" style="width: 200px" placeholder="表的中文描述" />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="danger" size="small" text @click="removeTable(tableIndex)">
-                  删除表
-                </el-button>
+                <el-input
+                  v-model="selectedTable.description"
+                  style="width: 260px"
+                  placeholder="表的中文描述"
+                />
               </el-form-item>
             </el-form>
 
-            <!-- Columns Table -->
-            <el-table :data="table.columns" size="small" border class="columns-table">
-              <el-table-column prop="name" label="列名" width="150">
-                <template #default="{ row }">
-                  <el-input v-model="row.name" size="small" />
-                </template>
-              </el-table-column>
-              <el-table-column prop="type" label="类型" width="120">
-                <template #default="{ row }">
-                  <el-select v-model="row.type" size="small" style="width: 100%">
-                    <el-option label="VARCHAR" value="VARCHAR" />
-                    <el-option label="INTEGER" value="INTEGER" />
-                    <el-option label="FLOAT" value="FLOAT" />
-                    <el-option label="BOOLEAN" value="BOOLEAN" />
-                    <el-option label="DATETIME" value="DATETIME" />
-                    <el-option label="TEXT" value="TEXT" />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column prop="description" label="说明" min-width="200">
-                <template #default="{ row }">
-                  <el-input v-model="row.description" size="small" placeholder="列的中文说明" />
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="80" align="center">
-                <template #default="{ $index }">
-                  <el-button type="danger" size="small" text @click="removeColumn(tableIndex, $index)">
-                    <el-icon><Delete /></el-icon>
+            <el-tabs v-model="activeEditorTab" class="editor-tabs">
+              <el-tab-pane label="字段管理" name="columns">
+                <div class="tab-panel">
+                  <el-table :data="selectedTable.columns" size="small" border class="columns-table">
+                    <el-table-column prop="name" label="列名" width="180">
+                      <template #default="{ row }">
+                        <el-input v-model="row.name" size="small" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="type" label="类型" width="140">
+                      <template #default="{ row }">
+                        <el-select v-model="row.type" size="small" style="width: 100%">
+                          <el-option label="VARCHAR" value="VARCHAR" />
+                          <el-option label="INTEGER" value="INTEGER" />
+                          <el-option label="FLOAT" value="FLOAT" />
+                          <el-option label="BOOLEAN" value="BOOLEAN" />
+                          <el-option label="DATETIME" value="DATETIME" />
+                          <el-option label="TEXT" value="TEXT" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="description" label="说明" min-width="240">
+                      <template #default="{ row }">
+                        <el-input v-model="row.description" size="small" placeholder="列的中文说明" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="80" align="center">
+                      <template #default="{ $index }">
+                        <el-button
+                          type="danger"
+                          size="small"
+                          text
+                          @click="removeColumn(selectedTableIndex, $index)"
+                        >
+                          <el-icon><Delete /></el-icon>
+                        </el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+
+                  <el-button
+                    size="small"
+                    text
+                    type="primary"
+                    @click="addColumn(selectedTableIndex)"
+                    class="add-column-btn"
+                  >
+                    <el-icon><Plus /></el-icon>
+                    添加列
                   </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-            
-            <el-button size="small" text type="primary" @click="addColumn(tableIndex)" class="add-column-btn">
-              <el-icon><Plus /></el-icon>
-              添加列
-            </el-button>
+                  <el-button
+                    size="small"
+                    text
+                    type="primary"
+                    :loading="generatingDescriptions"
+                    @click="fillColumnDescriptions"
+                    class="add-column-btn"
+                  >
+                    <el-icon><MagicStick /></el-icon>
+                    AI补全字段说明
+                  </el-button>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="关联关系" name="relationships">
+                <div class="tab-panel">
+                  <div class="relationships-toolbar">
+                    <div class="section-title">
+                      <el-icon><Connection /></el-icon>
+                      表关联关系
+                    </div>
+                    <el-button size="small" type="primary" plain @click="addRelationship">
+                      <el-icon><Plus /></el-icon>
+                      添加关联
+                    </el-button>
+                  </div>
+
+                  <el-table :data="schema.relationships" size="small" border>
+                    <el-table-column label="来源表" width="150">
+                      <template #default="{ row }">
+                        <el-select v-model="row.from_table" size="small" style="width: 100%">
+                          <el-option v-for="t in schema.tables" :key="t.name" :label="t.name" :value="t.name" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="来源列" width="150">
+                      <template #default="{ row }">
+                        <el-select v-model="row.from_column" size="small" style="width: 100%">
+                          <el-option
+                            v-for="c in getTableColumns(row.from_table)"
+                            :key="c.name"
+                            :label="c.name"
+                            :value="c.name"
+                          />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="" width="50" align="center">
+                      <template #default>→</template>
+                    </el-table-column>
+                    <el-table-column label="目标表" width="150">
+                      <template #default="{ row }">
+                        <el-select v-model="row.to_table" size="small" style="width: 100%">
+                          <el-option v-for="t in schema.tables" :key="t.name" :label="t.name" :value="t.name" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="目标列" width="150">
+                      <template #default="{ row }">
+                        <el-select v-model="row.to_column" size="small" style="width: 100%">
+                          <el-option
+                            v-for="c in getTableColumns(row.to_table)"
+                            :key="c.name"
+                            :label="c.name"
+                            :value="c.name"
+                          />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="80" align="center">
+                      <template #default="{ $index }">
+                        <el-button type="danger" size="small" text @click="removeRelationship($index)">
+                          <el-icon><Delete /></el-icon>
+                        </el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+
+                  <el-empty
+                    v-if="schema.relationships.length === 0"
+                    description="暂无关联关系，可在这里手动添加"
+                  />
+                </div>
+              </el-tab-pane>
+            </el-tabs>
           </div>
-        </el-collapse-item>
-      </el-collapse>
-
-      <!-- Relationships -->
-      <div class="relationships-section" v-if="schema.relationships.length > 0">
-        <div class="section-title">
-          <el-icon><Connection /></el-icon>
-          表关联关系
-        </div>
-        <el-table :data="schema.relationships" size="small" border>
-          <el-table-column label="来源表" width="150">
-            <template #default="{ row }">
-              <el-select v-model="row.from_table" size="small" style="width: 100%">
-                <el-option v-for="t in schema.tables" :key="t.name" :label="t.name" :value="t.name" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="来源列" width="150">
-            <template #default="{ row }">
-              <el-select v-model="row.from_column" size="small" style="width: 100%">
-                <el-option 
-                  v-for="c in getTableColumns(row.from_table)" 
-                  :key="c.name" 
-                  :label="c.name" 
-                  :value="c.name" 
-                />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="" width="50" align="center">
-            <template #default>→</template>
-          </el-table-column>
-          <el-table-column label="目标表" width="150">
-            <template #default="{ row }">
-              <el-select v-model="row.to_table" size="small" style="width: 100%">
-                <el-option v-for="t in schema.tables" :key="t.name" :label="t.name" :value="t.name" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="目标列" width="150">
-            <template #default="{ row }">
-              <el-select v-model="row.to_column" size="small" style="width: 100%">
-                <el-option 
-                  v-for="c in getTableColumns(row.to_table)" 
-                  :key="c.name" 
-                  :label="c.name" 
-                  :value="c.name" 
-                />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="80" align="center">
-            <template #default="{ $index }">
-              <el-button type="danger" size="small" text @click="removeRelationship($index)">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+          <el-empty v-else description="请选择左侧数据表开始编辑" />
+        </section>
       </div>
-
-      <!-- Empty State -->
-      <el-empty v-if="schema.tables.length === 0" description="暂无表结构，请点击「自动检测」或手动添加" />
     </div>
 
     <template #footer>
@@ -168,7 +227,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { RefreshRight, Plus, Delete, Grid, Connection } from '@element-plus/icons-vue'
+import { RefreshRight, Plus, Delete, Grid, Connection, MagicStick } from '@element-plus/icons-vue'
 import axios from 'axios'
 
 interface Column {
@@ -216,20 +275,24 @@ const schema = reactive<Schema>({
   relationships: []
 })
 
-const activeTableNames = ref<string[]>([])
+const selectedTableIndex = ref(0)
+const activeEditorTab = ref("columns")
 const detecting = ref(false)
 const saving = ref(false)
+const generatingDescriptions = ref(false)
+
+const selectedTable = computed<Table | null>(() => schema.tables[selectedTableIndex.value] || null)
 
 // Initialize schema from props
 watch(() => props.initialSchema, (newVal) => {
   if (newVal) {
     schema.tables = JSON.parse(JSON.stringify(newVal.tables || []))
     schema.relationships = JSON.parse(JSON.stringify(newVal.relationships || []))
-    activeTableNames.value = schema.tables.map(t => t.name)
+    selectedTableIndex.value = schema.tables.length > 0 ? 0 : -1
   } else {
     schema.tables = []
     schema.relationships = []
-    activeTableNames.value = []
+    selectedTableIndex.value = -1
   }
 }, { immediate: true })
 
@@ -244,7 +307,8 @@ const detectSchema = async () => {
     const response = await axios.post(`/api/datasources/${props.datasourceId}/detect-schema`)
     schema.tables = response.data.tables || []
     schema.relationships = response.data.relationships || []
-    activeTableNames.value = schema.tables.map(t => t.name)
+    selectedTableIndex.value = schema.tables.length > 0 ? 0 : -1
+    activeEditorTab.value = "columns"
     ElMessage.success(`检测到 ${schema.tables.length} 个表`)
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || '检测失败')
@@ -260,17 +324,31 @@ const addTable = () => {
     description: null,
     columns: []
   })
-  activeTableNames.value.push(newName)
+  selectedTableIndex.value = schema.tables.length - 1
+  activeEditorTab.value = "columns"
 }
 
 const removeTable = (index: number) => {
+  if (index < 0 || index >= schema.tables.length) {
+    return
+  }
   const tableName = schema.tables[index].name
   schema.tables.splice(index, 1)
-  activeTableNames.value = activeTableNames.value.filter(n => n !== tableName)
   // Remove related relationships
   schema.relationships = schema.relationships.filter(
     r => r.from_table !== tableName && r.to_table !== tableName
   )
+  if (schema.tables.length === 0) {
+    selectedTableIndex.value = -1
+    return
+  }
+  if (selectedTableIndex.value >= schema.tables.length) {
+    selectedTableIndex.value = schema.tables.length - 1
+    return
+  }
+  if (index <= selectedTableIndex.value && selectedTableIndex.value > 0) {
+    selectedTableIndex.value -= 1
+  }
 }
 
 const addColumn = (tableIndex: number) => {
@@ -302,9 +380,34 @@ const removeRelationship = (index: number) => {
   schema.relationships.splice(index, 1)
 }
 
+const selectTable = (index: number) => {
+  selectedTableIndex.value = index
+}
+
 const getTableColumns = (tableName: string): Column[] => {
   const table = schema.tables.find(t => t.name === tableName)
   return table?.columns || []
+}
+
+const fillColumnDescriptions = async () => {
+  if (!props.datasourceId || !selectedTable.value) {
+    ElMessage.warning('请先选择并保存数据源')
+    return
+  }
+
+  generatingDescriptions.value = true
+  try {
+    const response = await axios.post(
+      `/api/datasources/${props.datasourceId}/generate-column-descriptions`,
+      selectedTable.value
+    )
+    schema.tables[selectedTableIndex.value] = response.data.table
+    ElMessage.success(`已补全 ${response.data.filled_count || 0} 个字段说明`)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || '生成字段说明失败')
+  } finally {
+    generatingDescriptions.value = false
+  }
 }
 
 const handleSave = () => {
@@ -346,56 +449,140 @@ const handleClose = () => {
   border-bottom: 1px solid var(--app-border-light);
 }
 
-.tables-collapse {
-  border: none;
+.schema-workspace {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 480px;
 }
 
-.tables-collapse :deep(.el-collapse-item__header) {
-  background: var(--app-surface-muted);
-  padding: 0 16px;
-  border-radius: 8px;
-  margin-bottom: 8px;
-}
-
-.tables-collapse :deep(.el-collapse-item__wrap) {
-  border: none;
-}
-
-.tables-collapse :deep(.el-collapse-item__content) {
-  padding: 16px;
-  background: var(--app-surface);
+.schema-sidebar {
   border: 1px solid var(--app-border-light);
-  border-radius: 0 0 8px 8px;
-  margin-top: -8px;
-  margin-bottom: 12px;
-}
-
-.table-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.table-name {
-  font-weight: 600;
-  color: var(--app-primary);
-}
-
-.table-desc {
-  color: var(--app-text-muted);
-  font-size: 13px;
-  margin-left: auto;
-}
-
-.table-content {
+  border-radius: 12px;
+  background: var(--app-surface-muted);
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-title {
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.table-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-nav-item {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--app-surface);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.table-nav-item:hover,
+.table-nav-item.is-active {
+  border-color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 8%, white);
+}
+
+.table-nav-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.table-nav-name {
+  font-weight: 600;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-nav-meta {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.schema-content {
+  min-width: 0;
+}
+
+.editor-panel {
+  border: 1px solid var(--app-border-light);
+  border-radius: 12px;
+  background: var(--app-surface);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+}
+
+.editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.editor-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.editor-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--app-primary);
+}
+
+.editor-desc {
+  color: var(--app-text-muted);
+  font-size: 13px;
+}
+
 .table-info-form {
-  margin-bottom: 8px;
+  margin-bottom: 0;
+}
+
+.editor-tabs {
+  min-width: 0;
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .columns-table {
@@ -407,10 +594,11 @@ const handleClose = () => {
   margin-top: 8px;
 }
 
-.relationships-section {
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid var(--app-border-light);
+.relationships-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .section-title {
@@ -424,5 +612,11 @@ const handleClose = () => {
 
 :deep(.el-empty) {
   padding: 40px 0;
+}
+
+@media (max-width: 960px) {
+  .schema-workspace {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

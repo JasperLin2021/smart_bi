@@ -1,5 +1,6 @@
 """Excel query executor using DuckDB."""
 import os
+import re
 import duckdb
 import pandas as pd
 from typing import Dict, Any, List
@@ -21,6 +22,53 @@ def _normalize_table_name(sheet_name: str) -> str:
     # Fallback: lowercase, replace special chars
     name = sheet_name.split("-")[0].lower()
     return "".join(c if c.isalnum() or c == "_" else "_" for c in name)
+
+
+def _sqlite_modifier_to_interval(modifier: str) -> str | None:
+    match = re.fullmatch(r"([+-])\s*(\d+)\s+(day|days|month|months|year|years)", modifier.strip(), re.I)
+    if not match:
+        return None
+    sign, amount, unit = match.groups()
+    normalized_unit = unit.lower()
+    if normalized_unit.endswith("s"):
+        normalized_unit = normalized_unit[:-1]
+    operator = "+" if sign == "+" else "-"
+    return f"{operator} INTERVAL '{amount} {normalized_unit}'"
+
+
+def rewrite_excel_sql_for_duckdb(sql: str) -> str:
+    def replace_now(match: re.Match[str]) -> str:
+        modifier = match.group("modifier")
+        if not modifier:
+            return "CURRENT_DATE"
+        interval = _sqlite_modifier_to_interval(modifier)
+        if not interval:
+            return match.group(0)
+        return f"CURRENT_DATE {interval}"
+
+    def replace_expr(match: re.Match[str]) -> str:
+        expr = match.group("expr").strip()
+        modifier = match.group("modifier")
+        if not modifier:
+            return f"DATE({expr})"
+        interval = _sqlite_modifier_to_interval(modifier)
+        if not interval:
+            return match.group(0)
+        return f"CAST({expr} AS DATE) {interval}"
+
+    sql = re.sub(
+        r"DATE\s*\(\s*'now'\s*(?:,\s*'(?P<modifier>[^']+)')?\s*\)",
+        replace_now,
+        sql,
+        flags=re.I,
+    )
+    sql = re.sub(
+        r"DATE\s*\(\s*(?P<expr>(?!'now')[^,\)]+?)\s*(?:,\s*'(?P<modifier>[^']+)')?\s*\)",
+        replace_expr,
+        sql,
+        flags=re.I,
+    )
+    return sql
 
 
 def execute_excel_query(file_path: str, sql: str) -> Dict[str, Any]:
@@ -46,6 +94,7 @@ def execute_excel_query(file_path: str, sql: str) -> Dict[str, Any]:
         conn.register(table_name, df)
     
     # Execute SQL
+    sql = rewrite_excel_sql_for_duckdb(sql)
     result = conn.execute(sql)
     columns = [desc[0] for desc in result.description]
     rows = [dict(zip(columns, row)) for row in result.fetchall()]

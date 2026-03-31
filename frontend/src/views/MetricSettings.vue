@@ -4,10 +4,31 @@
       <template #header>
         <div class="card-header">
           <span class="card-header-title">指标配置</span>
-          <el-button type="primary" size="small" @click="openDialog()">新增指标</el-button>
+          <div class="card-actions">
+            <el-select
+              v-model="selectedDatasourceFilter"
+              size="small"
+              clearable
+              placeholder="按数据源筛选"
+              style="width: 180px"
+            >
+              <el-option
+                v-for="ds in datasourceStore.datasources"
+                :key="ds.id"
+                :label="ds.name"
+                :value="ds.id"
+              />
+            </el-select>
+            <el-button type="primary" size="small" @click="openDialog()">新增指标</el-button>
+          </div>
         </div>
       </template>
-      <el-table :data="metrics" v-loading="loading">
+      <el-table :data="filteredMetrics" v-loading="loading">
+        <el-table-column label="数据源" width="160">
+          <template #default="{ row }">
+            {{ getDatasourceName(row.datasource_id) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="name" label="指标名称" width="150" />
         <el-table-column prop="description" label="描述" />
         <el-table-column prop="table_name" label="表名" width="120" />
@@ -31,6 +52,16 @@
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑指标' : '新增指标'" width="600px">
       <el-form :model="form" label-width="100px">
+        <el-form-item label="数据源" required>
+          <el-select v-model="form.datasource_id" placeholder="请选择数据源" style="width: 100%">
+            <el-option
+              v-for="ds in datasourceStore.datasources"
+              :key="ds.id"
+              :label="ds.name"
+              :value="ds.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="指标名称" required>
           <el-input v-model="form.name" placeholder="如：异常数量" />
         </el-form-item>
@@ -48,6 +79,9 @@
         </el-form-item>
         <el-form-item label="计算公式">
           <el-input v-model="form.formula" type="textarea" :rows="2" placeholder="如：SUM(count)" />
+          <el-button class="inline-button" :loading="generatingFormula" @click="generateFormula">
+            AI生成公式
+          </el-button>
         </el-form-item>
         <el-form-item label="状态">
           <el-switch v-model="form.is_active" :active-value="1" :inactive-value="0" />
@@ -62,12 +96,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
+import { useDatasourceStore } from "@/store/datasource"
 
 interface Metric {
   id: number
+  datasource_id: number
   name: string
   description: string
   definition: string
@@ -82,8 +118,12 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
+const generatingFormula = ref(false)
+const datasourceStore = useDatasourceStore()
+const selectedDatasourceFilter = ref<number | null>(null)
 
 const form = ref({
+  datasource_id: null as number | null,
   name: "",
   description: "",
   definition: "",
@@ -105,6 +145,17 @@ const fetchMetrics = async () => {
   }
 }
 
+const filteredMetrics = computed(() => {
+  if (!selectedDatasourceFilter.value) {
+    return metrics.value
+  }
+  return metrics.value.filter(item => item.datasource_id === selectedDatasourceFilter.value)
+})
+
+const getDatasourceName = (datasourceId: number) => {
+  return datasourceStore.datasources.find(ds => ds.id === datasourceId)?.name || `数据源 #${datasourceId}`
+}
+
 const openDialog = (metric?: Metric) => {
   if (metric) {
     editingId.value = metric.id
@@ -112,6 +163,7 @@ const openDialog = (metric?: Metric) => {
   } else {
     editingId.value = null
     form.value = {
+      datasource_id: null,
       name: "",
       description: "",
       definition: "",
@@ -125,7 +177,7 @@ const openDialog = (metric?: Metric) => {
 }
 
 const saveMetric = async () => {
-  if (!form.value.name || !form.value.definition) {
+  if (!form.value.datasource_id || !form.value.name || !form.value.definition) {
     ElMessage.warning("请填写必填项")
     return
   }
@@ -146,6 +198,23 @@ const saveMetric = async () => {
   }
 }
 
+const generateFormula = async () => {
+  if (!form.value.datasource_id || !form.value.name || !form.value.definition) {
+    ElMessage.warning("请先选择数据源并填写指标名称、定义")
+    return
+  }
+  generatingFormula.value = true
+  try {
+    const response = await axios.post("/api/metrics/generate-formula", form.value)
+    form.value.formula = response.data.formula || ""
+    ElMessage.success("已生成计算公式")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "生成公式失败")
+  } finally {
+    generatingFormula.value = false
+  }
+}
+
 const deleteMetric = async (id: number) => {
   try {
     await ElMessageBox.confirm("确定删除该指标？", "提示", { type: "warning" })
@@ -160,6 +229,7 @@ const deleteMetric = async (id: number) => {
 }
 
 onMounted(() => {
+  datasourceStore.fetchDatasources()
   fetchMetrics()
 })
 </script>

@@ -1,5 +1,6 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException
+import shutil
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import text, create_engine
 from typing import List
@@ -14,9 +15,13 @@ from app.schemas.datasource import (
     DataSourceOut,
     DataSourceListItem,
     SchemaMetadata,
+    TableSchema,
 )
 from app.core.excel_executor import test_excel_connection, generate_excel_metadata
+from app.core.excel_uploads import build_excel_storage_path, is_allowed_excel_filename
 from app.core.schema_detector import detect_schema, schema_to_prompt
+from app.core.drill_config import generate_drill_config
+from app.core.schema_enrichment import generate_column_descriptions
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
@@ -75,6 +80,9 @@ def create_datasource(
         schema_metadata=json.dumps(payload.schema_metadata.model_dump(), ensure_ascii=False)
         if payload.schema_metadata
         else None,
+        drill_config=json.dumps(payload.drill_config.model_dump(), ensure_ascii=False)
+        if payload.drill_config
+        else None,
         metrics_prompt=payload.metrics_prompt,
         text2sql_prompt=payload.text2sql_prompt,
         recommend_questions=json.dumps(payload.recommend_questions, ensure_ascii=False)
@@ -86,6 +94,31 @@ def create_datasource(
     db.commit()
     db.refresh(ds)
     return _to_out(ds)
+
+
+@router.post("/upload-excel")
+def upload_excel_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    del current_user
+
+    filename = file.filename or ""
+    if not is_allowed_excel_filename(filename):
+        raise HTTPException(status_code=400, detail="仅支持上传 .xlsx 或 .xls 文件")
+
+    storage_path = build_excel_storage_path(filename)
+    try:
+        with storage_path.open("wb") as output:
+            shutil.copyfileobj(file.file, output)
+    finally:
+        file.file.close()
+
+    return {
+        "status": "ok",
+        "filename": filename,
+        "database_url": str(storage_path),
+    }
 
 
 @router.get("/{datasource_id}", response_model=DataSourceOut)
@@ -123,6 +156,8 @@ def update_datasource(
         ds.recommend_questions = json.dumps(payload.recommend_questions, ensure_ascii=False)
     if payload.schema_metadata is not None:
         ds.schema_metadata = json.dumps(payload.schema_metadata.model_dump(), ensure_ascii=False)
+    if payload.drill_config is not None:
+        ds.drill_config = json.dumps(payload.drill_config.model_dump(), ensure_ascii=False)
 
     db.commit()
     db.refresh(ds)
@@ -185,6 +220,12 @@ def _to_out(ds: DataSource) -> dict:
             schema_meta = json.loads(ds.schema_metadata)
         except (json.JSONDecodeError, TypeError):
             schema_meta = None
+    drill_config = None
+    if ds.drill_config:
+        try:
+            drill_config = json.loads(ds.drill_config)
+        except (json.JSONDecodeError, TypeError):
+            drill_config = None
     return {
         "id": ds.id,
         "name": ds.name,
@@ -192,6 +233,7 @@ def _to_out(ds: DataSource) -> dict:
         "source_type": ds.source_type or "database",
         "metadata_prompt": ds.metadata_prompt,
         "schema_metadata": schema_meta,
+        "drill_config": drill_config,
         "metrics_prompt": ds.metrics_prompt,
         "text2sql_prompt": ds.text2sql_prompt,
         "recommend_questions": recommend,
@@ -236,3 +278,51 @@ def generate_prompt_from_schema(
     
     prompt = schema_to_prompt(schema)
     return {"metadata_prompt": prompt}
+
+
+@router.post("/{datasource_id}/generate-column-descriptions")
+async def generate_column_descriptions_for_table(
+    datasource_id: int,
+    table: TableSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+
+    try:
+        enriched_table, filled_count = await generate_column_descriptions(ds.name, table)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"生成字段说明失败: {exc}")
+
+    return {"table": enriched_table.model_dump(), "filled_count": filled_count}
+
+
+@router.post("/{datasource_id}/generate-drill-config")
+def generate_drill_config_from_schema(
+    datasource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+
+    if ds.schema_metadata:
+        try:
+            schema = SchemaMetadata.model_validate(json.loads(ds.schema_metadata))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"现有表结构无效: {exc}")
+    else:
+        try:
+            schema = detect_schema(ds.database_url, ds.source_type)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"自动生成钻取规则失败: {exc}")
+
+    config = generate_drill_config(schema)
+    return config

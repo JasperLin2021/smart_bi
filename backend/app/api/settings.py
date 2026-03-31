@@ -4,8 +4,8 @@ from app.api.auth import get_current_user
 from app.db.session import get_db
 from app.models.llm_setting import LlmSetting
 from app.models.user import User
-from app.schemas.settings import LlmConfigOut, LlmConfigUpdate
-from app.core.llm import get_default_llm_config, set_llm_config_cache
+from app.schemas.settings import LlmConfigOut, LlmConfigUpdate, LlmConfigTestRequest
+from app.core.llm import get_default_llm_config, set_llm_config_cache, test_llm_connection
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -29,6 +29,7 @@ def get_llm_setting(
             api_key=default_config["api_key"],
             model=default_config["model"],
             temperature=default_config["temperature"],
+            agent_planner_mode="llm_only",
         )
         db.add(record)
         db.commit()
@@ -38,6 +39,7 @@ def get_llm_setting(
         "base_url": record.base_url,
         "model": record.model,
         "temperature": record.temperature,
+        "agent_planner_mode": record.agent_planner_mode or "llm_only",
         "api_key_set": bool(record.api_key),
     }
 
@@ -56,6 +58,7 @@ def refresh_llm_cache(
                 "api_key": record.api_key,
                 "model": record.model,
                 "temperature": record.temperature,
+                "agent_planner_mode": record.agent_planner_mode or "llm_only",
             }
         )
     return {"status": "ok"}
@@ -76,6 +79,7 @@ def update_llm_setting(
             api_key=payload.api_key or "",
             model=payload.model,
             temperature=payload.temperature,
+            agent_planner_mode=payload.agent_planner_mode,
         )
         db.add(record)
     else:
@@ -83,6 +87,7 @@ def update_llm_setting(
         record.base_url = payload.base_url
         record.model = payload.model
         record.temperature = payload.temperature
+        record.agent_planner_mode = payload.agent_planner_mode
         if payload.api_key is not None and payload.api_key.strip():
             record.api_key = payload.api_key.strip()
     db.commit()
@@ -94,6 +99,7 @@ def update_llm_setting(
             "api_key": record.api_key,
             "model": record.model,
             "temperature": record.temperature,
+            "agent_planner_mode": record.agent_planner_mode or "llm_only",
         }
     )
     return {
@@ -101,5 +107,33 @@ def update_llm_setting(
         "base_url": record.base_url,
         "model": record.model,
         "temperature": record.temperature,
+        "agent_planner_mode": record.agent_planner_mode or "llm_only",
         "api_key_set": bool(record.api_key),
     }
+
+
+@router.post("/llm/test")
+async def test_llm_setting(
+    payload: LlmConfigTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_admin(current_user)
+
+    record = db.query(LlmSetting).first()
+    api_key = payload.api_key.strip() if payload.api_key and payload.api_key.strip() else ""
+    if not api_key and record:
+        api_key = record.api_key
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="请先填写 API Key")
+
+    config = {
+        "provider": payload.provider,
+        "base_url": payload.base_url.rstrip("/"),
+        "api_key": api_key,
+        "model": payload.model,
+        "temperature": payload.temperature,
+        "agent_planner_mode": "llm_only",
+    }
+    return await test_llm_connection(config)

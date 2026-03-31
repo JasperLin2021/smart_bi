@@ -14,6 +14,7 @@ from app.models.llm_setting import LlmSetting
 from app.models.datasource import DataSource
 from app.models.organization import Organization
 from app.models.pinned_chart import PinnedChart  # noqa: F401
+from app.models.agent_run import AgentRun  # noqa: F401
 
 app = FastAPI(title=settings.app_name)
 
@@ -55,6 +56,19 @@ _CARSEM_METRICS_PROMPT = """可用指标：
 _CARSEM_RECOMMEND_QUESTIONS = '["最近一周各产线的异常趋势", "Top 10 告警代码", "各设备异常数量排名"]'
 
 
+def _has_column(conn, table_name: str, column_name: str) -> bool:
+    rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    return any(row[1] == column_name for row in rows)
+
+
+def _ensure_column(engine, table_name: str, column_definition: str) -> None:
+    column_name = column_definition.strip().split()[0]
+    with engine.begin() as conn:
+        if _has_column(conn, table_name, column_name):
+            return
+        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_definition}"))
+
+
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
@@ -62,37 +76,75 @@ def startup():
     # Add datasource_id columns to existing tables if missing
     for table in ["query_history", "pinned_charts", "metrics"]:
         try:
-            with engine.begin() as conn:
-                conn.execute(
-                    text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS datasource_id INTEGER")
-                )
+            _ensure_column(engine, table, "datasource_id INTEGER")
         except Exception:
             pass
 
-    # Add source_type column to datasources table if missing
+    try:
+        _ensure_column(engine, "query_history", "drill_context TEXT")
+    except Exception:
+        pass
+
+    try:
+        _ensure_column(engine, "query_history", "parent_history_id INTEGER")
+    except Exception:
+        pass
+
     try:
         with engine.begin() as conn:
             conn.execute(
-                text("ALTER TABLE datasources ADD COLUMN IF NOT EXISTS source_type VARCHAR(32) DEFAULT 'database'")
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_runs (
+                      id SERIAL PRIMARY KEY,
+                      user_id INTEGER NOT NULL,
+                      route VARCHAR(128) NOT NULL,
+                      prompt TEXT NOT NULL,
+                      plan_json TEXT NULL,
+                      execution_json TEXT NULL,
+                      status VARCHAR(32) NOT NULL DEFAULT 'planned',
+                      created_at TIMESTAMP DEFAULT NOW(),
+                      updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                    """
+                )
             )
+        with engine.begin() as conn:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_runs_id ON agent_runs (id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_runs_user_id ON agent_runs (user_id)"))
+    except Exception:
+        pass
+
+    # Add source_type column to datasources table if missing
+    try:
+        _ensure_column(engine, "datasources", "source_type VARCHAR(32) DEFAULT 'database'")
     except Exception:
         pass
 
     # Add org_id column to users table if missing
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id INTEGER")
-            )
+        _ensure_column(engine, "users", "org_id INTEGER")
     except Exception:
         pass
 
     # Add org_id column to datasources table if missing
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text("ALTER TABLE datasources ADD COLUMN IF NOT EXISTS org_id INTEGER")
-            )
+        _ensure_column(engine, "datasources", "org_id INTEGER")
+    except Exception:
+        pass
+
+    # Add drill_config column to datasources table if missing
+    try:
+        _ensure_column(engine, "datasources", "drill_config TEXT")
+    except Exception:
+        pass
+
+    try:
+        _ensure_column(
+            engine,
+            "llm_settings",
+            "agent_planner_mode VARCHAR(32) DEFAULT 'llm_only'",
+        )
     except Exception:
         pass
 
@@ -160,10 +212,14 @@ def startup():
             api_key=default_config["api_key"],
             model=default_config["model"],
             temperature=default_config["temperature"],
+            agent_planner_mode=default_config.get("agent_planner_mode", "llm_only"),
         )
         db.add(llm_record)
         db.commit()
         db.refresh(llm_record)
+    elif not getattr(llm_record, "agent_planner_mode", None):
+        llm_record.agent_planner_mode = "llm_only"
+        db.commit()
 
     set_llm_config_cache(
         {
@@ -172,6 +228,7 @@ def startup():
             "api_key": llm_record.api_key,
             "model": llm_record.model,
             "temperature": llm_record.temperature,
+            "agent_planner_mode": llm_record.agent_planner_mode or "llm_only",
         }
     )
 

@@ -35,6 +35,7 @@
             <el-table-column label="操作" width="280" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" @click="openSchemaModal(row)">表结构</el-button>
+                <el-button size="small" @click="openDrillConfigModal(row)">钻取</el-button>
                 <el-button size="small" @click="testConnection(row.id)">测试连接</el-button>
                 <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
@@ -60,13 +61,33 @@
             <el-option label="Excel 文件" value="excel" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="form.source_type === 'excel' ? '文件路径' : '数据库连接'" required>
+        <el-form-item v-if="form.source_type === 'database'" label="数据库连接" required>
           <el-input
             v-model="form.database_url"
-            :placeholder="form.source_type === 'excel' ? '/path/to/file.xlsx' : 'postgresql+psycopg2://user:pass@host:port/dbname'"
+            placeholder="postgresql+psycopg2://user:pass@host:port/dbname"
             type="textarea"
             :rows="2"
           />
+        </el-form-item>
+        <el-form-item v-else label="Excel 文件" required>
+          <el-upload
+            drag
+            action="#"
+            :auto-upload="false"
+            :show-file-list="false"
+            :limit="1"
+            accept=".xlsx,.xls"
+            :before-upload="preventAutoUpload"
+            :on-change="handleExcelFileChange"
+          >
+            <div class="upload-content">
+              <div class="upload-title">拖拽 Excel 文件到这里，或点击选择</div>
+              <div class="upload-hint">仅支持 .xlsx / .xls，保存数据源时自动上传到服务器</div>
+              <div v-if="selectedExcelName" class="upload-selected">
+                已选择：{{ selectedExcelName }}
+              </div>
+            </div>
+          </el-upload>
         </el-form-item>
         <el-form-item label="指标描述">
           <el-input
@@ -98,6 +119,16 @@
       :initial-schema="currentSchema"
       @save="handleSaveSchema"
     />
+
+    <DrillConfigModal
+      v-model="drillConfigModalVisible"
+      :datasource-name="currentDatasourceName"
+      :config="currentDrillConfig"
+      :generating="generatingDrillConfig"
+      :saving="savingDrillConfig"
+      @generate="handleGenerateDrillConfig"
+      @save="handleSaveDrillConfig"
+    />
   </div>
 </template>
 
@@ -105,10 +136,12 @@
 import { computed, onMounted, reactive, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
+import type { UploadFile } from "element-plus"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import { useRouter } from "vue-router"
 import SchemaMetadataModal from "@/components/SchemaMetadataModal.vue"
+import DrillConfigModal from "@/components/DrillConfigModal.vue"
 
 interface SchemaColumn {
   name: string
@@ -134,6 +167,39 @@ interface SchemaMetadata {
   relationships: SchemaRelationship[]
 }
 
+interface DrillDimension {
+  id: string
+  table: string
+  column: string
+  label: string
+  kind: string
+  enabled: boolean
+}
+
+interface DrillMetric {
+  id: string
+  table: string
+  column: string
+  label: string
+  aggregation: string
+  enabled: boolean
+}
+
+interface DrillPath {
+  id: string
+  source_dimension_id: string
+  target_dimension_id: string
+  label: string
+  action: string
+  enabled: boolean
+}
+
+interface DrillConfig {
+  dimensions: DrillDimension[]
+  metrics: DrillMetric[]
+  paths: DrillPath[]
+}
+
 interface DataSourceDetail {
   id: number
   name: string
@@ -142,6 +208,7 @@ interface DataSourceDetail {
   database_url?: string
   metadata_prompt: string
   schema_metadata: SchemaMetadata | null
+  drill_config: DrillConfig | null
   metrics_prompt: string | null
   text2sql_prompt: string | null
   recommend_questions: string[] | null
@@ -157,11 +224,18 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editId = ref<number | null>(null)
 const saving = ref(false)
+const selectedExcelFile = ref<File | null>(null)
+const selectedExcelName = ref("")
 
 // Schema modal state
 const schemaModalVisible = ref(false)
 const currentDatasourceId = ref<number | null>(null)
 const currentSchema = ref<SchemaMetadata | null>(null)
+const drillConfigModalVisible = ref(false)
+const currentDatasourceName = ref("")
+const currentDrillConfig = ref<DrillConfig | null>(null)
+const generatingDrillConfig = ref(false)
+const savingDrillConfig = ref(false)
 
 const form = reactive({
   name: "",
@@ -190,6 +264,8 @@ const openCreate = () => {
   form.source_type = "database"
   form.database_url = ""
   form.metrics_prompt = ""
+  selectedExcelFile.value = null
+  selectedExcelName.value = ""
   recommendQuestionsText.value = ""
   dialogVisible.value = true
 }
@@ -202,13 +278,35 @@ const openEdit = (row: DataSourceDetail) => {
   form.source_type = row.source_type || "database"
   form.database_url = ""  // Don't show existing URL for security
   form.metrics_prompt = row.metrics_prompt || ""
+  selectedExcelFile.value = null
+  selectedExcelName.value = ""
   recommendQuestionsText.value = (row.recommend_questions || []).join("\n")
   dialogVisible.value = true
 }
 
+const preventAutoUpload = () => false
+
+const handleExcelFileChange = (uploadFile: UploadFile) => {
+  const rawFile = uploadFile.raw
+  if (!rawFile) {
+    return
+  }
+  const lowerName = rawFile.name.toLowerCase()
+  if (!lowerName.endsWith(".xlsx") && !lowerName.endsWith(".xls")) {
+    ElMessage.warning("仅支持上传 .xlsx 或 .xls 文件")
+    selectedExcelFile.value = null
+    selectedExcelName.value = ""
+    return
+  }
+  selectedExcelFile.value = rawFile
+  selectedExcelName.value = rawFile.name
+}
+
 const handleSave = async () => {
   // Validate required fields
-  if (!form.name || !form.slug || (!isEdit.value && !form.database_url)) {
+  const requiresDatabaseUrl = form.source_type === "database"
+  const requiresExcelFile = form.source_type === "excel" && (!isEdit.value || !!selectedExcelFile.value)
+  if (!form.name || !form.slug || (requiresDatabaseUrl && !form.database_url) || (form.source_type === "excel" && !isEdit.value && !selectedExcelFile.value)) {
     ElMessage.warning("请填写必填字段")
     return
   }
@@ -228,7 +326,14 @@ const handleSave = async () => {
       recommend_questions: questions.length > 0 ? questions : null,
     }
 
-    if (form.database_url) {
+    if (form.source_type === "excel" && selectedExcelFile.value && requiresExcelFile) {
+      const uploadPayload = new FormData()
+      uploadPayload.append("file", selectedExcelFile.value)
+      const uploadResponse = await axios.post("/api/datasources/upload-excel", uploadPayload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      payload.database_url = uploadResponse.data.database_url
+    } else if (form.database_url) {
       payload.database_url = form.database_url
     }
 
@@ -243,6 +348,8 @@ const handleSave = async () => {
     }
 
     dialogVisible.value = false
+    selectedExcelFile.value = null
+    selectedExcelName.value = ""
     await fetchAll()
     await datasourceStore.fetchDatasources()
   } catch (error: any) {
@@ -283,6 +390,13 @@ const openSchemaModal = (row: DataSourceDetail) => {
   schemaModalVisible.value = true
 }
 
+const openDrillConfigModal = (row: DataSourceDetail) => {
+  currentDatasourceId.value = row.id
+  currentDatasourceName.value = row.name
+  currentDrillConfig.value = row.drill_config
+  drillConfigModalVisible.value = true
+}
+
 const handleSaveSchema = async (schema: SchemaMetadata) => {
   if (!currentDatasourceId.value) return
   
@@ -308,6 +422,40 @@ const handleSaveSchema = async (schema: SchemaMetadata) => {
   }
 }
 
+const handleGenerateDrillConfig = async () => {
+  if (!currentDatasourceId.value) return
+
+  generatingDrillConfig.value = true
+  try {
+    const response = await axios.post(`/api/datasources/${currentDatasourceId.value}/generate-drill-config`)
+    currentDrillConfig.value = response.data
+    ElMessage.success("已生成候选钻取规则")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "生成失败")
+  } finally {
+    generatingDrillConfig.value = false
+  }
+}
+
+const handleSaveDrillConfig = async (config: DrillConfig) => {
+  if (!currentDatasourceId.value) return
+
+  savingDrillConfig.value = true
+  try {
+    await axios.put(`/api/datasources/${currentDatasourceId.value}`, {
+      drill_config: config,
+    })
+    currentDrillConfig.value = config
+    ElMessage.success("钻取规则已保存")
+    drillConfigModalVisible.value = false
+    await fetchAll()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "保存失败")
+  } finally {
+    savingDrillConfig.value = false
+  }
+}
+
 onMounted(async () => {
   if (!authStore.profile && authStore.token) {
     await authStore.fetchProfile()
@@ -315,6 +463,31 @@ onMounted(async () => {
   await fetchAll()
 })
 </script>
+
+<style scoped>
+.upload-content {
+  padding: 8px 0;
+  text-align: center;
+}
+
+.upload-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.upload-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.upload-selected {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #409eff;
+}
+</style>
 
 <style scoped>
 .page :deep(.el-card) {

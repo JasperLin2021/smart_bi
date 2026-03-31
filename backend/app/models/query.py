@@ -8,6 +8,7 @@ class QueryHistory(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, index=True, nullable=False)
     datasource_id = Column(Integer, index=True, nullable=True)
+    parent_history_id = Column(Integer, index=True, nullable=True)
     question = Column(String(512), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     favorite = Column(Boolean, default=False)
@@ -16,3 +17,4 @@ class QueryHistory(Base):
     result_json = Column(Text, nullable=True)  # JSON 字符串
     summary = Column(Text, nullable=True)
     mode = Column(String(32), nullable=True)
+    drill_context = Column(Text, nullable=True)  # JSON 字符串

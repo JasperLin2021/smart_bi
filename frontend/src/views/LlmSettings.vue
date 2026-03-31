@@ -31,6 +31,12 @@
           <el-form-item label="温度">
             <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" />
           </el-form-item>
+          <el-form-item label="Agent 规划">
+            <el-radio-group v-model="form.agent_planner_mode">
+              <el-radio value="llm_only">全部走 LLM</el-radio>
+              <el-radio value="heuristic_then_llm">启发式优先，LLM 兜底</el-radio>
+            </el-radio-group>
+          </el-form-item>
           <el-form-item label="API Key">
             <el-input
               v-model="form.api_key"
@@ -42,6 +48,9 @@
           <el-form-item>
             <el-button type="primary" :loading="saving" @click="saveConfig">
               保存配置
+            </el-button>
+            <el-button :loading="testing" @click="testConfig">
+              测试连接
             </el-button>
           </el-form-item>
         </el-form>
@@ -55,6 +64,7 @@
         <el-space direction="vertical" alignment="start" class="info-card">
           <div>仅管理员可修改配置</div>
           <div>API Key 留空表示保持原值</div>
+          <div>Agent 默认建议使用“全部走 LLM”</div>
         </el-space>
         </el-card>
       </el-col>
@@ -70,6 +80,7 @@ import { useAuthStore } from "@/store/auth"
 import { useRouter } from "vue-router"
 
 const saving = ref(false)
+const testing = ref(false)
 const apiKeySet = ref(false)
 const authStore = useAuthStore()
 const router = useRouter()
@@ -79,6 +90,7 @@ const form = reactive({
   base_url: "",
   model: "",
   temperature: 0.3,
+  agent_planner_mode: "llm_only",
   api_key: ""
 })
 
@@ -111,6 +123,7 @@ const loadConfig = async () => {
   form.base_url = response.data.base_url
   form.model = response.data.model
   form.temperature = response.data.temperature
+  form.agent_planner_mode = response.data.agent_planner_mode || "llm_only"
   form.api_key = ""
   apiKeySet.value = response.data.api_key_set
 }
@@ -125,6 +138,24 @@ const saveConfig = async () => {
     ElMessage.error("保存失败")
   } finally {
     saving.value = false
+  }
+}
+
+const testConfig = async () => {
+  testing.value = true
+  try {
+    const response = await axios.post("/api/settings/llm/test", {
+      provider: form.provider,
+      base_url: form.base_url,
+      model: form.model,
+      temperature: form.temperature,
+      api_key: form.api_key,
+    })
+    ElMessage.success(response.data.message || "连接成功")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "连接测试失败")
+  } finally {
+    testing.value = false
   }
 }
 

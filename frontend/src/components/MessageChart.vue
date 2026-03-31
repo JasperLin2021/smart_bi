@@ -45,7 +45,30 @@
         </el-select>
       </div>
     </div>
-    
+
+    <div v-if="selectedRow && (drillLoading || drillActions.length || detailAction || drillAttempted)" class="drill-bar">
+      <div class="drill-bar-title">已选中图表项：{{ selectedSummary }}</div>
+      <div v-if="drillLoading" class="drill-loading">正在生成下钻建议...</div>
+      <div v-else-if="!drillActions.length && !detailAction" class="drill-empty">当前图表项没有可用的下钻建议</div>
+      <div v-if="detailAction && !drillLoading" class="detail-action-bar">
+        <el-button size="small" type="success" plain @click="runDetail(detailAction)">
+          {{ detailAction.label }}
+        </el-button>
+      </div>
+      <div class="drill-actions-bar">
+        <el-button
+          v-for="action in drillActions"
+          :key="action.id"
+          size="small"
+          type="primary"
+          plain
+          @click="runDrill(action)"
+        >
+          {{ action.label }}
+        </el-button>
+      </div>
+    </div>
+
     <div ref="chartRef" class="chart-body"></div>
     
     <!-- 固定到Dashboard弹窗 -->
@@ -72,18 +95,26 @@ import { Star, Setting } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import * as echarts from "echarts"
+import { useQueryStore, type ChatMessage, type DrillAction } from "@/store/query"
 
 const props = defineProps<{
+  message: ChatMessage
   columns: string[]
   rows: Array<Record<string, any>>
   sqlQuery?: string
 }>()
 
 const chartRef = ref<HTMLDivElement | null>(null)
+const queryStore = useQueryStore()
 const chartType = ref<"line" | "bar" | "pie">("line")
 const sortOrder = ref<"none" | "desc" | "asc">("none")
 const showDimensionConfig = ref(false)
 let chartInstance: echarts.ECharts | null = null
+const selectedRow = ref<Record<string, any> | null>(null)
+const drillActions = ref<DrillAction[]>([])
+const detailAction = ref<DrillAction | null>(null)
+const drillLoading = ref(false)
+const drillAttempted = ref(false)
 
 // 用户选择的维度
 const selectedXField = ref("")
@@ -191,6 +222,11 @@ const autoDetectFields = () => {
 // 判断是否为多系列数据
 const isMultiSeries = computed(() => {
   return selectedGroupFields.value.length > 0 && selectedXField.value && props.rows.length > 0
+})
+
+const selectedSummary = computed(() => {
+  if (!selectedRow.value || !selectedXField.value) return ""
+  return `${selectedXField.value}: ${selectedRow.value[selectedXField.value]}`
 })
 
 // 构建多系列图表配置
@@ -316,6 +352,58 @@ const buildOption = () => {
   return buildSingleSeriesOption()
 }
 
+const getGroupKey = (row: Record<string, any>) => {
+  return selectedGroupFields.value.map(field => String(row[field])).join(" | ")
+}
+
+const findRowFromChartSelection = (params: any) => {
+  if (!selectedXField.value) return null
+
+  if (chartType.value === "pie") {
+    return props.rows.find(row => String(row[selectedXField.value]) === String(params.name)) || null
+  }
+
+  const selectedName = String(params.name)
+  if (isMultiSeries.value && selectedGroupFields.value.length > 0) {
+    const selectedSeries = String(params.seriesName || "")
+    return props.rows.find((row) => {
+      return String(row[selectedXField.value]) === selectedName && getGroupKey(row) === selectedSeries
+    }) || null
+  }
+
+  return props.rows.find(row => String(row[selectedXField.value]) === selectedName) || null
+}
+
+const handleChartClick = async (params: any) => {
+  const row = findRowFromChartSelection(params)
+  if (!row) return
+  selectedRow.value = row
+  drillAttempted.value = true
+  drillLoading.value = true
+  try {
+    if (!props.sqlQuery || !props.message.sourceQuestion || !selectedXField.value) {
+      drillActions.value = []
+      detailAction.value = null
+      return
+    }
+    const preview = await queryStore.getDrillActions(
+      props.message.sourceQuestion,
+      props.sqlQuery,
+      selectedXField.value,
+      props.columns,
+      row
+    )
+    drillActions.value = preview.actions
+    detailAction.value = preview.detail_action || null
+  } catch {
+    drillActions.value = []
+    detailAction.value = null
+    ElMessage.error("加载钻取动作失败")
+  } finally {
+    drillLoading.value = false
+  }
+}
+
 const renderChart = async () => {
   await nextTick()
   if (!chartRef.value) return
@@ -328,7 +416,31 @@ const renderChart = async () => {
   if (option) {
     chartInstance.clear()
     chartInstance.setOption(option)
+    chartInstance.off("click")
+    chartInstance.on("click", handleChartClick)
   }
+}
+
+const runDrill = async (action: DrillAction) => {
+  await queryStore.ask(action.question, "text2sql", {
+    pathLabel: action.label,
+    sourceLabel: action.source_dimension_label,
+    sourceValue: action.source_value,
+    targetLabel: action.target_dimension_label,
+    parentQuestion: props.message.sourceQuestion || props.message.content,
+    parentContext: props.message.drillContext,
+  }, props.message.historyId)
+}
+
+const runDetail = async (action: DrillAction) => {
+  await queryStore.ask(action.question, "text2sql", {
+    pathLabel: action.label,
+    sourceLabel: action.source_dimension_label,
+    sourceValue: action.source_value,
+    targetLabel: "明细",
+    parentQuestion: props.message.sourceQuestion || props.message.content,
+    parentContext: props.message.drillContext,
+  }, props.message.historyId)
 }
 
 // 固定到Dashboard
@@ -361,8 +473,20 @@ const pinToDashboard = async () => {
   }
 }
 
-watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields], () => renderChart(), { deep: true })
+watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields], () => {
+  selectedRow.value = null
+  drillActions.value = []
+  detailAction.value = null
+  drillLoading.value = false
+  drillAttempted.value = false
+  renderChart()
+}, { deep: true })
 watch(() => props.rows, () => {
+  selectedRow.value = null
+  drillActions.value = []
+  detailAction.value = null
+  drillLoading.value = false
+  drillAttempted.value = false
   autoDetectFields()
   renderChart()
 }, { deep: true, immediate: true })
@@ -432,5 +556,39 @@ onMounted(() => {
 .chart-body {
   width: 100%;
   height: 280px;
+}
+
+.drill-bar {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e4e7ed;
+  background: #f8fafc;
+}
+
+.drill-loading {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #606266;
+}
+
+.drill-empty {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #909399;
+}
+
+.drill-bar-title {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.drill-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-action-bar {
+  margin-bottom: 8px;
 }
 </style>

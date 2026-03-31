@@ -3,11 +3,12 @@ module.exports = {
     {
       name: "smart-bi-backend",
       cwd: "./backend",
-      script: "uvicorn",
-      args: "app.main:app --host 0.0.0.0 --port 8000",
-      interpreter: "python3",
+      script: "/home/qqr/.local/bin/uv",
+      args: "run -- uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      interpreter: "none",
       env: {
-        PYTHONUNBUFFERED: "1"
+        PYTHONUNBUFFERED: "1",
+        DATABASE_URL: "sqlite:////home/qqr/smart_bi/backend/smartbi.db"
       },
       watch: false,
       autorestart: true,
@@ -17,7 +18,7 @@ module.exports = {
       name: "smart-bi-frontend",
       cwd: "./frontend",
       script: "npm",
-      args: "run dev -- --host",
+      args: "run dev -- --host 0.0.0.0 --port 5173",
       watch: false,
       autorestart: true,
       max_restarts: 10

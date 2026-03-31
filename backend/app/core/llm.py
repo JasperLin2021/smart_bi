@@ -16,6 +16,24 @@ DEFAULT_TEXT2SQL_PROMPT = """你是SQL专家，根据用户问题生成标准SQL
 3. 对于Top N类问题，按数值降序排序
 4. 只输出纯SQL语句，不要包含任何解释或markdown格式"""
 
+EXCEL_TEXT2SQL_SUFFIX = """
+
+当前数据源运行在 DuckDB 上，请严格使用 DuckDB 兼容 SQL：
+1. 不要使用 SQLite 风格的 DATE('now', '-1 month')、DATE(column, '-1 day') 这类两参数 DATE 写法
+2. 当前日期请使用 CURRENT_DATE
+3. 时间偏移请使用 INTERVAL，例如 CURRENT_DATE - INTERVAL '1 month'
+4. 日期截断优先使用 CAST(时间字段 AS DATE)
+"""
+
+DETAIL_QUERY_SUFFIX = """
+
+如果用户明确要求详细记录、明细、列出所有记录、原始记录：
+1. 优先选择最贴近业务事件的明细表，不要为了回答明细问题而优先查询汇总主表。
+2. 除非用户明确要求统计汇总，否则不要使用 GROUP BY、SUM、COUNT、AVG 等聚合。
+3. 优先返回能够直接体现事件明细的字段，而不是只返回主记录摘要字段。
+4. 如果筛选条件中的字段已经存在于某张明细表中，优先直接查询该明细表。
+"""
+
 
 def get_default_llm_config() -> dict:
     provider = settings.llm_provider.lower()
@@ -26,6 +44,7 @@ def get_default_llm_config() -> dict:
             "api_key": settings.llm_openai_key,
             "model": settings.llm_openai_model,
             "temperature": 0.3,
+            "agent_planner_mode": "llm_only",
         }
     if provider == "moonshot":
         return {
@@ -34,6 +53,7 @@ def get_default_llm_config() -> dict:
             "api_key": settings.llm_moonshot_key,
             "model": settings.llm_moonshot_model,
             "temperature": 0.3,
+            "agent_planner_mode": "llm_only",
         }
     if provider == "deepseek":
         return {
@@ -42,6 +62,7 @@ def get_default_llm_config() -> dict:
             "api_key": settings.llm_deepseek_key,
             "model": settings.llm_deepseek_model,
             "temperature": 0.3,
+            "agent_planner_mode": "llm_only",
         }
     if provider == "gemini":
         return {
@@ -50,6 +71,7 @@ def get_default_llm_config() -> dict:
             "api_key": settings.llm_gemini_key,
             "model": settings.llm_gemini_model,
             "temperature": 0.3,
+            "agent_planner_mode": "llm_only",
         }
     return {
         "provider": "custom",
@@ -57,6 +79,7 @@ def get_default_llm_config() -> dict:
         "api_key": settings.llm_api_key,
         "model": settings.llm_model,
         "temperature": 0.3,
+        "agent_planner_mode": "llm_only",
     }
 
 
@@ -78,14 +101,19 @@ async def get_llm_config() -> dict:
                 "api_key": record.api_key,
                 "model": record.model,
                 "temperature": record.temperature,
+                "agent_planner_mode": record.agent_planner_mode or "llm_only",
             }
     finally:
         db.close()
     return get_default_llm_config()
 
 
-async def chat_completion(messages: list[dict], temperature: float | None = None) -> str:
-    config = await get_llm_config()
+async def chat_completion(
+    messages: list[dict],
+    temperature: float | None = None,
+    config_override: dict | None = None,
+) -> str:
+    config = config_override or await get_llm_config()
     actual_temperature = config.get("temperature", 0.3) if temperature is None else temperature
     async with httpx.AsyncClient(timeout=30) as client:
         if config["provider"] == "gemini":
@@ -123,6 +151,15 @@ async def chat_completion(messages: list[dict], temperature: float | None = None
         return data["choices"][0]["message"]["content"]
 
 
+async def test_llm_connection(config_override: dict) -> dict:
+    messages = [
+        {"role": "system", "content": "Reply with exactly: pong"},
+        {"role": "user", "content": "ping"},
+    ]
+    await chat_completion(messages, temperature=0, config_override=config_override)
+    return {"status": "ok", "message": "连接成功"}
+
+
 def get_datasource_prompts(datasource) -> tuple[str, str, str]:
     """Get prompts from a DataSource object."""
     metadata_prompt = datasource.metadata_prompt or ""
@@ -145,6 +182,10 @@ async def generate_sql_query(question: str, datasource=None, context: str = "") 
         system_prompt += f"\n\n{metadata_prompt}"
     if metrics_prompt:
         system_prompt += f"\n\n{metrics_prompt}"
+    if datasource and getattr(datasource, "source_type", "") == "excel":
+        system_prompt += EXCEL_TEXT2SQL_SUFFIX
+    if re.search(r"(详细记录|明细|列出.*记录|所有.*记录|原始记录)", question):
+        system_prompt += DETAIL_QUERY_SUFFIX
 
     messages = [
         {"role": "system", "content": system_prompt},

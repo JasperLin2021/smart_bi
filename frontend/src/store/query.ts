@@ -8,12 +8,41 @@ export interface QueryResult {
   rows: Array<Record<string, string | number>>
 }
 
+export interface DrillAction {
+  id: string
+  label: string
+  action: string
+  source_dimension_id: string
+  source_dimension_label: string
+  source_column: string
+  source_value: string | number
+  target_dimension_id: string
+  target_dimension_label: string
+  target_column: string
+  question: string
+}
+
+export interface DrillPreviewResult {
+  actions: DrillAction[]
+  detail_action?: DrillAction | null
+}
+
+export interface DrillContext {
+  pathLabel: string
+  sourceLabel: string
+  sourceValue: string | number
+  targetLabel: string
+  parentQuestion?: string
+  parentContext?: DrillContext
+}
+
 export interface ChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
   timestamp: Date
   status: "sending" | "success" | "error"
+  historyId?: number
   // 助手消息附加数据
   sqlQuery?: string
   result?: QueryResult
@@ -21,6 +50,8 @@ export interface ChatMessage {
   recommendations?: string[]
   mode?: "text2sql" | "chat"
   error?: string
+  sourceQuestion?: string
+  drillContext?: DrillContext
 }
 
 export interface QueryHistoryItem {
@@ -28,6 +59,7 @@ export interface QueryHistoryItem {
   question: string
   created_at: string
   favorite: boolean
+  parent_history_id?: number | null
 }
 
 export const useQueryStore = defineStore("query", {
@@ -42,7 +74,12 @@ export const useQueryStore = defineStore("query", {
       return Date.now().toString(36) + Math.random().toString(36).substr(2)
     },
     
-    async ask(question: string, queryMode?: "text2sql" | "chat") {
+    async ask(
+      question: string,
+      queryMode?: "text2sql" | "chat",
+      drillContext?: DrillContext,
+      parentHistoryId?: number | null
+    ) {
       const mode = queryMode || this.mode
       
       // 添加用户消息
@@ -62,7 +99,9 @@ export const useQueryStore = defineStore("query", {
         content: "",
         timestamp: new Date(),
         status: "sending",
-        mode
+        mode,
+        sourceQuestion: question,
+        drillContext
       }
       this.messages.push(assistantMessage)
       this.loading = true
@@ -73,6 +112,8 @@ export const useQueryStore = defineStore("query", {
           question,
           mode,
           datasource_id: dsStore.currentId,
+          drill_context: drillContext || null,
+          parent_history_id: parentHistoryId || null,
         })
         
         // 更新助手消息
@@ -82,10 +123,13 @@ export const useQueryStore = defineStore("query", {
             ...assistantMessage,
             content: response.data.answer || response.data.summary || "查询完成",
             status: "success",
+            historyId: response.data.history_id,
             sqlQuery: response.data.sql_query,
             result: response.data.result,
             summary: response.data.summary,
-            recommendations: response.data.recommendations || []
+            recommendations: response.data.recommendations || [],
+            sourceQuestion: question,
+            drillContext
           }
         }
         
@@ -98,7 +142,9 @@ export const useQueryStore = defineStore("query", {
             ...assistantMessage,
             content: "查询失败",
             status: "error",
-            error: error.response?.data?.detail || error.message || "请稍后重试"
+            error: error.response?.data?.detail || error.message || "请稍后重试",
+            sourceQuestion: question,
+            drillContext
           }
         }
         ElMessage.error("查询失败，请稍后重试")
@@ -169,10 +215,13 @@ export const useQueryStore = defineStore("query", {
           content: data.mode === "chat" ? data.summary : "已加载历史查询结果。",
           timestamp: new Date(data.created_at),
           status: "success",
+          historyId: data.id,
           sqlQuery: data.sql_query,
           result: data.result,
           summary: data.summary,
-          mode: data.mode
+          mode: data.mode,
+          sourceQuestion: cleanQuestion,
+          drillContext: data.drill_context || undefined,
         }
         this.messages.push(assistantMessage)
         
@@ -181,6 +230,29 @@ export const useQueryStore = defineStore("query", {
         ElMessage.error("加载历史记录失败")
       } finally {
         this.loading = false
+      }
+    },
+
+    async getDrillActions(
+      question: string,
+      sqlQuery: string,
+      selectedColumn: string,
+      columns: string[],
+      row: Record<string, any>
+    ): Promise<DrillPreviewResult> {
+      const dsStore = useDatasourceStore()
+      if (!dsStore.currentId) return { actions: [], detail_action: null }
+      const response = await axios.post("/api/query/drill-preview", {
+        datasource_id: dsStore.currentId,
+        question,
+        sql_query: sqlQuery,
+        selected_column: selectedColumn,
+        columns,
+        row,
+      })
+      return {
+        actions: (response.data.actions || []) as DrillAction[],
+        detail_action: (response.data.detail_action || null) as DrillAction | null,
       }
     }
   }

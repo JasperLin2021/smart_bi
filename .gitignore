@@ -3,6 +3,13 @@ node_modules/
 __pycache__/
 *.pyc
 .qoder/
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+frontend/dist/
+backend/uploads/
+~$*.xlsx
 
 # Accidental files from mistyped commands
 ,

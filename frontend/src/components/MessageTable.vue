@@ -11,8 +11,30 @@
         </el-button>
       </div>
     </div>
+    <div v-if="selectedRow && (drillActions.length || detailAction)" class="drill-bar">
+      <div class="drill-bar-title">
+        已选中：{{ selectedSummary }}
+      </div>
+      <div v-if="detailAction" class="detail-action-bar">
+        <el-button size="small" type="success" plain @click="runDetail(detailAction)">
+          {{ detailAction.label }}
+        </el-button>
+      </div>
+      <div class="drill-actions">
+        <el-button
+          v-for="action in drillActions"
+          :key="action.id"
+          size="small"
+          type="primary"
+          plain
+          @click="runDrill(action)"
+        >
+          {{ action.label }}
+        </el-button>
+      </div>
+    </div>
     <div v-show="expanded" class="table-body">
-      <el-table :data="displayRows" size="small" max-height="240" border>
+      <el-table :data="displayRows" size="small" max-height="240" border @row-click="handleRowClick">
         <el-table-column
           v-for="col in columns"
           :key="col"
@@ -38,24 +60,86 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import { Download } from "@element-plus/icons-vue"
+import { ElMessage } from "element-plus"
 import { saveAs } from "file-saver"
 import * as XLSX from "xlsx"
+import { useQueryStore, type ChatMessage, type DrillAction } from "@/store/query"
 
 const props = defineProps<{
+  message: ChatMessage
   columns: string[]
   rows: Array<Record<string, any>>
 }>()
 
+const queryStore = useQueryStore()
 const expanded = ref(true)
 const currentPage = ref(1)
+const selectedRow = ref<Record<string, any> | null>(null)
+const drillActions = ref<DrillAction[]>([])
+const detailAction = ref<DrillAction | null>(null)
 
 const displayRows = computed(() => {
   const start = (currentPage.value - 1) * 10
   return props.rows.slice(start, start + 10)
 })
 
+const selectedSummary = computed(() => {
+  if (!selectedRow.value || !props.columns.length) return ""
+  const firstTextColumn = props.columns.find((col) => {
+    const value = selectedRow.value?.[col]
+    return typeof value === "string" && value !== ""
+  }) || props.columns[0]
+  return `${firstTextColumn}: ${selectedRow.value[firstTextColumn]}`
+})
+
 const toggleExpand = () => {
   expanded.value = !expanded.value
+}
+
+const handleRowClick = async (row: Record<string, any>) => {
+  selectedRow.value = row
+  try {
+    if (!props.message.sqlQuery || !props.message.sourceQuestion || !props.columns.length) {
+      drillActions.value = []
+      detailAction.value = null
+      return
+    }
+    const preview = await queryStore.getDrillActions(
+      props.message.sourceQuestion,
+      props.message.sqlQuery,
+      props.columns[0],
+      props.columns,
+      row
+    )
+    drillActions.value = preview.actions
+    detailAction.value = preview.detail_action || null
+  } catch (error) {
+    drillActions.value = []
+    detailAction.value = null
+    ElMessage.error("加载钻取动作失败")
+  }
+}
+
+const runDrill = async (action: DrillAction) => {
+  await queryStore.ask(action.question, "text2sql", {
+    pathLabel: action.label,
+    sourceLabel: action.source_dimension_label,
+    sourceValue: action.source_value,
+    targetLabel: action.target_dimension_label,
+    parentQuestion: props.message.sourceQuestion || props.message.content,
+    parentContext: props.message.drillContext,
+  }, props.message.historyId)
+}
+
+const runDetail = async (action: DrillAction) => {
+  await queryStore.ask(action.question, "text2sql", {
+    pathLabel: action.label,
+    sourceLabel: action.source_dimension_label,
+    sourceValue: action.source_value,
+    targetLabel: "明细",
+    parentQuestion: props.message.sourceQuestion || props.message.content,
+    parentContext: props.message.drillContext,
+  }, props.message.historyId)
 }
 
 const exportCsv = () => {
@@ -94,6 +178,28 @@ const exportCsv = () => {
 
 .table-body {
   padding: 8px;
+}
+
+.drill-bar {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e4e7ed;
+  background: #f8fafc;
+}
+
+.drill-bar-title {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.drill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-action-bar {
+  margin-bottom: 8px;
 }
 
 .table-footer {
