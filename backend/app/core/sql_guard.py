@@ -4,6 +4,7 @@ from typing import Any
 import pandas as pd
 
 from app.core.excel_executor import _normalize_table_name
+from app.core.excel_uploads import resolve_excel_source_path
 
 
 def _extract_aliases(sql: str) -> dict[str, str]:
@@ -64,7 +65,8 @@ def _strip_join_conditions(sql: str) -> str:
 
 
 def _load_excel_table_columns(file_path: str) -> dict[str, set[str]]:
-    xlsx = pd.ExcelFile(file_path)
+    resolved_path = resolve_excel_source_path(file_path)
+    xlsx = pd.ExcelFile(resolved_path)
     table_columns: dict[str, set[str]] = {}
     for sheet_name in xlsx.sheet_names:
         table_name = _normalize_table_name(sheet_name)
@@ -74,7 +76,8 @@ def _load_excel_table_columns(file_path: str) -> dict[str, set[str]]:
 
 
 def _load_column_values(file_path: str, table_name: str, column_name: str) -> set[Any]:
-    xlsx = pd.ExcelFile(file_path)
+    resolved_path = resolve_excel_source_path(file_path)
+    xlsx = pd.ExcelFile(resolved_path)
     for sheet_name in xlsx.sheet_names:
         normalized = _normalize_table_name(sheet_name).lower()
         if normalized != table_name.lower():

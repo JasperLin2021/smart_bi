@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 
@@ -24,6 +25,82 @@ class LlmSettingsTests(unittest.TestCase):
         _, kwargs = mocked.await_args
         self.assertEqual(kwargs["config_override"]["model"], "demo-model")
         self.assertEqual(kwargs["temperature"], 0)
+
+    def test_test_llm_connection_preserves_gemini_preview_model(self):
+        from app.core.llm import test_llm_connection
+
+        override = {
+            "provider": "gemini",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta",
+            "api_key": "demo-key",
+            "model": "gemini-3.1-flash-lite-preview",
+            "temperature": 0.4,
+        }
+
+        with patch("app.core.llm.chat_completion", new=AsyncMock(return_value="pong")) as mocked:
+            result = asyncio.run(test_llm_connection(override))
+
+        self.assertEqual(result["status"], "ok")
+        _, kwargs = mocked.await_args
+        self.assertEqual(kwargs["config_override"]["model"], "gemini-3.1-flash-lite-preview")
+        self.assertEqual(kwargs["temperature"], 0)
+
+    def test_update_llm_setting_preserves_saved_gemini_model_name(self):
+        from app.api.settings import update_llm_setting
+        from app.schemas.settings import LlmConfigUpdate
+
+        record = SimpleNamespace(
+            provider="gemini",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="demo-key",
+            model="gemini-2.5-flash-lite",
+            temperature=0.3,
+            agent_planner_mode="llm_only",
+        )
+
+        class FakeQuery:
+            def __init__(self, row):
+                self.row = row
+
+            def first(self):
+                return self.row
+
+        class FakeDb:
+            def __init__(self, row):
+                self.row = row
+
+            def query(self, _model):
+                return FakeQuery(self.row)
+
+            def add(self, row):
+                self.row = row
+
+            def commit(self):
+                return None
+
+            def refresh(self, _row):
+                return None
+
+        payload = LlmConfigUpdate(
+            provider="gemini",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            model="gemini-3.1-flash-lite-preview",
+            temperature=0.3,
+            agent_planner_mode="llm_only",
+            api_key="",
+        )
+
+        with patch("app.api.settings.set_llm_config_cache") as mocked_cache:
+            result = update_llm_setting(
+                payload,
+                db=FakeDb(record),
+                current_user=SimpleNamespace(role="super_admin"),
+            )
+
+        self.assertEqual(record.model, "gemini-3.1-flash-lite-preview")
+        self.assertEqual(result["model"], "gemini-3.1-flash-lite-preview")
+        cached = mocked_cache.call_args.args[0]
+        self.assertEqual(cached["model"], "gemini-3.1-flash-lite-preview")
 
 
 if __name__ == "__main__":

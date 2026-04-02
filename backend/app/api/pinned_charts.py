@@ -4,6 +4,7 @@ from sqlalchemy import text
 from pydantic import BaseModel
 from typing import Optional, List
 from app.api.auth import get_current_user
+from app.core.excel_executor import execute_excel_query
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.pinned_chart import PinnedChart
@@ -59,13 +60,18 @@ def create_pinned_chart(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    datasource_id = payload.datasource_id
+    if datasource_id is None:
+        active_datasource = db.query(DataSource).filter(DataSource.is_active == 1).first()
+        datasource_id = active_datasource.id if active_datasource else None
+
     max_order = db.query(PinnedChart).filter(
         PinnedChart.user_id == current_user.id
     ).count()
 
     chart = PinnedChart(
         user_id=current_user.id,
-        datasource_id=payload.datasource_id,
+        datasource_id=datasource_id,
         title=payload.title,
         description=payload.description,
         sql_query=payload.sql_query,
@@ -116,20 +122,26 @@ def list_pinned_charts_with_data(
             if not ds:
                 raise Exception("No datasource configured")
 
-            ds_engine = get_datasource_engine(ds.database_url)
-            with ds_engine.connect() as conn:
-                result_proxy = conn.execute(text(chart.sql_query))
-                columns = list(result_proxy.keys())
-                rows = [dict(row._mapping) for row in result_proxy.fetchall()]
-                result.append({
-                    "id": chart.id,
-                    "title": chart.title,
-                    "description": chart.description,
-                    "chart_type": chart.chart_type,
-                    "sort_order": chart.sort_order,
-                    "columns": columns,
-                    "rows": rows,
-                })
+            if ds.source_type == "excel":
+                query_result = execute_excel_query(ds.database_url, chart.sql_query)
+                columns = query_result["columns"]
+                rows = query_result["rows"]
+            else:
+                ds_engine = get_datasource_engine(ds.database_url)
+                with ds_engine.connect() as conn:
+                    result_proxy = conn.execute(text(chart.sql_query))
+                    columns = list(result_proxy.keys())
+                    rows = [dict(row._mapping) for row in result_proxy.fetchall()]
+
+            result.append({
+                "id": chart.id,
+                "title": chart.title,
+                "description": chart.description,
+                "chart_type": chart.chart_type,
+                "sort_order": chart.sort_order,
+                "columns": columns,
+                "rows": rows,
+            })
         except Exception:
             result.append({
                 "id": chart.id,

@@ -52,6 +52,11 @@
           <div v-if="message.content" class="bubble-text">
             {{ message.content }}
           </div>
+
+          <div v-if="message.llmModel" class="model-chip">
+            <span class="model-chip-label">实际模型</span>
+            <code class="model-chip-value">{{ message.llmModel }}</code>
+          </div>
           
           <!-- SQL 查询 (可折叠) -->
           <el-collapse v-if="message.sqlQuery" class="sql-collapse">
@@ -310,6 +315,29 @@ const formatTime = (date: Date) => {
   border-radius: 12px;
   border: 1px solid var(--app-border-light);
   overflow: hidden;
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #dbe4f0;
+  color: #334155;
+  font-size: 12px;
+}
+
+.model-chip-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.model-chip-value {
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  color: #0f172a;
 }
 
 .sql-collapse :deep(.el-collapse-item__header) {

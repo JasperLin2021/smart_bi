@@ -18,3 +18,4 @@ class QueryHistory(Base):
     summary = Column(Text, nullable=True)
     mode = Column(String(32), nullable=True)
     drill_context = Column(Text, nullable=True)  # JSON 字符串
+    llm_model = Column(String(128), nullable=True)

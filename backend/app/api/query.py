@@ -5,12 +5,13 @@ from sqlalchemy import text
 from fastapi_cache.decorator import cache
 
 from app.api.auth import get_current_user
-from app.core.llm import generate_sql_query, generate_summary, chat
+from app.core.llm import generate_sql_query, generate_summary, chat, get_llm_config, normalize_llm_config
 from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
 from app.core.sql_guard import detect_excel_join_risk
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
+from app.models.llm_setting import LlmSetting
 from app.models.query import QueryHistory
 from app.models.user import User
 from app.schemas.query import QueryAskRequest, QueryAskResponse, HistoryListResponse
@@ -19,6 +20,22 @@ from app.core.drill_runtime import build_drill_actions
 from app.core.drill_suggester import suggest_drill_actions
 
 router = APIRouter(prefix="/query", tags=["query"])
+
+
+def _get_persisted_llm_model(db: Session) -> str | None:
+    record = db.query(LlmSetting).first()
+    if not record:
+        return None
+    return normalize_llm_config(
+        {
+            "provider": record.provider,
+            "base_url": record.base_url,
+            "api_key": record.api_key,
+            "model": record.model,
+            "temperature": record.temperature,
+            "agent_planner_mode": record.agent_planner_mode or "llm_only",
+        }
+    ).get("model")
 
 
 def _get_datasource(db: Session, datasource_id: int | None) -> DataSource | None:
@@ -113,6 +130,7 @@ async def ask(
         raise HTTPException(status_code=400, detail="问题不能为空")
 
     datasource = _get_datasource(db, datasource_id)
+    runtime_llm_model = normalize_llm_config(await get_llm_config()).get("model")
 
     # 闲聊模式
     if mode == "chat":
@@ -129,6 +147,7 @@ async def ask(
             summary=answer,
             mode="chat",
             drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
+            llm_model=runtime_llm_model,
         )
         db.add(history)
         db.commit()
@@ -137,6 +156,7 @@ async def ask(
             "answer": answer,
             "result": {"columns": [], "rows": []},
             "summary": "",
+            "llm_model": runtime_llm_model,
             "history_id": history.id,
             "recommendations": [],
             "mode": "chat",
@@ -188,6 +208,7 @@ async def ask(
         summary=summary,
         mode="text2sql",
         drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
+        llm_model=runtime_llm_model,
     )
     db.add(history)
     db.commit()
@@ -197,6 +218,7 @@ async def ask(
         "result": result,
         "summary": summary,
         "sql_query": sql_query,
+        "llm_model": runtime_llm_model,
         "history_id": history.id,
         "recommendations": recommendations,
         "mode": "text2sql",
@@ -263,6 +285,20 @@ def delete_history(
     return {"status": "ok"}
 
 
+@router.delete("/history")
+def delete_all_history(
+    datasource_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(QueryHistory).filter(QueryHistory.user_id == current_user.id)
+    if datasource_id:
+        query = query.filter(QueryHistory.datasource_id == datasource_id)
+    deleted = query.delete(synchronize_session=False)
+    db.commit()
+    return {"status": "ok", "deleted": deleted}
+
+
 @router.get("/history/{history_id}")
 def get_history_detail(
     history_id: int,
@@ -290,6 +326,7 @@ def get_history_detail(
         "sql_query": item.sql_query,
         "result": result,
         "summary": item.summary or "",
+        "llm_model": item.llm_model or _get_persisted_llm_model(db),
         "mode": item.mode or "text2sql",
         "drill_context": json.loads(item.drill_context) if item.drill_context else None,
         "parent_history_id": item.parent_history_id,

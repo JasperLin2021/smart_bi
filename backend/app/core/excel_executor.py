@@ -4,6 +4,7 @@ import re
 import duckdb
 import pandas as pd
 from typing import Dict, Any, List
+from app.core.excel_uploads import resolve_excel_source_path
 
 # Sheet name to table name mapping for ChatBI数据.xlsx
 SHEET_TABLE_MAP = {
@@ -13,6 +14,9 @@ SHEET_TABLE_MAP = {
     "IP_PA_PRODUCTION_OK-各型号详细信息": "production_ok",
     "IP_PA_RTYINFO-各工站投入产出详情": "rtyinfo",
 }
+
+SAMPLE_VALUE_COLUMNS = ("LINE", "NGTYPE", "STN", "PARTNO", "OP", "SHIFTNAME")
+MAX_SAMPLE_VALUES = 5
 
 
 def _normalize_table_name(sheet_name: str) -> str:
@@ -82,7 +86,8 @@ def execute_excel_query(file_path: str, sql: str) -> Dict[str, Any]:
         Dict with 'columns' (list of column names) and 'rows' (list of dicts)
     """
     # Load all sheets into DataFrames
-    xlsx = pd.ExcelFile(file_path)
+    resolved_path = resolve_excel_source_path(file_path)
+    xlsx = pd.ExcelFile(resolved_path)
     dfs = {}
     for sheet_name in xlsx.sheet_names:
         table_name = _normalize_table_name(sheet_name)
@@ -112,25 +117,45 @@ def generate_excel_metadata(file_path: str) -> str:
     Returns:
         Metadata string describing all tables and columns
     """
-    xlsx = pd.ExcelFile(file_path)
+    resolved_path = resolve_excel_source_path(file_path)
+    xlsx = pd.ExcelFile(resolved_path)
     lines = ["数据库表结构信息："]
     
     for sheet_name in xlsx.sheet_names:
         table_name = _normalize_table_name(sheet_name)
-        df = pd.read_excel(xlsx, sheet_name=sheet_name, nrows=0)
+        df = pd.read_excel(xlsx, sheet_name=sheet_name)
         cols = ", ".join(str(c) for c in df.columns[:10])
         if len(df.columns) > 10:
             cols += f"... (共{len(df.columns)}列)"
         # Extract Chinese description from sheet name
         desc = sheet_name.split("-")[-1] if "-" in sheet_name else sheet_name
         lines.append(f"- {table_name} 表 ({desc}): {cols}")
-    
+        sample_lines = []
+        for column in SAMPLE_VALUE_COLUMNS:
+            if column not in df.columns:
+                continue
+            values = []
+            for value in df[column].dropna().tolist():
+                text = str(value).strip()
+                if not text or text in values:
+                    continue
+                values.append(text)
+                if len(values) >= MAX_SAMPLE_VALUES:
+                    break
+            if values:
+                sample_lines.append(f"  - {column} 示例值: {', '.join(values)}")
+        if sample_lines:
+            lines.extend(sample_lines)
+
+    lines.append("重要提示：当用户问题中的业务名称与某列示例值完整匹配时，优先直接使用该列做精确过滤，不要把一个完整名称拆成多个字段条件。")
+
     return "\n".join(lines)
 
 
 def get_excel_tables(file_path: str) -> List[str]:
     """Get list of available table names from Excel file."""
-    xlsx = pd.ExcelFile(file_path)
+    resolved_path = resolve_excel_source_path(file_path)
+    xlsx = pd.ExcelFile(resolved_path)
     return [_normalize_table_name(s) for s in xlsx.sheet_names]
 
 
@@ -143,11 +168,12 @@ def test_excel_connection(file_path: str) -> Dict[str, str]:
     Returns:
         Dict with 'status' ('ok' or 'error') and 'message'
     """
-    if not os.path.isfile(file_path):
+    resolved_path = resolve_excel_source_path(file_path)
+    if not os.path.isfile(resolved_path):
         return {"status": "error", "message": f"文件不存在: {file_path}"}
     try:
-        xlsx = pd.ExcelFile(file_path)
-        tables = get_excel_tables(file_path)
+        xlsx = pd.ExcelFile(resolved_path)
+        tables = get_excel_tables(resolved_path)
         return {
             "status": "ok",
             "message": f"文件可读，包含 {len(xlsx.sheet_names)} 个表: {', '.join(tables)}"

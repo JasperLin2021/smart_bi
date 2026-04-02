@@ -91,6 +91,11 @@ def startup():
         pass
 
     try:
+        _ensure_column(engine, "query_history", "llm_model VARCHAR(128)")
+    except Exception:
+        pass
+
+    try:
         with engine.begin() as conn:
             conn.execute(
                 text(

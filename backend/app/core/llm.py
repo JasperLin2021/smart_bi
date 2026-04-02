@@ -23,6 +23,9 @@ EXCEL_TEXT2SQL_SUFFIX = """
 2. 当前日期请使用 CURRENT_DATE
 3. 时间偏移请使用 INTERVAL，例如 CURRENT_DATE - INTERVAL '1 month'
 4. 日期截断优先使用 CAST(时间字段 AS DATE)
+5. 如果元数据里给出了字段示例值，且用户问题中的业务名称能与某个示例值完整匹配，优先直接用该字段做等值过滤
+6. 不要把一个完整的产线名、单元名、异常名、人名或料号拆成多个字段条件，除非元数据明确说明这些字段需要分别过滤
+7. 如果某列的示例值为空或明显缺失，不要臆造该列的筛选条件
 """
 
 DETAIL_QUERY_SUFFIX = """
@@ -114,7 +117,19 @@ def get_default_llm_config() -> dict:
 
 def set_llm_config_cache(config: dict):
     global _llm_config_cache
-    _llm_config_cache = config
+    _llm_config_cache = normalize_llm_config(config)
+
+
+def normalize_llm_config(config: dict) -> dict:
+    normalized = dict(config)
+    provider = str(normalized.get("provider") or "").lower()
+    normalized["provider"] = provider
+    normalized["base_url"] = str(normalized.get("base_url") or "").rstrip("/")
+    normalized["model"] = str(normalized.get("model") or "").strip()
+    if provider == "gemini":
+        normalized["base_url"] = normalized["base_url"] or settings.llm_gemini_base
+        normalized["model"] = normalized["model"] or settings.llm_gemini_model
+    return normalized
 
 
 async def get_llm_config() -> dict:
@@ -124,17 +139,17 @@ async def get_llm_config() -> dict:
     try:
         record = db.query(LlmSetting).first()
         if record:
-            return {
+            return normalize_llm_config({
                 "provider": record.provider,
                 "base_url": record.base_url,
                 "api_key": record.api_key,
                 "model": record.model,
                 "temperature": record.temperature,
                 "agent_planner_mode": record.agent_planner_mode or "llm_only",
-            }
+            })
     finally:
         db.close()
-    return get_default_llm_config()
+    return normalize_llm_config(get_default_llm_config())
 
 
 async def chat_completion(
@@ -142,7 +157,7 @@ async def chat_completion(
     temperature: float | None = None,
     config_override: dict | None = None,
 ) -> str:
-    config = config_override or await get_llm_config()
+    config = normalize_llm_config(config_override or await get_llm_config())
     actual_temperature = config.get("temperature", 0.3) if temperature is None else temperature
     async with httpx.AsyncClient(timeout=30) as client:
         if config["provider"] == "gemini":
@@ -185,7 +200,7 @@ async def test_llm_connection(config_override: dict) -> dict:
         {"role": "system", "content": "Reply with exactly: pong"},
         {"role": "user", "content": "ping"},
     ]
-    await chat_completion(messages, temperature=0, config_override=config_override)
+    await chat_completion(messages, temperature=0, config_override=normalize_llm_config(config_override))
     return {"status": "ok", "message": "连接成功"}
 
 

@@ -47,6 +47,7 @@ export interface ChatMessage {
   sqlQuery?: string
   result?: QueryResult
   summary?: string
+  llmModel?: string
   recommendations?: string[]
   mode?: "text2sql" | "chat"
   error?: string
@@ -127,6 +128,7 @@ export const useQueryStore = defineStore("query", {
             sqlQuery: response.data.sql_query,
             result: response.data.result,
             summary: response.data.summary,
+            llmModel: response.data.llm_model,
             recommendations: response.data.recommendations || [],
             sourceQuestion: question,
             drillContext
@@ -187,6 +189,20 @@ export const useQueryStore = defineStore("query", {
         ElMessage.error("删除失败")
       }
     },
+
+    async deleteAllHistory() {
+      try {
+        const dsStore = useDatasourceStore()
+        const params: Record<string, any> = {}
+        if (dsStore.currentId) params.datasource_id = dsStore.currentId
+        await axios.delete("/api/query/history", { params })
+        this.history = []
+        this.messages = []
+        ElMessage.success("历史记录已清空")
+      } catch (error) {
+        ElMessage.error("清空失败")
+      }
+    },
     
     async loadHistoryDetail(id: number) {
       this.loading = true
@@ -219,6 +235,7 @@ export const useQueryStore = defineStore("query", {
           sqlQuery: data.sql_query,
           result: data.result,
           summary: data.summary,
+          llmModel: data.llm_model,
           mode: data.mode,
           sourceQuestion: cleanQuestion,
           drillContext: data.drill_context || undefined,

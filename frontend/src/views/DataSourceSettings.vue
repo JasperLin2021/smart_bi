@@ -57,7 +57,7 @@
         </el-form-item>
         <el-form-item label="数据源类型" required>
           <el-select v-model="form.source_type" placeholder="选择类型" style="width: 100%">
-            <el-option label="数据库 (PostgreSQL等)" value="database" />
+            <el-option label="PostgreSQL" value="database" />
             <el-option label="Excel 文件" value="excel" />
           </el-select>
         </el-form-item>

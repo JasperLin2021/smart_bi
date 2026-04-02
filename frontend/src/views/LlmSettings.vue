@@ -100,7 +100,7 @@ const presets: Record<string, { base_url: string; model: string }> = {
   deepseek: { base_url: "https://api.deepseek.com/v1", model: "deepseek-chat" },
   gemini: {
     base_url: "https://generativelanguage.googleapis.com/v1beta",
-    model: "gemini-1.5-flash"
+    model: "gemini-2.5-flash-lite"
   },
   custom: { base_url: "", model: "" }
 }

@@ -11,14 +11,9 @@
         </el-button>
       </div>
     </div>
-    <div v-if="selectedRow && (drillActions.length || detailAction)" class="drill-bar">
+    <div v-if="selectedRow && drillActions.length" class="drill-bar">
       <div class="drill-bar-title">
         已选中：{{ selectedSummary }}
-      </div>
-      <div v-if="detailAction" class="detail-action-bar">
-        <el-button size="small" type="success" plain @click="runDetail(detailAction)">
-          {{ detailAction.label }}
-        </el-button>
       </div>
       <div class="drill-actions">
         <el-button
@@ -76,7 +71,6 @@ const expanded = ref(true)
 const currentPage = ref(1)
 const selectedRow = ref<Record<string, any> | null>(null)
 const drillActions = ref<DrillAction[]>([])
-const detailAction = ref<DrillAction | null>(null)
 
 const displayRows = computed(() => {
   const start = (currentPage.value - 1) * 10
@@ -101,7 +95,6 @@ const handleRowClick = async (row: Record<string, any>) => {
   try {
     if (!props.message.sqlQuery || !props.message.sourceQuestion || !props.columns.length) {
       drillActions.value = []
-      detailAction.value = null
       return
     }
     const preview = await queryStore.getDrillActions(
@@ -112,10 +105,8 @@ const handleRowClick = async (row: Record<string, any>) => {
       row
     )
     drillActions.value = preview.actions
-    detailAction.value = preview.detail_action || null
   } catch (error) {
     drillActions.value = []
-    detailAction.value = null
     ElMessage.error("加载钻取动作失败")
   }
 }
@@ -126,17 +117,6 @@ const runDrill = async (action: DrillAction) => {
     sourceLabel: action.source_dimension_label,
     sourceValue: action.source_value,
     targetLabel: action.target_dimension_label,
-    parentQuestion: props.message.sourceQuestion || props.message.content,
-    parentContext: props.message.drillContext,
-  }, props.message.historyId)
-}
-
-const runDetail = async (action: DrillAction) => {
-  await queryStore.ask(action.question, "text2sql", {
-    pathLabel: action.label,
-    sourceLabel: action.source_dimension_label,
-    sourceValue: action.source_value,
-    targetLabel: "明细",
     parentQuestion: props.message.sourceQuestion || props.message.content,
     parentContext: props.message.drillContext,
   }, props.message.historyId)
@@ -196,10 +176,6 @@ const exportCsv = () => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.detail-action-bar {
-  margin-bottom: 8px;
 }
 
 .table-footer {

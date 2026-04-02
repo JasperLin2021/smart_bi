@@ -5,6 +5,28 @@ from unittest.mock import patch
 
 
 class LlmQueryPlanPromptTests(unittest.TestCase):
+    def test_generate_sql_query_adds_excel_value_matching_guidance(self):
+        from app.core.llm import generate_sql_query
+
+        datasource = SimpleNamespace(
+            source_type="excel",
+            metadata_prompt="metadata",
+            metrics_prompt="metrics",
+            text2sql_prompt="base",
+        )
+
+        async def fake_chat_completion(messages, temperature=0.2, config_override=None):
+            system_prompt = messages[0]["content"]
+            self.assertIn("优先直接用该字段做等值过滤", system_prompt)
+            self.assertIn("不要把一个完整的产线名", system_prompt)
+            self.assertIn("不要臆造该列的筛选条件", system_prompt)
+            return "SELECT * FROM ngtype"
+
+        with patch("app.core.llm.chat_completion", new=fake_chat_completion):
+            result = asyncio.run(generate_sql_query("查看 MPP REPS-4th FC 单元的异常分布", datasource=datasource))
+
+        self.assertEqual(result["sql"], "SELECT * FROM ngtype")
+
     def test_generate_sql_query_adds_detail_plan_guidance(self):
         from app.core.llm import generate_sql_query
 

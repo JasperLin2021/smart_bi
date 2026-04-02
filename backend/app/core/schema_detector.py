@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, inspect, text
 from typing import Dict, Any, List
 
 from app.schemas.datasource import SchemaMetadata, TableSchema, ColumnSchema, RelationshipSchema
+from app.core.excel_uploads import resolve_excel_source_path
 
 
 # Sheet name to table name mapping
@@ -44,7 +45,8 @@ def _infer_dtype(series: pd.Series) -> str:
 
 def detect_excel_schema(file_path: str) -> SchemaMetadata:
     """Detect schema from Excel file."""
-    xlsx = pd.ExcelFile(file_path)
+    resolved_path = resolve_excel_source_path(file_path)
+    xlsx = pd.ExcelFile(resolved_path)
     tables = []
     
     for sheet_name in xlsx.sheet_names:

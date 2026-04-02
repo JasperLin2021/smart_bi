@@ -5,7 +5,12 @@ from app.db.session import get_db
 from app.models.llm_setting import LlmSetting
 from app.models.user import User
 from app.schemas.settings import LlmConfigOut, LlmConfigUpdate, LlmConfigTestRequest
-from app.core.llm import get_default_llm_config, set_llm_config_cache, test_llm_connection
+from app.core.llm import (
+    get_default_llm_config,
+    normalize_llm_config,
+    set_llm_config_cache,
+    test_llm_connection,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -22,7 +27,7 @@ def get_llm_setting(
     ensure_admin(current_user)
     record = db.query(LlmSetting).first()
     if not record:
-        default_config = get_default_llm_config()
+        default_config = normalize_llm_config(get_default_llm_config())
         record = LlmSetting(
             provider=default_config["provider"],
             base_url=default_config["base_url"],
@@ -52,14 +57,16 @@ def refresh_llm_cache(
     record = db.query(LlmSetting).first()
     if record:
         set_llm_config_cache(
-            {
-                "provider": record.provider,
-                "base_url": record.base_url,
-                "api_key": record.api_key,
-                "model": record.model,
-                "temperature": record.temperature,
-                "agent_planner_mode": record.agent_planner_mode or "llm_only",
-            }
+            normalize_llm_config(
+                {
+                    "provider": record.provider,
+                    "base_url": record.base_url,
+                    "api_key": record.api_key,
+                    "model": record.model,
+                    "temperature": record.temperature,
+                    "agent_planner_mode": record.agent_planner_mode or "llm_only",
+                }
+            )
         )
     return {"status": "ok"}
 
@@ -93,14 +100,16 @@ def update_llm_setting(
     db.commit()
     db.refresh(record)
     set_llm_config_cache(
-        {
-            "provider": record.provider,
-            "base_url": record.base_url,
-            "api_key": record.api_key,
-            "model": record.model,
-            "temperature": record.temperature,
-            "agent_planner_mode": record.agent_planner_mode or "llm_only",
-        }
+        normalize_llm_config(
+            {
+                "provider": record.provider,
+                "base_url": record.base_url,
+                "api_key": record.api_key,
+                "model": record.model,
+                "temperature": record.temperature,
+                "agent_planner_mode": record.agent_planner_mode or "llm_only",
+            }
+        )
     )
     return {
         "provider": record.provider,
@@ -136,4 +145,4 @@ async def test_llm_setting(
         "temperature": payload.temperature,
         "agent_planner_mode": "llm_only",
     }
-    return await test_llm_connection(config)
+    return await test_llm_connection(normalize_llm_config(config))

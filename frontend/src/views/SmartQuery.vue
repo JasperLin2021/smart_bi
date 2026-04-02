@@ -1,10 +1,8 @@
 <template>
   <div class="smart-query-page">
     <el-row :gutter="16" class="page-row">
-      <!-- 主聊天区域 -->
       <el-col :xs="24" :md="17" :lg="18">
         <el-card class="chat-card">
-          <!-- 头部 -->
           <template #header>
             <div class="card-header">
               <span class="card-header-title">智能问数助手</span>
@@ -20,10 +18,8 @@
               </div>
             </div>
           </template>
-          
-          <!-- 聊天消息区域 -->
+
           <div ref="chatContainerRef" class="chat-container">
-            <!-- 欢迎消息 -->
             <div v-if="queryStore.messages.length === 0" class="welcome-message">
               <div class="welcome-icon">
                 <el-icon :size="48"><ChatDotRound /></el-icon>
@@ -32,10 +28,10 @@
               <p>您可以用自然语言提问，我会帮您查询数据并生成分析结果</p>
               <div class="welcome-examples">
                 <span class="example-label">试试这样问：</span>
-                <el-tag 
-                  v-for="example in examples" 
-                  :key="example" 
-                  type="info" 
+                <el-tag
+                  v-for="example in examples"
+                  :key="example"
+                  type="info"
                   effect="plain"
                   class="example-tag"
                   @click="useExample(example)"
@@ -44,18 +40,16 @@
                 </el-tag>
               </div>
             </div>
-            
-            <!-- 消息列表 -->
+
             <div v-else class="messages-list">
-              <ChatBubble 
-                v-for="message in queryStore.messages" 
-                :key="message.id" 
-                :message="message" 
+              <ChatBubble
+                v-for="message in queryStore.messages"
+                :key="message.id"
+                :message="message"
               />
             </div>
           </div>
-          
-          <!-- 输入区域 -->
+
           <div class="input-area">
             <el-input
               v-model="question"
@@ -68,8 +62,8 @@
                 <el-icon><Search /></el-icon>
               </template>
               <template #append>
-                <el-button 
-                  type="primary" 
+                <el-button
+                  type="primary"
                   :loading="queryStore.loading"
                   :disabled="!question.trim()"
                   @click="submit"
@@ -90,21 +84,31 @@
           </div>
         </el-card>
       </el-col>
-      
-      <!-- 侧边栏 -->
+
       <el-col :xs="24" :md="7" :lg="6">
         <el-card class="history-card">
           <template #header>
             <div class="card-header">
               <span class="card-header-title">查询历史</span>
-              <el-button size="small" text @click="queryStore.fetchHistory">
-                <el-icon><Refresh /></el-icon>
-              </el-button>
+              <div class="history-header-actions">
+                <el-button
+                  size="small"
+                  text
+                  type="danger"
+                  :disabled="!queryStore.history.length"
+                  @click="deleteAllHistoryItems"
+                >
+                  删除全部
+                </el-button>
+                <el-button size="small" text @click="queryStore.fetchHistory">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+              </div>
             </div>
           </template>
           <div class="history-list">
-            <div 
-              v-for="item in queryStore.history" 
+            <div
+              v-for="item in queryStore.history"
               :key="item.id"
               class="history-item"
               @click="viewHistory(item)"
@@ -116,14 +120,14 @@
               <div class="history-meta">
                 <span class="history-date">{{ item.created_at }}</span>
                 <div class="history-actions">
-                  <el-icon 
+                  <el-icon
                     :class="['favorite-icon', { 'is-favorite': item.favorite }]"
                     @click.stop="queryStore.toggleFavorite(item.id)"
                   >
                     <Star v-if="item.favorite" />
                     <StarFilled v-else />
                   </el-icon>
-                  <el-icon 
+                  <el-icon
                     class="delete-icon"
                     @click.stop="deleteHistoryItem(item.id)"
                   >
@@ -142,8 +146,9 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue"
-import { 
-  ChatDotRound, Search, Promotion, Delete, Refresh, 
+import { ElMessageBox } from "element-plus"
+import {
+  ChatDotRound, Search, Promotion, Delete, Refresh,
   ChatLineSquare, Star, StarFilled, Close
 } from "@element-plus/icons-vue"
 import ChatBubble from "@/components/ChatBubble.vue"
@@ -154,21 +159,21 @@ const question = ref("")
 const chatContainerRef = ref<HTMLDivElement | null>(null)
 
 const examples = [
-  "查询最近一周的数据趋势",
-  "Top 10 数据统计",
-  "各分类数量汇总"
+  "产出最高的前5个单元",
+  "在“1001/OP100 - Failed Hall Cal test”这一不良类型下，各工位的NG数量分布是怎样的？",
+  "查询各单元的异常分布"
 ]
 
 const inputPlaceholder = computed(() => {
-  return queryStore.mode === "text2sql" 
-    ? "输入您的数据查询问题..." 
+  return queryStore.mode === "text2sql"
+    ? "输入您的数据查询问题..."
     : "输入您想聊的内容..."
 })
 
 const submit = async () => {
   const q = question.value.trim()
   if (!q || queryStore.loading) return
-  
+
   question.value = ""
   await queryStore.ask(q)
   scrollToBottom()
@@ -179,13 +184,30 @@ const useExample = (example: string) => {
 }
 
 const viewHistory = async (item: { id: number; question: string }) => {
-  // 加载保存的历史记录详情
   await queryStore.loadHistoryDetail(item.id)
   scrollToBottom()
 }
 
 const deleteHistoryItem = async (id: number) => {
   await queryStore.deleteHistory(id)
+}
+
+const deleteAllHistoryItems = async () => {
+  if (!queryStore.history.length) return
+  try {
+    await ElMessageBox.confirm(
+      "将删除当前数据源下的全部查询历史，且不可恢复，是否继续？",
+      "删除全部历史",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    )
+    await queryStore.deleteAllHistory()
+  } catch {
+    return
+  }
 }
 
 const cleanHistoryText = (text: string) => {
@@ -203,7 +225,6 @@ const scrollToBottom = async () => {
   }
 }
 
-// 监听消息变化，自动滚动
 watch(() => queryStore.messages.length, () => {
   scrollToBottom()
 })
@@ -269,13 +290,13 @@ onMounted(() => {
   border-radius: 2px;
 }
 
-.header-actions {
+.header-actions,
+.history-header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
-/* 聊天区域 */
 .chat-container {
   flex: 1;
   overflow-y: auto;
@@ -283,7 +304,6 @@ onMounted(() => {
   background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
 }
 
-/* 欢迎消息 */
 .welcome-message {
   display: flex;
   flex-direction: column;
@@ -351,14 +371,12 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 
-/* 消息列表 */
 .messages-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-/* 输入区域 */
 .input-area {
   padding: 20px 24px;
   border-top: 1px solid var(--app-border-light);
@@ -397,7 +415,6 @@ onMounted(() => {
   color: var(--app-text-light);
 }
 
-/* 历史记录 */
 .history-card {
   height: 100%;
   border: none;

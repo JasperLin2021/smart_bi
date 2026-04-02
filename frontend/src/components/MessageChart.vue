@@ -1,7 +1,7 @@
 <template>
   <div class="message-chart">
     <div class="chart-header">
-      <span class="chart-title">数据可视化</span>
+      <span class="chart-title">数据可视化（点击图表钻取）</span>
       <div class="chart-actions">
         <el-select v-model="chartType" size="small" style="width: 90px;" placeholder="图表类型">
           <el-option label="折线图" value="line" />
@@ -46,15 +46,10 @@
       </div>
     </div>
 
-    <div v-if="selectedRow && (drillLoading || drillActions.length || detailAction || drillAttempted)" class="drill-bar">
+    <div v-if="selectedRow && (drillLoading || drillActions.length || drillAttempted)" class="drill-bar">
       <div class="drill-bar-title">已选中图表项：{{ selectedSummary }}</div>
       <div v-if="drillLoading" class="drill-loading">正在生成下钻建议...</div>
-      <div v-else-if="!drillActions.length && !detailAction" class="drill-empty">当前图表项没有可用的下钻建议</div>
-      <div v-if="detailAction && !drillLoading" class="detail-action-bar">
-        <el-button size="small" type="success" plain @click="runDetail(detailAction)">
-          {{ detailAction.label }}
-        </el-button>
-      </div>
+      <div v-else-if="!drillActions.length" class="drill-empty">当前图表项没有可用的下钻建议</div>
       <div class="drill-actions-bar">
         <el-button
           v-for="action in drillActions"
@@ -96,6 +91,7 @@ import { ElMessage } from "element-plus"
 import axios from "axios"
 import * as echarts from "echarts"
 import { useQueryStore, type ChatMessage, type DrillAction } from "@/store/query"
+import { useDatasourceStore } from "@/store/datasource"
 
 const props = defineProps<{
   message: ChatMessage
@@ -106,13 +102,13 @@ const props = defineProps<{
 
 const chartRef = ref<HTMLDivElement | null>(null)
 const queryStore = useQueryStore()
+const datasourceStore = useDatasourceStore()
 const chartType = ref<"line" | "bar" | "pie">("line")
 const sortOrder = ref<"none" | "desc" | "asc">("none")
 const showDimensionConfig = ref(false)
 let chartInstance: echarts.ECharts | null = null
 const selectedRow = ref<Record<string, any> | null>(null)
 const drillActions = ref<DrillAction[]>([])
-const detailAction = ref<DrillAction | null>(null)
 const drillLoading = ref(false)
 const drillAttempted = ref(false)
 
@@ -383,7 +379,6 @@ const handleChartClick = async (params: any) => {
   try {
     if (!props.sqlQuery || !props.message.sourceQuestion || !selectedXField.value) {
       drillActions.value = []
-      detailAction.value = null
       return
     }
     const preview = await queryStore.getDrillActions(
@@ -394,10 +389,8 @@ const handleChartClick = async (params: any) => {
       row
     )
     drillActions.value = preview.actions
-    detailAction.value = preview.detail_action || null
   } catch {
     drillActions.value = []
-    detailAction.value = null
     ElMessage.error("加载钻取动作失败")
   } finally {
     drillLoading.value = false
@@ -432,17 +425,6 @@ const runDrill = async (action: DrillAction) => {
   }, props.message.historyId)
 }
 
-const runDetail = async (action: DrillAction) => {
-  await queryStore.ask(action.question, "text2sql", {
-    pathLabel: action.label,
-    sourceLabel: action.source_dimension_label,
-    sourceValue: action.source_value,
-    targetLabel: "明细",
-    parentQuestion: props.message.sourceQuestion || props.message.content,
-    parentContext: props.message.drillContext,
-  }, props.message.historyId)
-}
-
 // 固定到Dashboard
 const pinToDashboard = async () => {
   if (!pinForm.value.title.trim()) {
@@ -461,7 +443,8 @@ const pinToDashboard = async () => {
       description: pinForm.value.description.trim() || null,
       sql_query: props.sqlQuery,
       chart_type: chartType.value,
-      sort_order: sortOrder.value
+      sort_order: sortOrder.value,
+      datasource_id: datasourceStore.currentId,
     })
     ElMessage.success("已固定到Dashboard")
     showPinDialog.value = false
@@ -476,7 +459,6 @@ const pinToDashboard = async () => {
 watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields], () => {
   selectedRow.value = null
   drillActions.value = []
-  detailAction.value = null
   drillLoading.value = false
   drillAttempted.value = false
   renderChart()
@@ -484,7 +466,6 @@ watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields
 watch(() => props.rows, () => {
   selectedRow.value = null
   drillActions.value = []
-  detailAction.value = null
   drillLoading.value = false
   drillAttempted.value = false
   autoDetectFields()

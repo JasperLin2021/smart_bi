@@ -21,6 +21,7 @@ class QueryAskResponse(BaseModel):
     summary: str
     cube_query: Optional[Dict[str, Any]] = None
     sql_query: Optional[str] = None
+    llm_model: Optional[str] = None
     history_id: Optional[int] = None
     recommendations: List[str]
     mode: str

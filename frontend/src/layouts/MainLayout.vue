@@ -140,7 +140,6 @@
         <router-view />
       </el-main>
     </el-container>
-    <FloatingAgent />
   </el-container>
 </template>
 
@@ -149,7 +148,6 @@ import { computed, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
-import FloatingAgent from "@/components/FloatingAgent.vue"
 import { 
   DataLine, ChatDotRound, Coin, User, OfficeBuilding, 
   TrendCharts, Setting, Refresh, SwitchButton 
