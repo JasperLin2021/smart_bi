@@ -217,6 +217,7 @@ async def generate_sql_query(
     datasource=None,
     context: str = "",
     query_plan: dict | None = None,
+    metric_match: dict | None = None,
 ) -> dict:
     """生成SQL查询语句，基于数据源的元数据"""
     if datasource:
@@ -229,7 +230,19 @@ async def generate_sql_query(
     system_prompt = text2sql_prompt
     if metadata_prompt:
         system_prompt += f"\n\n{metadata_prompt}"
-    if metrics_prompt:
+    if metric_match:
+        metric_name = (metric_match.get("name") or "").strip()
+        metric_formula = (metric_match.get("formula") or "").strip()
+        if metric_name or metric_formula:
+            system_prompt += "\n\n本次问题命中的目标指标："
+            if metric_name:
+                system_prompt += metric_name
+            if metric_formula:
+                system_prompt += (
+                    f"\n必须使用以下指标公式，不允许改写成其他口径：{metric_formula}"
+                    "\n如果 SQL 中没有体现该公式或等价表达式，则答案无效。"
+                )
+    elif metrics_prompt:
         system_prompt += f"\n\n{metrics_prompt}"
     if datasource and getattr(datasource, "source_type", "") == "excel":
         system_prompt += EXCEL_TEXT2SQL_SUFFIX
