@@ -1,3 +1,4 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
@@ -18,6 +19,17 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 def ensure_admin(user: User):
     if user.role != "super_admin":
         raise HTTPException(status_code=403, detail="无权限")
+
+
+def _format_llm_test_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        body = exc.response.text.strip()
+        if body:
+            return f"LLM 连接测试失败: {body}"
+        return f"LLM 连接测试失败: 上游服务返回 {exc.response.status_code}"
+    if isinstance(exc, httpx.RequestError):
+        return f"LLM 连接测试失败: {exc}"
+    return f"LLM 连接测试失败: {exc}"
 
 
 @router.get("/llm", response_model=LlmConfigOut)
@@ -137,12 +149,17 @@ async def test_llm_setting(
     if not api_key:
         raise HTTPException(status_code=400, detail="请先填写 API Key")
 
-    config = {
-        "provider": payload.provider,
-        "base_url": payload.base_url.rstrip("/"),
-        "api_key": api_key,
-        "model": payload.model,
-        "temperature": payload.temperature,
-        "agent_planner_mode": "llm_only",
-    }
-    return await test_llm_connection(normalize_llm_config(config))
+    config = normalize_llm_config(
+        {
+            "provider": payload.provider,
+            "base_url": payload.base_url.rstrip("/"),
+            "api_key": api_key,
+            "model": payload.model,
+            "temperature": payload.temperature,
+            "agent_planner_mode": "llm_only",
+        }
+    )
+    try:
+        return await test_llm_connection(config)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_format_llm_test_error(exc)) from exc

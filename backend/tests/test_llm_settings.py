@@ -3,6 +3,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
+from fastapi import HTTPException
+
 
 class LlmSettingsTests(unittest.TestCase):
     def test_test_llm_connection_uses_override_config(self):
@@ -101,6 +104,35 @@ class LlmSettingsTests(unittest.TestCase):
         self.assertEqual(result["model"], "gemini-3.1-flash-lite-preview")
         cached = mocked_cache.call_args.args[0]
         self.assertEqual(cached["model"], "gemini-3.1-flash-lite-preview")
+
+    def test_test_llm_setting_translates_provider_errors(self):
+        from app.api.settings import test_llm_setting
+        from app.schemas.settings import LlmConfigTestRequest
+
+        payload = LlmConfigTestRequest(
+            provider="custom",
+            base_url="https://example.com/v1",
+            model="demo-model",
+            temperature=0.3,
+            api_key="demo-key",
+        )
+        user = SimpleNamespace(role="super_admin")
+        db = SimpleNamespace()
+        db.query = lambda *_args, **_kwargs: SimpleNamespace(
+            first=lambda: SimpleNamespace(api_key="saved-key")
+        )
+
+        request = httpx.Request("POST", "https://example.com/v1/chat/completions")
+        response = httpx.Response(401, request=request, text='{"error":"bad api key"}')
+        error = httpx.HTTPStatusError("401 Unauthorized", request=request, response=response)
+
+        with patch("app.api.settings.test_llm_connection", new=AsyncMock(side_effect=error)):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(test_llm_setting(payload, db=db, current_user=user))
+
+        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertIn("LLM 连接测试失败", ctx.exception.detail)
+        self.assertIn("bad api key", ctx.exception.detail)
 
 
 if __name__ == "__main__":
