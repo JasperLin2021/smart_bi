@@ -34,6 +34,35 @@ DETAIL_QUERY_SUFFIX = """
 4. 如果筛选条件中的字段已经存在于某张明细表中，优先直接查询该明细表。
 """
 
+PLAN_QUERY_SUFFIXES = {
+    "detail": """
+
+当前查询规划类型：detail
+1. 优先返回明细记录，避免无意义聚合。
+2. 优先选择业务事件明细表，而不是主汇总表。
+3. SELECT 应优先包含能解释单条记录的关键字段。
+""",
+    "aggregate": """
+
+当前查询规划类型：aggregate
+1. 优先围绕业务指标做聚合分析。
+2. 需要明确分组维度和指标口径。
+""",
+    "distribution": """
+
+当前查询规划类型：distribution
+1. 重点回答不同维度上的业务量值分布。
+2. 如果存在更有业务意义的量值字段，不要默认 COUNT(*)。
+""",
+    "ranking": """
+
+当前查询规划类型：ranking
+1. 结果必须显式排序。
+2. 如果问题包含 Top/最高/最低/排名，优先返回排序后的有限结果。
+3. 必须显式排序，且排序方向要与问题语义一致。
+""",
+}
+
 
 def get_default_llm_config() -> dict:
     provider = settings.llm_provider.lower()
@@ -168,7 +197,12 @@ def get_datasource_prompts(datasource) -> tuple[str, str, str]:
     return text2sql_prompt, metadata_prompt, metrics_prompt
 
 
-async def generate_sql_query(question: str, datasource=None, context: str = "") -> dict:
+async def generate_sql_query(
+    question: str,
+    datasource=None,
+    context: str = "",
+    query_plan: dict | None = None,
+) -> dict:
     """生成SQL查询语句，基于数据源的元数据"""
     if datasource:
         text2sql_prompt, metadata_prompt, metrics_prompt = get_datasource_prompts(datasource)
@@ -186,6 +220,11 @@ async def generate_sql_query(question: str, datasource=None, context: str = "") 
         system_prompt += EXCEL_TEXT2SQL_SUFFIX
     if re.search(r"(详细记录|明细|列出.*记录|所有.*记录|原始记录)", question):
         system_prompt += DETAIL_QUERY_SUFFIX
+    if query_plan:
+        query_type = str(query_plan.get("query_type") or "").strip().lower()
+        if query_type in PLAN_QUERY_SUFFIXES:
+            system_prompt += PLAN_QUERY_SUFFIXES[query_type]
+        system_prompt += f"\n\n查询规划:{json.dumps(query_plan, ensure_ascii=False)}"
 
     messages = [
         {"role": "system", "content": system_prompt},

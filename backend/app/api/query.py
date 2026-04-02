@@ -6,6 +6,7 @@ from fastapi_cache.decorator import cache
 
 from app.api.auth import get_current_user
 from app.core.llm import generate_sql_query, generate_summary, chat
+from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
 from app.core.sql_guard import detect_excel_join_risk
 from app.db.session import get_db, get_datasource_engine
@@ -63,8 +64,12 @@ def _get_drill_config(datasource: DataSource | None) -> dict | None:
         return []
 
 
-async def _generate_safe_sql(question: str, datasource: DataSource) -> str:
-    sql_response = await generate_sql_query(question, datasource=datasource)
+async def _generate_safe_sql(question: str, datasource: DataSource, query_plan: dict | None = None) -> str:
+    sql_response = await generate_sql_query(
+        question,
+        datasource=datasource,
+        query_plan=query_plan,
+    )
     sql_query = sql_response.get("sql", "")
     if datasource.source_type != "excel":
         return sql_query
@@ -79,7 +84,12 @@ async def _generate_safe_sql(question: str, datasource: DataSource) -> str:
         f"改写要求：{risk['hint']}\n"
         "请重写为更稳妥的 SQL，只输出最终 SQL。"
     )
-    retry_response = await generate_sql_query(question, datasource=datasource, context=retry_context)
+    retry_response = await generate_sql_query(
+        question,
+        datasource=datasource,
+        context=retry_context,
+        query_plan=query_plan,
+    )
     retried_sql = retry_response.get("sql", "")
     retry_risk = detect_excel_join_risk(datasource.database_url, retried_sql)
     if retry_risk:
@@ -137,7 +147,8 @@ async def ask(
         raise HTTPException(status_code=400, detail="请先选择或配置数据源")
 
     try:
-        sql_query = await _generate_safe_sql(question, datasource)
+        query_plan = await plan_query(question, datasource)
+        sql_query = await _generate_safe_sql(question, datasource, query_plan)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
 

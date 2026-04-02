@@ -9,6 +9,7 @@ from app.api.pinned_charts import router as pinned_charts_router
 from app.api.datasource import router as datasource_router
 from app.api.organization import router as organization_router
 from app.api.users import router as users_router
+from app.api.agent import router as agent_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -21,3 +22,4 @@ api_router.include_router(pinned_charts_router)
 api_router.include_router(datasource_router)
 api_router.include_router(organization_router)
 api_router.include_router(users_router)
+api_router.include_router(agent_router)
