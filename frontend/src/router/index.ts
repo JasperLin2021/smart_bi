@@ -20,6 +20,8 @@ const router = createRouter({
       meta: { requiredRole: ['super_admin'] }
     },
     { path: "/metric-settings", component: () => import("@/views/MetricSettings.vue") },
+    { path: "/alert-settings", component: () => import("@/views/AlertSettings.vue") },
+    { path: "/scheduled-reports", component: () => import("@/views/ScheduledReports.vue") },
     { 
       path: "/llm-settings", 
       component: () => import("@/views/LlmSettings.vue"),

@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -15,8 +17,22 @@ from app.models.datasource import DataSource
 from app.models.organization import Organization
 from app.models.pinned_chart import PinnedChart  # noqa: F401
 from app.models.agent_run import AgentRun  # noqa: F401
+from app.models.alert import Alert  # noqa: F401
+from app.models.notification_setting import NotificationSetting  # noqa: F401
+from app.models.alert_history import AlertHistory  # noqa: F401
+from app.models.scheduled_report import ScheduledReport  # noqa: F401
 
-app = FastAPI(title=settings.app_name)
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    _startup()
+    from app.core.alert_scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
+app = FastAPI(title=settings.app_name, lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -69,9 +85,19 @@ def _ensure_column(engine, table_name: str, column_definition: str) -> None:
         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_definition}"))
 
 
-@app.on_event("startup")
 def startup():
+    """Public alias kept for backward compatibility with tests."""
+    _startup()
+
+
+def _startup():
     Base.metadata.create_all(bind=engine)
+
+    # Add email_recipients column to alerts table if missing
+    try:
+        _ensure_column(engine, "alerts", "email_recipients TEXT")
+    except Exception:
+        pass
 
     # Add datasource_id columns to existing tables if missing
     for table in ["query_history", "pinned_charts", "metrics"]:
@@ -131,6 +157,18 @@ def startup():
         _ensure_column(engine, "users", "org_id INTEGER")
     except Exception:
         pass
+
+    # Add permission columns to users table if missing
+    for column_definition in [
+        "data_scope VARCHAR(32)",
+        "permission_override_enabled BOOLEAN DEFAULT 0",
+        "menu_permissions TEXT",
+        "action_permissions TEXT",
+    ]:
+        try:
+            _ensure_column(engine, "users", column_definition)
+        except Exception:
+            pass
 
     # Add org_id column to datasources table if missing
     try:

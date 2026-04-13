@@ -10,6 +10,10 @@ backend/venv/
 frontend/dist/
 backend/uploads/
 ~$*.xlsx
+*.db
+.agent-skills/
+.codex/
+graphify-out/
 
 # Accidental files from mistyped commands
 ,

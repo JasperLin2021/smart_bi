@@ -76,6 +76,14 @@
               <el-icon><TrendCharts /></el-icon>
               <span>指标配置</span>
             </el-menu-item>
+            <el-menu-item index="/alert-settings">
+              <el-icon><Bell /></el-icon>
+              <span>预警管理</span>
+            </el-menu-item>
+            <el-menu-item index="/scheduled-reports">
+              <el-icon><AlarmClock /></el-icon>
+              <span>定时报告</span>
+            </el-menu-item>
             <el-menu-item v-if="isSuperAdmin" index="/llm-settings">
               <el-icon><Setting /></el-icon>
               <span>大模型配置</span>
@@ -148,9 +156,9 @@ import { computed, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
-import { 
-  DataLine, ChatDotRound, Coin, User, OfficeBuilding, 
-  TrendCharts, Setting, Refresh, SwitchButton 
+import {
+  DataLine, ChatDotRound, Coin, User, OfficeBuilding,
+  TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -169,6 +177,8 @@ const pageTitle = computed(() => {
     "/user-management": "用户管理",
     "/org-management": "企业管理",
     "/metric-settings": "指标配置",
+    "/alert-settings": "预警管理",
+    "/scheduled-reports": "定时报告",
     "/llm-settings": "大模型配置",
   }
   return titles[route.path] || "Dashboard"

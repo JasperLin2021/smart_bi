@@ -19,10 +19,13 @@ dependencies = [
     "python-multipart>=0.0.20",
     "sqlalchemy==2.0.34",
     "uvicorn[standard]==0.30.6",
+    "apscheduler>=3.10,<4",
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=8.4.2,<9",
+]
 
 [tool.uv]
 package = false
