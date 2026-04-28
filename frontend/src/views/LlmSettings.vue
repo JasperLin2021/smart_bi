@@ -56,43 +56,43 @@
         </el-form>
         </el-card>
       </el-col>
-      <el-col :xs=”24” :md=”8”>
+      <el-col :xs="24" :md="8">
         <el-card>
         <template #header>
-          <span class=”card-header-title”>说明</span>
+          <span class="card-header-title">说明</span>
         </template>
-        <el-space direction=”vertical” alignment=”start” class=”info-card”>
+        <el-space direction="vertical" alignment="start" class="info-card">
           <div>仅管理员可修改配置</div>
           <div>API Key 留空表示保持原值</div>
-          <div>Agent 默认建议使用”全部走 LLM”</div>
+          <div>Agent 默认建议使用"全部走 LLM"</div>
         </el-space>
         </el-card>
       </el-col>
     </el-row>
 
     <!-- Notification Channels -->
-    <el-row :gutter=”16” style=”margin-top: 20px”>
-      <el-col :xs=”24” :md=”16”>
+    <el-row :gutter="16" style="margin-top: 20px">
+      <el-col :xs="24" :md="16">
         <el-card>
           <template #header>
-            <div class=”card-header”>
-              <span class=”card-header-title”>通知渠道配置</span>
-              <el-button size=”small” @click=”loadNotification”>刷新</el-button>
+            <div class="card-header">
+              <span class="card-header-title">通知渠道配置</span>
+              <el-button size="small" @click="loadNotification">刷新</el-button>
             </div>
           </template>
 
           <!-- WeChat Work -->
-          <div class=”channel-section”>
-            <div class=”channel-header”>
-              <el-switch v-model=”notify.wechat_enabled” />
-              <span class=”channel-title”>企业微信机器人</span>
+          <div class="channel-section">
+            <div class="channel-header">
+              <el-switch v-model="notify.wechat_enabled" />
+              <span class="channel-title">企业微信机器人</span>
             </div>
-            <el-form label-width=”110px” class=”page-stack” v-if=”notify.wechat_enabled”>
-              <el-form-item label=”Webhook URL”>
-                <el-input v-model=”notify.wechat_webhook_url” placeholder=”https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...” />
+            <el-form label-width="110px" class="page-stack" v-if="notify.wechat_enabled">
+              <el-form-item label="Webhook URL">
+                <el-input v-model="notify.wechat_webhook_url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." />
               </el-form-item>
               <el-form-item>
-                <el-button size=”small” :loading=”testingWechat” @click=”testChannel('wechat')”>发送测试消息</el-button>
+                <el-button size="small" :loading="testingWechat" @click="testChannel('wechat')">发送测试消息</el-button>
               </el-form-item>
             </el-form>
           </div>
@@ -100,25 +100,25 @@
           <el-divider />
 
           <!-- DingTalk -->
-          <div class=”channel-section”>
-            <div class=”channel-header”>
-              <el-switch v-model=”notify.dingtalk_enabled” />
-              <span class=”channel-title”>钉钉机器人</span>
+          <div class="channel-section">
+            <div class="channel-header">
+              <el-switch v-model="notify.dingtalk_enabled" />
+              <span class="channel-title">钉钉机器人</span>
             </div>
-            <el-form label-width=”110px” class=”page-stack” v-if=”notify.dingtalk_enabled”>
-              <el-form-item label=”Webhook URL”>
-                <el-input v-model=”notify.dingtalk_webhook_url” placeholder=”https://oapi.dingtalk.com/robot/send?access_token=...” />
+            <el-form label-width="110px" class="page-stack" v-if="notify.dingtalk_enabled">
+              <el-form-item label="Webhook URL">
+                <el-input v-model="notify.dingtalk_webhook_url" placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
               </el-form-item>
-              <el-form-item label=”加签密钥”>
+              <el-form-item label="加签密钥">
                 <el-input
-                  v-model=”notify.dingtalk_secret”
-                  type=”password”
+                  v-model="notify.dingtalk_secret"
+                  type="password"
                   show-password
-                  :placeholder=”notify.dingtalk_secret_set ? '已设置，留空保持不变' : '选填，开启加签验证时填写'”
+                  :placeholder="notify.dingtalk_secret_set ? '已设置，留空保持不变' : '选填，开启加签验证时填写'"
                 />
               </el-form-item>
               <el-form-item>
-                <el-button size=”small” :loading=”testingDingtalk” @click=”testChannel('dingtalk')”>发送测试消息</el-button>
+                <el-button size="small" :loading="testingDingtalk" @click="testChannel('dingtalk')">发送测试消息</el-button>
               </el-form-item>
             </el-form>
           </div>
@@ -126,55 +126,55 @@
           <el-divider />
 
           <!-- Email -->
-          <div class=”channel-section”>
-            <div class=”channel-header”>
-              <el-switch v-model=”notify.email_enabled” />
-              <span class=”channel-title”>邮件通知（SMTP）</span>
+          <div class="channel-section">
+            <div class="channel-header">
+              <el-switch v-model="notify.email_enabled" />
+              <span class="channel-title">邮件通知（SMTP）</span>
             </div>
-            <el-form label-width=”110px” class=”page-stack” v-if=”notify.email_enabled”>
-              <el-form-item label=”SMTP 服务器”>
-                <el-input v-model=”notify.smtp_host” placeholder=”smtp.exmail.qq.com” style=”width:220px” />
-                <span style=”margin: 0 8px; color:#666”>端口</span>
-                <el-input-number v-model=”notify.smtp_port” :min=”1” :max=”65535” style=”width:110px” />
-                <el-checkbox v-model=”notify.smtp_use_ssl” style=”margin-left:12px”>SSL</el-checkbox>
+            <el-form label-width="110px" class="page-stack" v-if="notify.email_enabled">
+              <el-form-item label="SMTP 服务器">
+                <el-input v-model="notify.smtp_host" placeholder="smtp.exmail.qq.com" style="width:220px" />
+                <span style="margin: 0 8px; color:#666">端口</span>
+                <el-input-number v-model="notify.smtp_port" :min="1" :max="65535" style="width:110px" />
+                <el-checkbox v-model="notify.smtp_use_ssl" style="margin-left:12px">SSL</el-checkbox>
               </el-form-item>
-              <el-form-item label=”用户名”>
-                <el-input v-model=”notify.smtp_username” placeholder=”sender@company.com” />
+              <el-form-item label="用户名">
+                <el-input v-model="notify.smtp_username" placeholder="sender@company.com" />
               </el-form-item>
-              <el-form-item label=”密码”>
+              <el-form-item label="密码">
                 <el-input
-                  v-model=”notify.smtp_password”
-                  type=”password”
+                  v-model="notify.smtp_password"
+                  type="password"
                   show-password
-                  :placeholder=”notify.smtp_password_set ? '已设置，留空保持不变' : '授权码或密码'”
+                  :placeholder="notify.smtp_password_set ? '已设置，留空保持不变' : '授权码或密码'"
                 />
               </el-form-item>
-              <el-form-item label=”发件人名称”>
-                <el-input v-model=”notify.smtp_from” placeholder=”Smart BI <sender@company.com>” />
+              <el-form-item label="发件人名称">
+                <el-input v-model="notify.smtp_from" placeholder="Smart BI <sender@company.com>" />
               </el-form-item>
-              <el-form-item label=”测试收件人”>
-                <el-input v-model=”notify.test_email_to” placeholder=”admin@company.com” style=”width:240px” />
-                <el-button size=”small” :loading=”testingEmail” style=”margin-left:8px” @click=”testChannel('email')”>发送测试邮件</el-button>
+              <el-form-item label="测试收件人">
+                <el-input v-model="notify.test_email_to" placeholder="admin@company.com" style="width:240px" />
+                <el-button size="small" :loading="testingEmail" style="margin-left:8px" @click="testChannel('email')">发送测试邮件</el-button>
               </el-form-item>
             </el-form>
           </div>
 
-          <div style=”margin-top: 16px; text-align: right”>
-            <el-button type=”primary” :loading=”savingNotify” @click=”saveNotification”>保存通知配置</el-button>
+          <div style="margin-top: 16px; text-align: right">
+            <el-button type="primary" :loading="savingNotify" @click="saveNotification">保存通知配置</el-button>
           </div>
         </el-card>
       </el-col>
 
-      <el-col :xs=”24” :md=”8”>
+      <el-col :xs="24" :md="8">
         <el-card>
           <template #header>
-            <span class=”card-header-title”>配置说明</span>
+            <span class="card-header-title">配置说明</span>
           </template>
-          <el-space direction=”vertical” alignment=”start” class=”info-card”>
+          <el-space direction="vertical" alignment="start" class="info-card">
             <div><b>企业微信</b>：在群聊中添加机器人，复制 Webhook URL 填入即可</div>
-            <div><b>钉钉</b>：创建自定义机器人，可选开启”加签”安全验证</div>
+            <div><b>钉钉</b>：创建自定义机器人，可选开启"加签"安全验证</div>
             <div><b>邮件</b>：支持 SSL/TLS 两种方式，企业邮箱建议用 465 端口 + SSL</div>
-            <div style=”color:#999; font-size:12px”>预警和定时报告将使用以上渠道发送通知</div>
+            <div style="color:#999; font-size:12px">预警和定时报告将使用以上渠道发送通知</div>
           </el-space>
         </el-card>
       </el-col>
@@ -182,12 +182,12 @@
   </div>
 </template>
 
-<script setup lang=”ts”>
-import { computed, onMounted, reactive, ref } from “vue”
-import axios from “axios”
-import { ElMessage } from “element-plus”
-import { useAuthStore } from “@/store/auth”
-import { useRouter } from “vue-router”
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from "vue"
+import axios from "axios"
+import { ElMessage } from "element-plus"
+import { useAuthStore } from "@/store/auth"
+import { useRouter } from "vue-router"
 
 const saving = ref(false)
 const testing = ref(false)
@@ -203,20 +203,20 @@ const testingEmail = ref(false)
 
 const notify = reactive({
   wechat_enabled: false,
-  wechat_webhook_url: “”,
+  wechat_webhook_url: "",
   dingtalk_enabled: false,
-  dingtalk_webhook_url: “”,
-  dingtalk_secret: “”,
+  dingtalk_webhook_url: "",
+  dingtalk_secret: "",
   dingtalk_secret_set: false,
   email_enabled: false,
-  smtp_host: “”,
+  smtp_host: "",
   smtp_port: 465,
-  smtp_username: “”,
-  smtp_password: “”,
+  smtp_username: "",
+  smtp_password: "",
   smtp_password_set: false,
-  smtp_from: “”,
+  smtp_from: "",
   smtp_use_ssl: true,
-  test_email_to: “”,
+  test_email_to: "",
 })
 
 const form = reactive({
