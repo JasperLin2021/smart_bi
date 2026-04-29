@@ -12,6 +12,7 @@ from app.api.users import router as users_router
 from app.api.agent import router as agent_router
 from app.api.alerts import router as alerts_router
 from app.api.scheduled_reports import router as scheduled_reports_router
+from app.api.catalog import router as catalog_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -27,3 +28,4 @@ api_router.include_router(users_router)
 api_router.include_router(agent_router)
 api_router.include_router(alerts_router)
 api_router.include_router(scheduled_reports_router)
+api_router.include_router(catalog_router)
