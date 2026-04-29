@@ -11,6 +11,12 @@ class MetricBase(BaseModel):
     table_name: Optional[str] = None
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    owner_name: Optional[str] = None
+    unit: Optional[str] = None
+    aggregation: str = "sum"
+    tags: Optional[list[str]] = None
+    status: str = "published"
+    dimensions: Optional[list[str]] = None
     is_active: int = 1
 
 
@@ -26,6 +32,12 @@ class MetricUpdate(BaseModel):
     table_name: Optional[str] = None
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    owner_name: Optional[str] = None
+    unit: Optional[str] = None
+    aggregation: Optional[str] = None
+    tags: Optional[list[str]] = None
+    status: Optional[str] = None
+    dimensions: Optional[list[str]] = None
     is_active: Optional[int] = None
 
 

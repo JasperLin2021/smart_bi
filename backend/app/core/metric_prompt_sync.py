@@ -14,12 +14,18 @@ def build_metrics_prompt(metrics: list[dict]) -> str | None:
         description = (metric.get("description") or "").strip()
         definition = (metric.get("definition") or "").strip()
         formula = (metric.get("formula") or "").strip()
+        unit = (metric.get("unit") or "").strip()
+        aggregation = (metric.get("aggregation") or "").strip()
 
         parts = [f"- {name}:"]
         if description:
             parts.append(description)
         elif definition:
             parts.append(definition)
+        if unit:
+            parts.append(f"单位：{unit}")
+        if aggregation:
+            parts.append(f"聚合：{aggregation}")
         if formula:
             parts.append(f"计算公式：{formula}")
         lines.append(" ".join(parts))
@@ -45,6 +51,8 @@ def sync_datasource_metrics_prompt(db: Session, datasource_id: int) -> None:
                 "description": item.description,
                 "definition": item.definition,
                 "formula": item.formula,
+                "unit": item.unit,
+                "aggregation": item.aggregation,
             }
             for item in metrics
         ]
