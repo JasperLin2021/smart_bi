@@ -20,6 +20,7 @@ dependencies = [
     "sqlalchemy==2.0.34",
     "uvicorn[standard]==0.30.6",
     "apscheduler>=3.10,<4",
+    "alembic>=1.13,<2",
 ]
 
 [dependency-groups]
