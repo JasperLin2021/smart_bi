@@ -17,12 +17,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("metrics", sa.Column("owner_name", sa.String(length=128), nullable=True))
-    op.add_column("metrics", sa.Column("unit", sa.String(length=32), nullable=True))
-    op.add_column("metrics", sa.Column("aggregation", sa.String(length=32), nullable=False, server_default="sum"))
-    op.add_column("metrics", sa.Column("tags", sa.JSON(), nullable=True))
-    op.add_column("metrics", sa.Column("status", sa.String(length=32), nullable=False, server_default="published"))
-    op.add_column("metrics", sa.Column("dimensions", sa.JSON(), nullable=True))
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("metrics")}
+    columns = [
+        sa.Column("owner_name", sa.String(length=128), nullable=True),
+        sa.Column("unit", sa.String(length=32), nullable=True),
+        sa.Column("aggregation", sa.String(length=32), nullable=False, server_default="sum"),
+        sa.Column("tags", sa.JSON(), nullable=True),
+        sa.Column("status", sa.String(length=32), nullable=False, server_default="published"),
+        sa.Column("dimensions", sa.JSON(), nullable=True),
+    ]
+    for column in columns:
+        if column.name not in existing:
+            op.add_column("metrics", column)
 
 
 def downgrade() -> None:

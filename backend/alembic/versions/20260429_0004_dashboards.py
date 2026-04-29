@@ -17,8 +17,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    bind = op.get_bind()
+    dashboards = sa.Table(
         "dashboards",
+        sa.MetaData(),
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(length=128), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
@@ -32,11 +34,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_dashboards_id"), "dashboards", ["id"], unique=False)
-    op.create_index(op.f("ix_dashboards_title"), "dashboards", ["title"], unique=False)
-    op.create_index(op.f("ix_dashboards_status"), "dashboards", ["status"], unique=False)
-    op.create_index(op.f("ix_dashboards_org_id"), "dashboards", ["org_id"], unique=False)
-    op.create_index(op.f("ix_dashboards_owner_id"), "dashboards", ["owner_id"], unique=False)
+    dashboards.create(bind, checkfirst=True)
+    for column in ("id", "title", "status", "org_id", "owner_id"):
+        sa.Index(op.f(f"ix_dashboards_{column}"), dashboards.c[column]).create(bind, checkfirst=True)
 
 
 def downgrade() -> None:

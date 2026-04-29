@@ -69,7 +69,16 @@ Backend:
 ```bash
 cd backend
 uv sync
+DATABASE_URL=sqlite:///./smartbi.db uv run alembic upgrade head
 DATABASE_URL=sqlite:///./smartbi.db uv run uvicorn app.main:app --host 0.0.0.0 --port 8002
+```
+
+When deploying an existing environment, run the Alembic migration before starting
+the backend image for the first time after an upgrade:
+
+```bash
+cd backend
+DATABASE_URL=postgresql+psycopg2://user:password@host:5432/smart_bi uv run alembic upgrade head
 ```
 
 Frontend:

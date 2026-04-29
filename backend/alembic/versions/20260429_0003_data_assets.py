@@ -17,8 +17,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    bind = op.get_bind()
+    data_assets = sa.Table(
         "data_assets",
+        sa.MetaData(),
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("asset_type", sa.String(length=32), nullable=False),
         sa.Column("asset_id", sa.Integer(), nullable=True),
@@ -34,14 +36,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_data_assets_id"), "data_assets", ["id"], unique=False)
-    op.create_index(op.f("ix_data_assets_asset_type"), "data_assets", ["asset_type"], unique=False)
-    op.create_index(op.f("ix_data_assets_asset_id"), "data_assets", ["asset_id"], unique=False)
-    op.create_index(op.f("ix_data_assets_name"), "data_assets", ["name"], unique=False)
-    op.create_index(op.f("ix_data_assets_datasource_id"), "data_assets", ["datasource_id"], unique=False)
-    op.create_index(op.f("ix_data_assets_org_id"), "data_assets", ["org_id"], unique=False)
-    op.create_index(op.f("ix_data_assets_owner_id"), "data_assets", ["owner_id"], unique=False)
-    op.create_index(op.f("ix_data_assets_status"), "data_assets", ["status"], unique=False)
+    data_assets.create(bind, checkfirst=True)
+    for column in ("id", "asset_type", "asset_id", "name", "datasource_id", "org_id", "owner_id", "status"):
+        sa.Index(op.f(f"ix_data_assets_{column}"), data_assets.c[column]).create(bind, checkfirst=True)
 
 
 def downgrade() -> None:
