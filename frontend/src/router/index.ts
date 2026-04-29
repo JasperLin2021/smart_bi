@@ -7,6 +7,8 @@ const router = createRouter({
     { path: "/", redirect: "/dashboard" },
     { path: "/login", component: () => import("@/views/Login.vue") },
     { path: "/dashboard", component: () => import("@/views/Dashboard.vue") },
+    { path: "/dashboard-center", component: () => import("@/views/DashboardCenter.vue") },
+    { path: "/data-catalog", component: () => import("@/views/DataCatalog.vue") },
     { path: "/smart-query", component: () => import("@/views/SmartQuery.vue") },
     { path: "/datasource-settings", component: () => import("@/views/DataSourceSettings.vue") },
     { 

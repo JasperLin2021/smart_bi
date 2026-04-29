@@ -50,6 +50,14 @@
               <el-icon><DataLine /></el-icon>
               <span>Dashboard</span>
             </el-menu-item>
+            <el-menu-item index="/dashboard-center">
+              <el-icon><Grid /></el-icon>
+              <span>看板中心</span>
+            </el-menu-item>
+            <el-menu-item index="/data-catalog">
+              <el-icon><FolderOpened /></el-icon>
+              <span>数据目录</span>
+            </el-menu-item>
             <el-menu-item index="/smart-query">
               <el-icon><ChatDotRound /></el-icon>
               <span>智能问数</span>
@@ -158,7 +166,8 @@ import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import {
   DataLine, ChatDotRound, Coin, User, OfficeBuilding,
-  TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock
+  TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock,
+  Grid, FolderOpened
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -172,6 +181,8 @@ const activePath = computed(() => route.path)
 
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
+    "/dashboard-center": "看板中心",
+    "/data-catalog": "数据目录",
     "/smart-query": "智能问数",
     "/datasource-settings": "数据源管理",
     "/user-management": "用户管理",
