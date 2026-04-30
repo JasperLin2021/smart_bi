@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg2://user:password@localhost:5432/smart_bi"
     cube_api_url: str = "http://localhost:4000/cubejs-api/v1"
     cube_api_token: str = "change_me"
+    goview_enabled: bool = True
+    goview_base_url: str = "http://localhost:3000"
+    goview_embed_base_url: str | None = None
+    goview_view_path: str = "/#/project/items"
+    goview_design_path: str = "/#/project/items"
+    goview_bridge_secret: str = ""
     llm_provider: str = "custom"
     llm_api_base: str = "http://localhost:8001/v1"
     llm_api_key: str = "change_me"

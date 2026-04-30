@@ -218,7 +218,7 @@ onMounted(fetchOrgs)
 }
 
 .table-card {
-  border: none;
+  border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
 }
 
@@ -227,8 +227,9 @@ onMounted(fetchOrgs)
 }
 
 .table-card :deep(.el-card__header) {
-  padding: 20px 24px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 14px 18px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .card-header {
@@ -255,7 +256,7 @@ onMounted(fetchOrgs)
   content: '';
   width: 4px;
   height: 18px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--app-primary);
   border-radius: 2px;
 }
 

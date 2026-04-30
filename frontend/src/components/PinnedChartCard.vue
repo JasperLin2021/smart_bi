@@ -24,13 +24,28 @@
         </div>
       </div>
     </template>
-    <div v-if="chart.rows.length > 0" ref="chartRef" class="chart-body"></div>
+    <div v-if="isKpi && chart.rows.length > 0" class="kpi-body">
+      <span class="kpi-label">{{ kpiLabel }}</span>
+      <strong>{{ kpiValue }}</strong>
+      <span class="kpi-meta">{{ chart.rows.length }} 行数据</span>
+    </div>
+    <el-table v-else-if="isTable && chart.rows.length > 0" :data="tableRows" size="small" class="table-body" max-height="280">
+      <el-table-column
+        v-for="column in tableColumns"
+        :key="column"
+        :prop="column"
+        :label="column"
+        min-width="120"
+        show-overflow-tooltip
+      />
+    </el-table>
+    <div v-else-if="chart.rows.length > 0" ref="chartRef" class="chart-body"></div>
     <el-empty v-else description="暂无数据" :image-size="60" />
   </el-card>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch, nextTick } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import { InfoFilled, MoreFilled, Delete } from "@element-plus/icons-vue"
 import * as echarts from "echarts"
 
@@ -54,27 +69,53 @@ defineEmits<{
 
 const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
+const resizeChart = () => chartInstance?.resize()
+
+const normalizedChartType = computed(() => props.chart.chart_type || "bar")
+const isTable = computed(() => normalizedChartType.value === "table")
+const isKpi = computed(() => normalizedChartType.value === "kpi")
+const isEChartsChart = computed(() => !isTable.value && !isKpi.value)
+
+const isNumericValue = (value: unknown) =>
+  typeof value === "number" || (value !== null && value !== "" && !Number.isNaN(Number(value)))
 
 // 识别数值列
-const getNumericColumns = () => {
+const numericColumns = computed(() => {
   if (!props.chart.rows?.length) return []
   return props.chart.columns.filter(col => {
-    const val = props.chart.rows[0][col]
-    return typeof val === "number" || (!isNaN(Number(val)) && val !== null && val !== "")
+    return props.chart.rows.some(row => isNumericValue(row[col]))
   })
-}
+})
+
+const dimensionColumns = computed(() => props.chart.columns.filter(col => !numericColumns.value.includes(col)))
+const tableColumns = computed(() => props.chart.columns.slice(0, 10))
+const tableRows = computed(() => props.chart.rows.slice(0, 100))
 
 // 自动选择字段
 const getXAxisField = () => {
   const dateFields = ["stat_date", "date", "time", "day", "month"]
-  return props.chart.columns.find(c => dateFields.some(d => c.toLowerCase().includes(d))) || props.chart.columns[0]
+  return props.chart.columns.find(c => dateFields.some(d => c.toLowerCase().includes(d))) ||
+    dimensionColumns.value[0] ||
+    props.chart.columns[0]
 }
 
 const getYAxisField = () => {
-  const numericCols = getNumericColumns()
   const valueFields = ["count", "total", "sum", "occurrence", "times", "amount"]
-  return numericCols.find(c => valueFields.some(v => c.toLowerCase().includes(v))) || numericCols[0] || ""
+  return numericColumns.value.find(c => valueFields.some(v => c.toLowerCase().includes(v))) || numericColumns.value[0] || ""
 }
+
+const getSecondaryYAxisField = () => numericColumns.value.find(col => col !== getYAxisField()) || getYAxisField()
+
+const formatValue = (value: number) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value)
+
+const kpiLabel = computed(() => getYAxisField() || props.chart.columns[0] || "指标")
+
+const kpiValue = computed(() => {
+  const field = getYAxisField()
+  if (!field) return "-"
+  const total = props.chart.rows.reduce((sum, row) => sum + (Number(row[field]) || 0), 0)
+  return formatValue(total)
+})
 
 const buildOption = () => {
   const xAxisField = getXAxisField()
@@ -82,11 +123,11 @@ const buildOption = () => {
   
   if (!xAxisField || !yAxisField || !props.chart.rows?.length) return null
 
-  const chartType = props.chart.chart_type
+  const chartType = normalizedChartType.value
   const sortOrder = props.chart.sort_order
 
-  // 饼图
-  if (chartType === "pie") {
+  // 饼图/环形图
+  if (chartType === "pie" || chartType === "donut") {
     let data = props.chart.rows.map(row => ({
       name: String(row[xAxisField]),
       value: Number(row[yAxisField]) || 0
@@ -98,13 +139,38 @@ const buildOption = () => {
       tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
       series: [{
         type: "pie",
-        radius: ["30%", "60%"],
+        radius: chartType === "donut" ? ["38%", "68%"] : "68%",
         data: data.slice(0, 15)
       }]
     }
   }
 
-  // 柱状图/折线图
+  if (chartType === "scatter") {
+    const xField = numericColumns.value.length > 1 ? numericColumns.value[0] : xAxisField
+    const yField = numericColumns.value.length > 1 ? numericColumns.value[1] : yAxisField
+    const xIsNumeric = numericColumns.value.includes(xField)
+    return {
+      tooltip: { trigger: "item" },
+      grid: { top: 24, bottom: 50, left: 54, right: 24 },
+      xAxis: {
+        type: xIsNumeric ? "value" : "category",
+        name: xField,
+        axisLabel: { rotate: xIsNumeric ? 0 : 45, fontSize: 11 }
+      },
+      yAxis: { type: "value", name: yField },
+      series: [{
+        type: "scatter",
+        symbolSize: 10,
+        data: props.chart.rows.map(row => [
+          xIsNumeric ? Number(row[xField]) || 0 : String(row[xField]),
+          Number(row[yField]) || 0
+        ]),
+        itemStyle: { color: "#0f766e" }
+      }]
+    }
+  }
+
+  // 柱状图/条形图/折线图/面积图/组合图
   let dataPoints = props.chart.rows.map(r => ({
     x: String(r[xAxisField]),
     y: Number(r[yAxisField]) || 0
@@ -112,6 +178,45 @@ const buildOption = () => {
   
   if (sortOrder === "desc") dataPoints.sort((a, b) => b.y - a.y)
   else if (sortOrder === "asc") dataPoints.sort((a, b) => a.y - b.y)
+
+  if (chartType === "horizontal_bar") {
+    return {
+      tooltip: { trigger: "axis" },
+      grid: { top: 20, bottom: 30, left: 82, right: 24 },
+      xAxis: { type: "value" },
+      yAxis: {
+        type: "category",
+        data: dataPoints.map(d => d.x),
+        axisLabel: { fontSize: 11 }
+      },
+      series: [{
+        type: "bar",
+        data: dataPoints.map(d => d.y),
+        itemStyle: { color: "#0f766e" }
+      }]
+    }
+  }
+
+  if (chartType === "combo") {
+    const secondaryField = getSecondaryYAxisField()
+    const rowByX = new Map(props.chart.rows.map(row => [String(row[xAxisField]), row]))
+    const lineData = dataPoints.map(point => Number(rowByX.get(point.x)?.[secondaryField]) || 0)
+    return {
+      tooltip: { trigger: "axis" },
+      legend: { top: 0 },
+      grid: { top: 46, bottom: 50, left: 50, right: 20 },
+      xAxis: {
+        type: "category",
+        data: dataPoints.map(d => d.x),
+        axisLabel: { rotate: dataPoints.length > 8 ? 45 : 0, fontSize: 11 }
+      },
+      yAxis: { type: "value" },
+      series: [
+        { name: yAxisField, type: "bar", data: dataPoints.map(d => d.y), itemStyle: { color: "#0f766e" } },
+        { name: secondaryField, type: "line", smooth: true, data: lineData, itemStyle: { color: "#b7791f" } }
+      ]
+    }
+  }
   
   return {
     tooltip: { trigger: "axis" },
@@ -123,16 +228,22 @@ const buildOption = () => {
     },
     yAxis: { type: "value" },
     series: [{
-      type: chartType,
+      type: chartType === "area" ? "line" : chartType,
       data: dataPoints.map(d => d.y),
-      itemStyle: { color: "#409eff" }
+      smooth: chartType === "line" || chartType === "area",
+      areaStyle: chartType === "area" ? {} : undefined,
+      itemStyle: { color: "#0f766e" }
     }]
   }
 }
 
 const renderChart = async () => {
   await nextTick()
-  if (!chartRef.value || !props.chart.rows.length) return
+  if (!isEChartsChart.value || !chartRef.value || !props.chart.rows.length) {
+    chartInstance?.dispose()
+    chartInstance = null
+    return
+  }
   
   if (!chartInstance) {
     chartInstance = echarts.init(chartRef.value)
@@ -149,27 +260,33 @@ watch(() => props.chart, () => renderChart(), { deep: true })
 
 onMounted(() => {
   renderChart()
-  window.addEventListener("resize", () => chartInstance?.resize())
+  window.addEventListener("resize", resizeChart)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", resizeChart)
+  chartInstance?.dispose()
 })
 </script>
 
 <style scoped>
 .pinned-chart-card {
   height: 100%;
-  border: none;
+  border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color var(--app-transition), box-shadow var(--app-transition);
 }
 
 .pinned-chart-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.15);
+  transform: none;
+  border-color: rgba(15, 118, 110, 0.28);
+  box-shadow: var(--app-shadow-hover);
 }
 
 .pinned-chart-card :deep(.el-card__header) {
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-bottom: 1px solid var(--app-border-light);
+  padding: 12px 14px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .card-header {
@@ -209,5 +326,34 @@ onMounted(() => {
   width: 100%;
   height: 280px;
   padding: 8px;
+}
+
+.table-body {
+  width: 100%;
+}
+
+.kpi-body {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+}
+
+.kpi-label {
+  color: var(--app-text-muted);
+  font-size: 13px;
+}
+
+.kpi-body strong {
+  color: var(--app-text);
+  font-size: 36px;
+  line-height: 1.1;
+}
+
+.kpi-meta {
+  color: var(--app-text-muted);
+  font-size: 12px;
 }
 </style>

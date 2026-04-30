@@ -1,12 +1,14 @@
 import json
+import re
 import shutil
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from sqlalchemy import text, create_engine
+from sqlalchemy import inspect, text, create_engine
 from typing import List
 
 from app.api.auth import get_current_user
-from app.db.session import get_db
+from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.user import User
 from app.schemas.datasource import (
@@ -17,13 +19,20 @@ from app.schemas.datasource import (
     SchemaMetadata,
     TableSchema,
 )
-from app.core.excel_executor import test_excel_connection, generate_excel_metadata
+from app.core.excel_executor import (
+    execute_excel_query,
+    generate_excel_metadata,
+    get_excel_tables,
+    test_excel_connection,
+)
 from app.core.excel_uploads import build_excel_storage_path, is_allowed_excel_filename
 from app.core.schema_detector import detect_schema, schema_to_prompt
 from app.core.drill_config import generate_drill_config
 from app.core.schema_enrichment import generate_column_descriptions
+from app.core.audit import try_record_audit_log
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
+SAFE_EXCEL_TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def check_datasource_access(user: User, ds: DataSource):
@@ -31,6 +40,45 @@ def check_datasource_access(user: User, ds: DataSource):
     if user.role == "super_admin":
         return True
     return ds.org_id == user.org_id
+
+
+def _clamp_preview_limit(limit: int) -> int:
+    return max(1, min(limit, 500))
+
+
+def _quote_table_name(engine, table: str) -> str:
+    preparer = engine.dialect.identifier_preparer
+    return ".".join(preparer.quote(part) for part in table.split("."))
+
+
+def _database_table_exists(engine, table: str) -> bool:
+    inspector = inspect(engine)
+    if "." in table:
+        schema, table_name = table.rsplit(".", 1)
+        return table_name in inspector.get_table_names(schema=schema)
+    return table in inspector.get_table_names()
+
+
+def _fetch_database_preview(database_url: str, table: str, limit: int) -> dict:
+    engine = get_datasource_engine(database_url)
+    if not _database_table_exists(engine, table):
+        raise HTTPException(status_code=404, detail="数据表不存在")
+
+    quoted_table = _quote_table_name(engine, table)
+    with engine.connect() as conn:
+        result = conn.execute(text(f"SELECT * FROM {quoted_table} LIMIT {limit}"))
+        columns = list(result.keys())
+        rows = [dict(row._mapping) for row in result.fetchall()]
+    return {"columns": columns, "rows": rows}
+
+
+def _fetch_excel_preview(file_path: str, table: str, limit: int) -> dict:
+    tables = get_excel_tables(file_path)
+    if table not in tables:
+        raise HTTPException(status_code=404, detail="数据表不存在")
+    if not SAFE_EXCEL_TABLE_RE.match(table):
+        raise HTTPException(status_code=400, detail="数据表名称不合法")
+    return execute_excel_query(file_path, f"SELECT * FROM {table} LIMIT {limit}")
 
 
 @router.get("", response_model=List[DataSourceListItem])
@@ -93,6 +141,17 @@ def create_datasource(
     db.add(ds)
     db.commit()
     db.refresh(ds)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.create",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="数据源已创建",
+        detail={"slug": ds.slug, "source_type": ds.source_type},
+    )
     return _to_out(ds)
 
 
@@ -161,6 +220,17 @@ def update_datasource(
 
     db.commit()
     db.refresh(ds)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.update",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="数据源已更新",
+        detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
+    )
     return _to_out(ds)
 
 
@@ -175,8 +245,21 @@ def delete_datasource(
         raise HTTPException(status_code=404, detail="数据源不存在")
     if not check_datasource_access(current_user, ds):
         raise HTTPException(status_code=403, detail="无权删除此数据源")
+    ds_id = ds.id
+    ds_name = ds.name
+    ds_org_id = ds.org_id
     db.delete(ds)
     db.commit()
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.delete",
+        resource_type="datasource",
+        resource_id=ds_id,
+        resource_name=ds_name,
+        org_id=ds_org_id,
+        message="数据源已删除",
+    )
     return {"status": "ok"}
 
 
@@ -194,7 +277,19 @@ def test_datasource(
     
     # Handle Excel sources differently
     if ds.source_type == "excel":
-        return test_excel_connection(ds.database_url)
+        result = test_excel_connection(ds.database_url)
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.test",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="success" if result.get("status") == "ok" else "error",
+            message=result.get("message"),
+        )
+        return result
     
     # Database sources use SQLAlchemy
     try:
@@ -202,9 +297,81 @@ def test_datasource(
         with test_engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         test_engine.dispose()
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.test",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            message="连接成功",
+        )
         return {"status": "ok", "message": "连接成功"}
     except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.test",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="error",
+            message=f"连接失败: {exc}",
+        )
         return {"status": "error", "message": f"连接失败: {exc}"}
+
+
+@router.get("/{datasource_id}/preview")
+def preview_datasource_table(
+    datasource_id: int,
+    table: str,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+
+    safe_limit = _clamp_preview_limit(limit)
+    try:
+        if ds.source_type == "excel":
+            preview = _fetch_excel_preview(ds.database_url, table, safe_limit)
+        else:
+            preview = _fetch_database_preview(ds.database_url, table, safe_limit)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.preview",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="error",
+            message=f"数据预览失败: {exc}",
+            detail={"table": table, "limit": safe_limit},
+        )
+        raise HTTPException(status_code=400, detail=f"数据预览失败: {exc}")
+
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.preview",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="数据预览成功",
+        detail={"table": table, "limit": safe_limit, "row_count": len(preview.get("rows", []))},
+    )
+    return jsonable_encoder(preview)
 
 
 def _to_out(ds: DataSource) -> dict:
@@ -257,8 +424,30 @@ def detect_datasource_schema(
     
     try:
         schema = detect_schema(ds.database_url, ds.source_type)
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.detect_schema",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            message="表结构检测成功",
+            detail={"table_count": len(schema.tables)},
+        )
         return schema
     except Exception as e:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.detect_schema",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="error",
+            message=f"检测schema失败: {e}",
+        )
         raise HTTPException(status_code=400, detail=f"检测schema失败: {e}")
 
 
@@ -277,6 +466,17 @@ def generate_prompt_from_schema(
         raise HTTPException(status_code=403, detail="无权访问此数据源")
     
     prompt = schema_to_prompt(schema)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.generate_prompt",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="元数据提示词已生成",
+        detail={"table_count": len(schema.tables)},
+    )
     return {"metadata_prompt": prompt}
 
 
@@ -296,8 +496,30 @@ async def generate_column_descriptions_for_table(
     try:
         enriched_table, filled_count = await generate_column_descriptions(ds.name, table)
     except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.generate_column_descriptions",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="error",
+            message=f"生成字段说明失败: {exc}",
+        )
         raise HTTPException(status_code=502, detail=f"生成字段说明失败: {exc}")
 
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.generate_column_descriptions",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="字段说明已生成",
+        detail={"table": table.name, "filled_count": filled_count},
+    )
     return {"table": enriched_table.model_dump(), "filled_count": filled_count}
 
 
@@ -325,4 +547,19 @@ def generate_drill_config_from_schema(
             raise HTTPException(status_code=400, detail=f"自动生成钻取规则失败: {exc}")
 
     config = generate_drill_config(schema)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.generate_drill_config",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="候选钻取规则已生成",
+        detail={
+            "dimensions": len(config.dimensions),
+            "metrics": len(config.metrics),
+            "paths": len(config.paths),
+        },
+    )
     return config

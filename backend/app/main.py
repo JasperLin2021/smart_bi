@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from app.api.routes import api_router
 from app.core.cache import init_cache
 from app.core.config import settings
@@ -21,6 +21,9 @@ from app.models.alert import Alert  # noqa: F401
 from app.models.notification_setting import NotificationSetting  # noqa: F401
 from app.models.alert_history import AlertHistory  # noqa: F401
 from app.models.scheduled_report import ScheduledReport  # noqa: F401
+from app.models.audit_log import AuditLog  # noqa: F401
+from app.models.dataset import Dataset  # noqa: F401
+from app.models.big_screen import BigScreen  # noqa: F401
 
 
 @asynccontextmanager
@@ -73,8 +76,7 @@ _CARSEM_RECOMMEND_QUESTIONS = '["最近一周各产线的异常趋势", "Top 10 
 
 
 def _has_column(conn, table_name: str, column_name: str) -> bool:
-    rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
-    return any(row[1] == column_name for row in rows)
+    return any(column["name"] == column_name for column in inspect(conn).get_columns(table_name))
 
 
 def _ensure_column(engine, table_name: str, column_definition: str) -> None:
@@ -190,6 +192,17 @@ def _startup():
         )
     except Exception:
         pass
+
+    for column_definition in [
+        "is_public INTEGER DEFAULT 0",
+        "share_token VARCHAR(64)",
+        "shared_user_ids JSON",
+        "version INTEGER DEFAULT 1",
+    ]:
+        try:
+            _ensure_column(engine, "dashboards", column_definition)
+        except Exception:
+            pass
 
     init_cache()
     db: Session = SessionLocal()

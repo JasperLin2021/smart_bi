@@ -14,7 +14,10 @@ export default defineConfig({
   server: {
     port: 16057,
     proxy: {
-      "/api": apiProxyTarget
+      "/api": {
+        target: apiProxyTarget,
+        xfwd: true
+      }
     }
   }
 })

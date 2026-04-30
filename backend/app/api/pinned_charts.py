@@ -54,6 +54,34 @@ class PinnedChartWithData(BaseModel):
     rows: List[dict]
 
 
+class PinnedChartPreviewRequest(BaseModel):
+    sql_query: str
+    datasource_id: Optional[int] = None
+
+
+class PinnedChartPreviewResult(BaseModel):
+    columns: List[str]
+    rows: List[dict]
+
+
+def _get_chart_datasource(db: Session, datasource_id: int | None) -> DataSource | None:
+    if datasource_id:
+        return db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    return db.query(DataSource).filter(DataSource.is_active == 1).first()
+
+
+def _execute_chart_sql(datasource: DataSource, sql_query: str) -> dict:
+    if datasource.source_type == "excel":
+        return execute_excel_query(datasource.database_url, sql_query)
+
+    ds_engine = get_datasource_engine(datasource.database_url)
+    with ds_engine.connect() as conn:
+        result_proxy = conn.execute(text(sql_query))
+        columns = list(result_proxy.keys())
+        rows = [dict(row._mapping) for row in result_proxy.fetchall()]
+    return {"columns": columns, "rows": rows}
+
+
 @router.post("", response_model=PinnedChartOut)
 def create_pinned_chart(
     payload: PinnedChartCreate,
@@ -83,6 +111,28 @@ def create_pinned_chart(
     db.commit()
     db.refresh(chart)
     return chart
+
+
+@router.post("/preview", response_model=PinnedChartPreviewResult)
+def preview_pinned_chart(
+    payload: PinnedChartPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    del current_user
+    sql_query = payload.sql_query.strip()
+    if not sql_query:
+        raise HTTPException(status_code=400, detail="SQL不能为空")
+
+    datasource = _get_chart_datasource(db, payload.datasource_id)
+    if not datasource:
+        raise HTTPException(status_code=400, detail="请先选择或配置数据源")
+
+    try:
+        result = _execute_chart_sql(datasource, sql_query)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SQL执行失败: {exc}")
+    return PinnedChartPreviewResult(columns=result["columns"], rows=result["rows"])
 
 
 @router.get("", response_model=List[PinnedChartOut])
@@ -122,16 +172,9 @@ def list_pinned_charts_with_data(
             if not ds:
                 raise Exception("No datasource configured")
 
-            if ds.source_type == "excel":
-                query_result = execute_excel_query(ds.database_url, chart.sql_query)
-                columns = query_result["columns"]
-                rows = query_result["rows"]
-            else:
-                ds_engine = get_datasource_engine(ds.database_url)
-                with ds_engine.connect() as conn:
-                    result_proxy = conn.execute(text(chart.sql_query))
-                    columns = list(result_proxy.keys())
-                    rows = [dict(row._mapping) for row in result_proxy.fetchall()]
+            query_result = _execute_chart_sql(ds, chart.sql_query)
+            columns = query_result["columns"]
+            rows = query_result["rows"]
 
             result.append({
                 "id": chart.id,

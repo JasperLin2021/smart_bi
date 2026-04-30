@@ -6,6 +6,7 @@ from fastapi_cache.decorator import cache
 
 from app.api.auth import get_current_user
 from app.core.llm import generate_sql_query, generate_summary, chat, get_llm_config, normalize_llm_config
+from app.core.audit import try_record_audit_log
 from app.core.metric_binding import match_metric_from_question, sql_uses_metric_formula
 from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
@@ -168,6 +169,17 @@ async def ask(
         try:
             answer = await chat(question)
         except Exception as exc:
+            try_record_audit_log(
+                db,
+                actor=current_user,
+                action="query.ask",
+                resource_type="query",
+                resource_name=datasource.name if datasource else None,
+                org_id=datasource.org_id if datasource else current_user.org_id,
+                status="error",
+                message=f"闲聊失败: {exc}",
+                detail={"mode": "chat", "question": question, "llm_model": runtime_llm_model},
+            )
             raise HTTPException(status_code=502, detail=f"闲聊失败: {exc}")
 
         history = QueryHistory(
@@ -182,6 +194,18 @@ async def ask(
         )
         db.add(history)
         db.commit()
+        db.refresh(history)
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="query.ask",
+            resource_type="query",
+            resource_id=history.id,
+            resource_name=datasource.name if datasource else None,
+            org_id=datasource.org_id if datasource else current_user.org_id,
+            message="智能问数已完成",
+            detail={"mode": "chat", "question": question, "llm_model": runtime_llm_model},
+        )
 
         return {
             "answer": answer,
@@ -207,6 +231,17 @@ async def ask(
             metric_match=metric_match,
         )
     except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="query.ask",
+            resource_type="query",
+            resource_name=datasource.name,
+            org_id=datasource.org_id,
+            status="error",
+            message=f"SQL生成失败: {exc}",
+            detail={"stage": "generate_sql", "question": question, "datasource_id": datasource.id, "llm_model": runtime_llm_model},
+        )
         raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
 
     # Execute SQL based on source type
@@ -224,6 +259,17 @@ async def ask(
                 rows = [dict(row._mapping) for row in result_proxy.fetchall()]
                 result = {"columns": columns, "rows": rows}
     except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="query.ask",
+            resource_type="query",
+            resource_name=datasource.name,
+            org_id=datasource.org_id,
+            status="error",
+            message=f"SQL执行失败: {exc}",
+            detail={"stage": "execute_sql", "question": question, "datasource_id": datasource.id, "llm_model": runtime_llm_model},
+        )
         raise HTTPException(status_code=502, detail=f"SQL执行失败: {exc}")
 
     # 生成摘要
@@ -249,6 +295,24 @@ async def ask(
     )
     db.add(history)
     db.commit()
+    db.refresh(history)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="query.ask",
+        resource_type="query",
+        resource_id=history.id,
+        resource_name=datasource.name,
+        org_id=datasource.org_id,
+        message="智能问数已完成",
+        detail={
+            "mode": "text2sql",
+            "question": question,
+            "datasource_id": datasource.id,
+            "llm_model": runtime_llm_model,
+            "row_count": len(rows),
+        },
+    )
 
     return {
         "answer": "已生成并执行查询。",

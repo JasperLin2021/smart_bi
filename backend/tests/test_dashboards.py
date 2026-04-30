@@ -59,6 +59,42 @@ class DashboardCenterTests(unittest.TestCase):
         self.assertEqual(assets[0].asset_id, dashboard.id)
         self.assertEqual(assets[0].status, "published")
 
+    def test_update_dashboard_preserves_designer_layout_components(self):
+        from app.api.dashboards import update_dashboard
+        from app.models.dashboard_config import Dashboard
+        from app.schemas.dashboard_center import DashboardUpdate
+
+        db = self._db()
+        dashboard = Dashboard(title="经营看板", org_id=1, owner_id=10, status="draft")
+        db.add(dashboard)
+        db.commit()
+        db.refresh(dashboard)
+
+        layout = {
+            "components": [
+                {
+                    "id": "component-1",
+                    "pinned_chart_id": 7,
+                    "title": "良率趋势",
+                    "chart_type": "line",
+                    "x": 0,
+                    "y": 0,
+                    "w": 6,
+                    "h": 3,
+                }
+            ]
+        }
+
+        result = update_dashboard(
+            dashboard.id,
+            DashboardUpdate(layout_json=layout, filters_json={"date": "this_month"}),
+            db=db,
+            current_user=SimpleNamespace(id=10, role="user", org_id=1),
+        )
+
+        self.assertEqual(result.layout_json, layout)
+        self.assertEqual(result.filters_json, {"date": "this_month"})
+
 
 if __name__ == "__main__":
     unittest.main()

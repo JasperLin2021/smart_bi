@@ -13,8 +13,8 @@
             <path d="M12 28V12h4v16h-4zm6-8V12h4v8h-4zm6 4V12h4v12h-4z" fill="white"/>
             <defs>
               <linearGradient id="logo-gradient" x1="0" y1="0" x2="40" y2="40">
-                <stop stop-color="#6366f1"/>
-                <stop offset="1" stop-color="#8b5cf6"/>
+                <stop stop-color="#0f766e"/>
+                <stop offset="1" stop-color="#2563eb"/>
               </linearGradient>
             </defs>
           </svg>
@@ -113,7 +113,9 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.06), transparent 38%),
+    var(--app-bg);
   position: relative;
   overflow: hidden;
 }
@@ -125,52 +127,20 @@ const submit = async () => {
 }
 
 .login-bg-shape {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  animation: float 20s infinite ease-in-out;
-}
-
-.login-bg-shape-1 {
-  width: 400px;
-  height: 400px;
-  top: -100px;
-  left: -100px;
-  animation-delay: 0s;
-}
-
-.login-bg-shape-2 {
-  width: 300px;
-  height: 300px;
-  bottom: -50px;
-  right: -50px;
-  animation-delay: -5s;
-}
-
-.login-bg-shape-3 {
-  width: 200px;
-  height: 200px;
-  top: 50%;
-  left: 60%;
-  animation-delay: -10s;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-30px) rotate(10deg); }
+  display: none;
 }
 
 .login-container {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   padding: 20px;
 }
 
 .login-brand {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .login-logo {
@@ -182,27 +152,26 @@ const submit = async () => {
 .login-logo svg {
   width: 100%;
   height: 100%;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+  filter: drop-shadow(0 8px 16px rgba(15, 118, 110, 0.14));
 }
 
 .login-title {
-  color: white;
-  font-size: 32px;
+  color: var(--app-text);
+  font-size: 30px;
   font-weight: 700;
   margin: 0 0 8px 0;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
 .login-subtitle {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--app-text-muted);
   font-size: 14px;
   margin: 0;
 }
 
 .login-card {
-  border-radius: 20px;
-  border: none;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border-radius: var(--app-radius);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
 }
 
 .login-card :deep(.el-card__body) {
@@ -214,24 +183,22 @@ const submit = async () => {
 }
 
 .login-form :deep(.el-input__wrapper) {
-  border-radius: 12px;
+  border-radius: var(--app-radius-sm);
   padding: 4px 16px;
 }
 
 .login-btn {
   width: 100%;
-  border-radius: 12px;
+  border-radius: var(--app-radius-sm);
   height: 48px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .login-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+  transform: none;
+  box-shadow: none;
 }
 
 .login-hint {
@@ -256,13 +223,13 @@ const submit = async () => {
 }
 
 .account-chip:hover {
-  transform: scale(1.05);
-  background: #f3f4f6;
+  transform: none;
+  background: var(--app-surface-muted);
 }
 
 .login-footer {
   text-align: center;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--app-text-light);
   font-size: 12px;
   margin-top: 24px;
 }

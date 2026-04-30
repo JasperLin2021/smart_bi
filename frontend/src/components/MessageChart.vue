@@ -334,7 +334,7 @@ const buildSingleSeriesOption = () => {
       type: chartType.value,
       data: dataPoints.map(d => d.y),
       smooth: chartType.value === "line",
-      itemStyle: { color: "#409eff" }
+      itemStyle: { color: "#0f766e" }
     }]
   }
 }

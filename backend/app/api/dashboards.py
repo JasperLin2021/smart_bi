@@ -1,8 +1,11 @@
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
+from app.core.audit import try_record_audit_log
 from app.db.session import get_db
 from app.models.catalog import DataAsset
 from app.models.dashboard_config import Dashboard
@@ -11,6 +14,7 @@ from app.schemas.dashboard_center import (
     DashboardCreate,
     DashboardListResponse,
     DashboardOut,
+    DashboardShareUpdate,
     DashboardUpdate,
 )
 
@@ -60,7 +64,11 @@ def _sync_dashboard_asset(db: Session, dashboard: Dashboard) -> None:
     asset.org_id = dashboard.org_id
     asset.owner_id = dashboard.owner_id
     asset.status = dashboard.status
-    asset.metadata_json = {"visibility": dashboard.visibility}
+    asset.metadata_json = {
+        "visibility": dashboard.visibility,
+        "is_public": bool(dashboard.is_public),
+        "version": dashboard.version,
+    }
 
 
 @router.get("", response_model=DashboardListResponse)
@@ -89,8 +97,37 @@ def create_dashboard(
         owner_id=payload.owner_id or current_user.id,
     )
     db.add(dashboard)
+    db.flush()
+    if dashboard.status == "published":
+        _sync_dashboard_asset(db, dashboard)
     db.commit()
     db.refresh(dashboard)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dashboard.create",
+        resource_type="dashboard",
+        resource_id=dashboard.id,
+        resource_name=dashboard.title,
+        org_id=dashboard.org_id,
+        message="看板已创建",
+        detail={"status": dashboard.status, "visibility": dashboard.visibility},
+    )
+    return dashboard
+
+
+@router.get("/public/{share_token}", response_model=DashboardOut)
+def get_public_dashboard(
+    share_token: str,
+    db: Session = Depends(get_db),
+):
+    dashboard = (
+        db.query(Dashboard)
+        .filter(Dashboard.share_token == share_token, Dashboard.is_public == 1)
+        .first()
+    )
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="公开看板不存在")
     return dashboard
 
 
@@ -122,10 +159,61 @@ def update_dashboard(
     _ensure_dashboard_values(values.get("status"), values.get("visibility"))
     for key, value in values.items():
         setattr(dashboard, key, value)
+    if values:
+        dashboard.version = (dashboard.version or 1) + 1
     if dashboard.status == "published":
         _sync_dashboard_asset(db, dashboard)
     db.commit()
     db.refresh(dashboard)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dashboard.update",
+        resource_type="dashboard",
+        resource_id=dashboard.id,
+        resource_name=dashboard.title,
+        org_id=dashboard.org_id,
+        message="看板已更新",
+        detail={"fields": list(values.keys())},
+    )
+    return dashboard
+
+
+@router.put("/{dashboard_id}/share", response_model=DashboardOut)
+def share_dashboard(
+    dashboard_id: int,
+    payload: DashboardShareUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="看板不存在")
+    if not _can_manage_dashboard(current_user, dashboard):
+        raise HTTPException(status_code=403, detail="无权限")
+
+    dashboard.is_public = 1 if payload.is_public else 0
+    dashboard.shared_user_ids = payload.shared_user_ids or []
+    if dashboard.is_public and not dashboard.share_token:
+        dashboard.share_token = secrets.token_urlsafe(24)
+    if not dashboard.is_public:
+        dashboard.share_token = None
+    db.commit()
+    db.refresh(dashboard)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dashboard.share",
+        resource_type="dashboard",
+        resource_id=dashboard.id,
+        resource_name=dashboard.title,
+        org_id=dashboard.org_id,
+        message="看板分享配置已更新",
+        detail={
+            "is_public": bool(dashboard.is_public),
+            "shared_user_ids": dashboard.shared_user_ids,
+        },
+    )
     return dashboard
 
 
@@ -145,6 +233,16 @@ def publish_dashboard(
     _sync_dashboard_asset(db, dashboard)
     db.commit()
     db.refresh(dashboard)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dashboard.publish",
+        resource_type="dashboard",
+        resource_id=dashboard.id,
+        resource_name=dashboard.title,
+        org_id=dashboard.org_id,
+        message="看板已发布",
+    )
     return dashboard
 
 
@@ -159,7 +257,20 @@ def delete_dashboard(
         raise HTTPException(status_code=404, detail="看板不存在")
     if not _can_manage_dashboard(current_user, dashboard):
         raise HTTPException(status_code=403, detail="无权限")
+    dashboard_id_value = dashboard.id
+    dashboard_title = dashboard.title
+    dashboard_org_id = dashboard.org_id
     db.query(DataAsset).filter(DataAsset.asset_type == "dashboard", DataAsset.asset_id == dashboard.id).delete()
     db.delete(dashboard)
     db.commit()
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dashboard.delete",
+        resource_type="dashboard",
+        resource_id=dashboard_id_value,
+        resource_name=dashboard_title,
+        org_id=dashboard_org_id,
+        message="看板已删除",
+    )
     return {"status": "ok"}

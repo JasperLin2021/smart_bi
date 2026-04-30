@@ -12,7 +12,7 @@ class PinnedChart(Base):
     title = Column(String(128), nullable=False)
     description = Column(String(256), nullable=True)
     sql_query = Column(Text, nullable=False)
-    chart_type = Column(String(32), default="bar")  # line, bar, pie
+    chart_type = Column(String(32), default="bar")  # line, bar, area, pie, donut, scatter, combo, kpi, table
     sort_order = Column(String(16), default="desc")  # none, asc, desc
     display_order = Column(Integer, default=0)  # 显示顺序
     created_at = Column(DateTime, server_default=func.now())

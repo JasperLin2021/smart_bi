@@ -120,6 +120,8 @@ class PermissionResolverTests(unittest.TestCase):
 
         self.assertIs(require_menu(allowed_user, "dashboard.view"), allowed_user)
         self.assertIs(require_action(allowed_user, "user.read"), allowed_user)
+        self.assertIs(require_menu(allowed_user, "goview.view"), allowed_user)
+        self.assertIs(require_action(allowed_user, "goview.design"), allowed_user)
 
         with self.assertRaises(HTTPException):
             require_menu(denied_user, "llm_settings.view")

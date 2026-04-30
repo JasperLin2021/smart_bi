@@ -247,7 +247,7 @@ onMounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  border: none;
+  border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
 }
 
@@ -256,8 +256,8 @@ onMounted(() => {
 }
 
 .chat-card :deep(.el-card__header) {
-  padding: 16px 24px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 14px 16px;
+  background: var(--app-surface);
 }
 
 .chat-card :deep(.el-card__body) {
@@ -286,7 +286,7 @@ onMounted(() => {
   content: '';
   width: 4px;
   height: 18px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--app-primary);
   border-radius: 2px;
 }
 
@@ -300,8 +300,8 @@ onMounted(() => {
 .chat-container {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
-  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  padding: 20px;
+  background: var(--app-surface-muted);
 }
 
 .welcome-message {
@@ -315,20 +315,21 @@ onMounted(() => {
 }
 
 .welcome-icon {
-  width: 80px;
-  height: 80px;
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  border-radius: 20px;
-  margin-bottom: 24px;
-  color: white;
+  background: rgba(15, 118, 110, 0.1);
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: var(--app-radius);
+  margin-bottom: 20px;
+  color: var(--app-primary);
 }
 
 .welcome-message h3 {
   margin: 0 0 12px;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--app-text);
 }
@@ -356,19 +357,19 @@ onMounted(() => {
 
 .example-tag {
   cursor: pointer;
-  padding: 8px 16px;
-  border-radius: 20px;
+  padding: 7px 12px;
+  border-radius: 999px;
   transition: all 0.2s;
-  background: white;
+  background: var(--app-surface);
   border: 1px solid var(--app-border);
 }
 
 .example-tag:hover {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: white;
-  border-color: transparent;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--app-primary-dark);
+  border-color: rgba(15, 118, 110, 0.24);
+  transform: none;
+  box-shadow: none;
 }
 
 .messages-list {
@@ -378,22 +379,22 @@ onMounted(() => {
 }
 
 .input-area {
-  padding: 20px 24px;
-  border-top: 1px solid var(--app-border-light);
-  background: white;
+  padding: 16px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
 }
 
 .input-area :deep(.el-input__wrapper) {
-  border-radius: 12px;
+  border-radius: var(--app-radius-sm);
   padding: 4px 4px 4px 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 0 0 1px var(--app-border);
 }
 
 .input-area :deep(.el-input-group__append) {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--app-primary);
   border: none;
   padding: 0;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--app-radius-sm) var(--app-radius-sm) 0;
 }
 
 .input-area :deep(.el-input-group__append .el-button) {
@@ -417,7 +418,7 @@ onMounted(() => {
 
 .history-card {
   height: 100%;
-  border: none;
+  border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
 }
 
@@ -426,8 +427,8 @@ onMounted(() => {
 }
 
 .history-card :deep(.el-card__header) {
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 14px 16px;
+  background: var(--app-surface);
 }
 
 .history-card :deep(.el-card__body) {
@@ -448,7 +449,7 @@ onMounted(() => {
 }
 
 .history-item:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.04) 100%);
+  background: rgba(15, 118, 110, 0.05);
 }
 
 .history-content {
@@ -506,7 +507,7 @@ onMounted(() => {
 
 .favorite-icon:hover,
 .favorite-icon.is-favorite {
-  color: #f59e0b;
+  color: var(--app-warning);
   transform: scale(1.1);
 }
 
@@ -517,7 +518,7 @@ onMounted(() => {
 }
 
 .delete-icon:hover {
-  color: #ef4444;
+  color: var(--app-danger);
   transform: scale(1.1);
 }
 </style>

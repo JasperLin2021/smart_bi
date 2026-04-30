@@ -21,6 +21,8 @@ Edit `.env` and replace every `change_me` value. At minimum set:
 - `DATABASE_URL`, keeping it consistent with the Postgres user, password, and database
 - `JWT_SECRET`
 - LLM and Cube API settings if those integrations are used
+- GoView settings if the 大屏中心 integration is enabled:
+  `GOVIEW_BASE_URL`, `GOVIEW_EMBED_BASE_URL`, and `GOVIEW_BRIDGE_SECRET`
 
 Build and start the stack:
 

@@ -11,6 +11,10 @@ class DashboardBase(BaseModel):
     filters_json: Optional[dict[str, Any]] = None
     status: str = "draft"
     visibility: str = "private"
+    is_public: int = 0
+    share_token: Optional[str] = None
+    shared_user_ids: Optional[list[int]] = None
+    version: int = 1
     org_id: Optional[int] = None
     owner_id: Optional[int] = None
 
@@ -26,6 +30,11 @@ class DashboardUpdate(BaseModel):
     filters_json: Optional[dict[str, Any]] = None
     status: Optional[str] = None
     visibility: Optional[str] = None
+
+
+class DashboardShareUpdate(BaseModel):
+    is_public: bool = False
+    shared_user_ids: Optional[list[int]] = None
 
 
 class DashboardOut(DashboardBase):

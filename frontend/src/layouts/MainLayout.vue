@@ -9,8 +9,8 @@
             <path d="M9 24V8h3v16H9zm5-6V8h3v10h-3zm5 3V8h3v13h-3z" fill="white"/>
             <defs>
               <linearGradient id="brand-gradient" x1="0" y1="0" x2="32" y2="32">
-                <stop stop-color="#6366f1"/>
-                <stop offset="1" stop-color="#8b5cf6"/>
+                <stop stop-color="#0f766e"/>
+                <stop offset="1" stop-color="#2563eb"/>
               </linearGradient>
             </defs>
           </svg>
@@ -34,7 +34,10 @@
             :value="ds.id"
           >
             <div class="ds-option">
-              <span class="ds-icon">{{ ds.source_type === 'excel' ? '📊' : '🗄️' }}</span>
+              <el-icon class="ds-icon">
+                <Document v-if="ds.source_type === 'excel'" />
+                <Coin v-else />
+              </el-icon>
               <span>{{ ds.name }}</span>
             </div>
           </el-option>
@@ -54,9 +57,17 @@
               <el-icon><Grid /></el-icon>
               <span>看板中心</span>
             </el-menu-item>
+            <el-menu-item index="/big-screen-center">
+              <el-icon><DataLine /></el-icon>
+              <span>大屏中心</span>
+            </el-menu-item>
             <el-menu-item index="/data-catalog">
               <el-icon><FolderOpened /></el-icon>
               <span>数据目录</span>
+            </el-menu-item>
+            <el-menu-item index="/dataset-center">
+              <el-icon><Document /></el-icon>
+              <span>数据集中心</span>
             </el-menu-item>
             <el-menu-item index="/smart-query">
               <el-icon><ChatDotRound /></el-icon>
@@ -91,6 +102,14 @@
             <el-menu-item index="/scheduled-reports">
               <el-icon><AlarmClock /></el-icon>
               <span>定时报告</span>
+            </el-menu-item>
+            <el-menu-item v-if="isOrgAdmin" index="/audit-logs">
+              <el-icon><Document /></el-icon>
+              <span>审计日志</span>
+            </el-menu-item>
+            <el-menu-item v-if="isOrgAdmin" index="/operations">
+              <el-icon><DataLine /></el-icon>
+              <span>运营后台</span>
             </el-menu-item>
             <el-menu-item v-if="isSuperAdmin" index="/llm-settings">
               <el-icon><Setting /></el-icon>
@@ -167,7 +186,7 @@ import { useDatasourceStore } from "@/store/datasource"
 import {
   DataLine, ChatDotRound, Coin, User, OfficeBuilding,
   TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock,
-  Grid, FolderOpened
+  Grid, FolderOpened, Document
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -182,7 +201,9 @@ const activePath = computed(() => route.path)
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     "/dashboard-center": "看板中心",
+    "/big-screen-center": "大屏中心",
     "/data-catalog": "数据目录",
+    "/dataset-center": "数据集中心",
     "/smart-query": "智能问数",
     "/datasource-settings": "数据源管理",
     "/user-management": "用户管理",
@@ -190,6 +211,8 @@ const pageTitle = computed(() => {
     "/metric-settings": "指标配置",
     "/alert-settings": "预警管理",
     "/scheduled-reports": "定时报告",
+    "/audit-logs": "审计日志",
+    "/operations": "运营后台",
     "/llm-settings": "大模型配置",
   }
   return titles[route.path] || "Dashboard"
@@ -249,7 +272,8 @@ onMounted(async () => {
 }
 
 .app-sidebar {
-  background: linear-gradient(180deg, #1e1b4b 0%, #312e81 100%);
+  background: #ffffff;
+  border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -259,8 +283,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .brand-logo {
@@ -277,20 +301,20 @@ onMounted(async () => {
 .brand-text {
   font-size: 20px;
   font-weight: 700;
-  color: white;
-  letter-spacing: 0.5px;
+  color: var(--app-text);
+  letter-spacing: 0;
 }
 
 .datasource-selector {
-  padding: 16px 16px 8px;
+  padding: 14px 14px 8px;
 }
 
 .selector-label {
   display: block;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--app-text-light);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   margin-bottom: 8px;
   padding-left: 4px;
 }
@@ -300,18 +324,18 @@ onMounted(async () => {
 }
 
 .datasource-selector :deep(.el-input__wrapper) {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
+  background: var(--app-surface-muted);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
   box-shadow: none;
 }
 
 .datasource-selector :deep(.el-input__inner) {
-  color: white;
+  color: var(--app-text);
 }
 
 .datasource-selector :deep(.el-input__inner::placeholder) {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--app-text-light);
 }
 
 .ds-option {
@@ -321,13 +345,14 @@ onMounted(async () => {
 }
 
 .ds-icon {
-  font-size: 14px;
+  font-size: 15px;
+  color: var(--app-primary);
 }
 
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 8px 0 12px;
 }
 
 .nav-section {
@@ -336,9 +361,9 @@ onMounted(async () => {
 
 .nav-section-title {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--app-text-light);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   padding: 12px 20px 8px;
 }
 
@@ -349,22 +374,23 @@ onMounted(async () => {
 }
 
 .app-menu :deep(.el-menu-item) {
-  height: 44px;
-  line-height: 44px;
+  height: 40px;
+  line-height: 40px;
   margin: 2px 0;
-  border-radius: 10px;
-  color: rgba(255, 255, 255, 0.7);
+  border-radius: var(--app-radius-sm);
+  color: var(--app-text-muted);
   transition: all 0.2s;
 }
 
 .app-menu :deep(.el-menu-item:hover) {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: var(--app-surface-muted);
+  color: var(--app-text);
 }
 
 .app-menu :deep(.el-menu-item.is-active) {
-  background: rgba(99, 102, 241, 0.3);
-  color: white;
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--app-primary-dark);
+  font-weight: 600;
 }
 
 .app-menu :deep(.el-menu-item .el-icon) {
@@ -373,9 +399,9 @@ onMounted(async () => {
 }
 
 .sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
+  padding: 14px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface-muted);
 }
 
 .user-card {
@@ -387,8 +413,8 @@ onMounted(async () => {
 .user-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -403,7 +429,7 @@ onMounted(async () => {
 }
 
 .user-name {
-  color: white;
+  color: var(--app-text);
   font-weight: 500;
   font-size: 14px;
   white-space: nowrap;
@@ -421,9 +447,10 @@ onMounted(async () => {
   gap: 6px;
   margin-top: 12px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.8);
+  background: #ffffff;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  color: var(--app-text-muted);
   font-size: 12px;
 }
 
@@ -435,8 +462,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  height: 72px;
+  padding: 0 22px;
+  height: 64px;
   background: var(--app-surface);
   border-bottom: 1px solid var(--app-border);
 }
@@ -448,7 +475,7 @@ onMounted(async () => {
 }
 
 .page-title {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   margin: 0;
   color: var(--app-text);
@@ -477,7 +504,7 @@ onMounted(async () => {
 }
 
 .layout-content {
-  padding: 24px;
+  padding: 18px;
   overflow-y: auto;
 }
 </style>

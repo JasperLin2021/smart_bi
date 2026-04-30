@@ -1,6 +1,9 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
+from app.core.audit import try_record_audit_log
 from app.core.permissions import require_org_admin_or_above
 from app.core.security import get_password_hash
 from app.db.session import get_db
@@ -9,6 +12,21 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate, UserOut
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _parse_permissions(raw_value: str | None) -> dict[str, bool] | None:
+    if not raw_value:
+        return None
+    try:
+        return json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _dump_permissions(value: dict[str, bool] | None) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _user_to_out(user: User, db: Session) -> dict:
@@ -23,6 +41,10 @@ def _user_to_out(user: User, db: Session) -> dict:
         "role": user.role,
         "org_id": user.org_id,
         "org_name": org_name,
+        "data_scope": user.data_scope,
+        "permission_override_enabled": user.permission_override_enabled,
+        "menu_permissions": _parse_permissions(user.menu_permissions),
+        "action_permissions": _parse_permissions(user.action_permissions),
     }
 
 
@@ -64,10 +86,25 @@ def create_user(
         hashed_password=get_password_hash(payload.password),
         role=payload.role,
         org_id=payload.org_id,
+        data_scope=payload.data_scope,
+        permission_override_enabled=payload.permission_override_enabled,
+        menu_permissions=_dump_permissions(payload.menu_permissions),
+        action_permissions=_dump_permissions(payload.action_permissions),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="user.create",
+        resource_type="user",
+        resource_id=user.id,
+        resource_name=user.username,
+        org_id=user.org_id,
+        message="用户已创建",
+        detail={"role": user.role},
+    )
     return _user_to_out(user, db)
 
 
@@ -112,9 +149,28 @@ def update_user(
         user.role = payload.role
     if payload.org_id is not None and current_user.role == "super_admin":
         user.org_id = payload.org_id
+    if payload.data_scope is not None:
+        user.data_scope = payload.data_scope
+    if payload.permission_override_enabled is not None:
+        user.permission_override_enabled = payload.permission_override_enabled
+    if payload.menu_permissions is not None:
+        user.menu_permissions = _dump_permissions(payload.menu_permissions)
+    if payload.action_permissions is not None:
+        user.action_permissions = _dump_permissions(payload.action_permissions)
     
     db.commit()
     db.refresh(user)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="user.update",
+        resource_type="user",
+        resource_id=user.id,
+        resource_name=user.username,
+        org_id=user.org_id,
+        message="用户已更新",
+        detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
+    )
     return _user_to_out(user, db)
 
 
@@ -132,5 +188,18 @@ def delete_user(
         raise HTTPException(status_code=403, detail="无权删除此用户")
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="不能删除自己")
+    user_id_value = user.id
+    username = user.username
+    user_org_id = user.org_id
     db.delete(user)
     db.commit()
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="user.delete",
+        resource_type="user",
+        resource_id=user_id_value,
+        resource_name=username,
+        org_id=user_org_id,
+        message="用户已删除",
+    )

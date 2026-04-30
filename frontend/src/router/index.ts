@@ -8,7 +8,11 @@ const router = createRouter({
     { path: "/login", component: () => import("@/views/Login.vue") },
     { path: "/dashboard", component: () => import("@/views/Dashboard.vue") },
     { path: "/dashboard-center", component: () => import("@/views/DashboardCenter.vue") },
+    { path: "/big-screen-center", component: () => import("@/views/GoViewCenter.vue") },
+    { path: "/goview", redirect: "/big-screen-center" },
+    { path: "/internal-big-screen-center", component: () => import("@/views/BigScreenCenter.vue") },
     { path: "/data-catalog", component: () => import("@/views/DataCatalog.vue") },
+    { path: "/dataset-center", component: () => import("@/views/DatasetCenter.vue") },
     { path: "/smart-query", component: () => import("@/views/SmartQuery.vue") },
     { path: "/datasource-settings", component: () => import("@/views/DataSourceSettings.vue") },
     { 
@@ -24,6 +28,16 @@ const router = createRouter({
     { path: "/metric-settings", component: () => import("@/views/MetricSettings.vue") },
     { path: "/alert-settings", component: () => import("@/views/AlertSettings.vue") },
     { path: "/scheduled-reports", component: () => import("@/views/ScheduledReports.vue") },
+    {
+      path: "/audit-logs",
+      component: () => import("@/views/AuditLogs.vue"),
+      meta: { requiredRole: ['org_admin', 'super_admin'] }
+    },
+    {
+      path: "/operations",
+      component: () => import("@/views/Operations.vue"),
+      meta: { requiredRole: ['org_admin', 'super_admin'] }
+    },
     { 
       path: "/llm-settings", 
       component: () => import("@/views/LlmSettings.vue"),

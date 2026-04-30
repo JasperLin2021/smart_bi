@@ -146,9 +146,11 @@ This fits the already approved requirement: admins can design, normal users can 
 
 ## Route And Page Design
 
-Add a new frontend route:
+Add frontend routes:
 
-- `/goview`
+- `/big-screen-center`: Smart BI navigation entry for GoView.
+- `/goview`: compatibility redirect to `/big-screen-center`.
+- `/internal-big-screen-center`: hidden fallback for the earlier built-in prototype.
 
 Add a new page:
 

@@ -13,7 +13,9 @@
       <el-select v-model="assetType" class="filter-select" placeholder="资产类型" clearable @change="fetchAssets">
         <el-option label="指标" value="metric" />
         <el-option label="数据表" value="table" />
+        <el-option label="数据集" value="dataset" />
         <el-option label="看板" value="dashboard" />
+        <el-option label="大屏" value="big_screen" />
       </el-select>
       <el-select v-model="status" class="filter-select" placeholder="状态" clearable @change="fetchAssets">
         <el-option label="已发布" value="published" />
@@ -71,6 +73,20 @@
         >
           打开看板
         </el-button>
+        <el-button
+          v-if="selectedAsset.asset_type === 'dataset' && selectedAsset.asset_id"
+          type="primary"
+          @click="openDataset"
+        >
+          打开数据集
+        </el-button>
+        <el-button
+          v-if="selectedAsset.asset_type === 'big_screen' && selectedAsset.asset_id"
+          type="primary"
+          @click="openBigScreen"
+        >
+          打开大屏
+        </el-button>
       </template>
     </el-drawer>
   </div>
@@ -103,7 +119,13 @@ const detailVisible = ref(false)
 const selectedAsset = ref<DataAsset | null>(null)
 
 const assetTypeLabel = (type: string) => {
-  const labels: Record<string, string> = { metric: "指标", table: "数据表", dashboard: "看板" }
+  const labels: Record<string, string> = {
+    metric: "指标",
+    table: "数据表",
+    dataset: "数据集",
+    dashboard: "看板",
+    big_screen: "大屏",
+  }
   return labels[type] || type
 }
 
@@ -137,6 +159,14 @@ const showDetail = (asset: DataAsset) => {
 
 const openDashboard = (id: number) => {
   router.push({ path: "/dashboard-center", query: { dashboard_id: id } })
+}
+
+const openDataset = () => {
+  router.push("/dataset-center")
+}
+
+const openBigScreen = () => {
+  router.push("/big-screen-center")
 }
 
 onMounted(fetchAssets)

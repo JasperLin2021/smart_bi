@@ -280,6 +280,7 @@ onMounted(async () => {
   gap: 16px;
   padding: 20px 24px;
   background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
   box-shadow: var(--app-shadow-soft);
 }
@@ -294,7 +295,7 @@ onMounted(async () => {
   color: white;
 }
 
-.user-icon { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.user-icon { background: #0f766e; }
 .admin-icon { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .org-icon { background: linear-gradient(135deg, #10b981, #059669); }
 
@@ -311,7 +312,7 @@ onMounted(async () => {
 }
 
 .table-card {
-  border: none;
+  border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
 }
 
@@ -320,8 +321,9 @@ onMounted(async () => {
 }
 
 .table-card :deep(.el-card__header) {
-  padding: 20px 24px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 14px 18px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .card-header {
@@ -348,7 +350,7 @@ onMounted(async () => {
   content: '';
   width: 4px;
   height: 18px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--app-primary);
   border-radius: 2px;
 }
 
@@ -367,7 +369,7 @@ onMounted(async () => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: var(--app-primary);
   color: white;
   display: flex;
   align-items: center;

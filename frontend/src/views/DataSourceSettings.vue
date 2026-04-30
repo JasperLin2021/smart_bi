@@ -32,8 +32,9 @@
                 <span class="truncate-text">{{ row.metadata_prompt?.substring(0, 80) }}...</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="280" fixed="right">
+            <el-table-column label="操作" width="340" fixed="right">
               <template #default="{ row }">
+                <el-button size="small" @click="openPreview(row)">预览</el-button>
                 <el-button size="small" @click="openSchemaModal(row)">表结构</el-button>
                 <el-button size="small" @click="openDrillConfigModal(row)">钻取</el-button>
                 <el-button size="small" @click="testConnection(row.id)">测试连接</el-button>
@@ -129,6 +130,44 @@
       @generate="handleGenerateDrillConfig"
       @save="handleSaveDrillConfig"
     />
+
+    <el-dialog v-model="previewVisible" title="数据预览" width="900px">
+      <div class="preview-toolbar">
+        <el-select
+          v-model="previewTable"
+          placeholder="选择数据表"
+          style="width: 260px"
+          @change="fetchPreview"
+        >
+          <el-option
+            v-for="table in previewTables"
+            :key="table.name"
+            :label="table.description ? `${table.name} - ${table.description}` : table.name"
+            :value="table.name"
+          />
+        </el-select>
+        <el-button :loading="previewLoading" @click="fetchPreview">刷新</el-button>
+      </div>
+      <el-table
+        :data="previewRows"
+        v-loading="previewLoading"
+        border
+        height="420"
+        empty-text="暂无预览数据"
+      >
+        <el-table-column
+          v-for="column in previewColumns"
+          :key="column"
+          :prop="column"
+          :label="column"
+          min-width="140"
+          show-overflow-tooltip
+        />
+      </el-table>
+      <template #footer>
+        <el-button @click="previewVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -139,7 +178,6 @@ import { ElMessage, ElMessageBox } from "element-plus"
 import type { UploadFile } from "element-plus"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
-import { useRouter } from "vue-router"
 import SchemaMetadataModal from "@/components/SchemaMetadataModal.vue"
 import DrillConfigModal from "@/components/DrillConfigModal.vue"
 
@@ -217,7 +255,6 @@ interface DataSourceDetail {
 
 const authStore = useAuthStore()
 const datasourceStore = useDatasourceStore()
-const router = useRouter()
 
 const datasources = ref<DataSourceDetail[]>([])
 const dialogVisible = ref(false)
@@ -236,6 +273,14 @@ const currentDatasourceName = ref("")
 const currentDrillConfig = ref<DrillConfig | null>(null)
 const generatingDrillConfig = ref(false)
 const savingDrillConfig = ref(false)
+const previewVisible = ref(false)
+const previewLoading = ref(false)
+const previewDatasource = ref<DataSourceDetail | null>(null)
+const previewTable = ref("")
+const previewColumns = ref<string[]>([])
+const previewRows = ref<Record<string, unknown>[]>([])
+
+const previewTables = computed(() => previewDatasource.value?.schema_metadata?.tables || [])
 
 const form = reactive({
   name: "",
@@ -384,6 +429,38 @@ const testConnection = async (id: number) => {
   }
 }
 
+const openPreview = async (row: DataSourceDetail) => {
+  const tables = row.schema_metadata?.tables || []
+  if (tables.length === 0) {
+    ElMessage.warning("请先在「表结构」中检测并保存表结构")
+    return
+  }
+  previewDatasource.value = row
+  previewTable.value = tables[0].name
+  previewColumns.value = []
+  previewRows.value = []
+  previewVisible.value = true
+  await fetchPreview()
+}
+
+const fetchPreview = async () => {
+  if (!previewDatasource.value || !previewTable.value) {
+    return
+  }
+  previewLoading.value = true
+  try {
+    const response = await axios.get(`/api/datasources/${previewDatasource.value.id}/preview`, {
+      params: { table: previewTable.value, limit: 100 },
+    })
+    previewColumns.value = response.data.columns || []
+    previewRows.value = response.data.rows || []
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "数据预览失败")
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 const openSchemaModal = (row: DataSourceDetail) => {
   currentDatasourceId.value = row.id
   currentSchema.value = row.schema_metadata
@@ -485,13 +562,20 @@ onMounted(async () => {
 .upload-selected {
   margin-top: 10px;
   font-size: 13px;
-  color: #409eff;
+  color: var(--app-primary);
+}
+
+.preview-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
 }
 </style>
 
 <style scoped>
 .page :deep(.el-card) {
-  border: none;
+  border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-soft);
 }
 
@@ -500,8 +584,9 @@ onMounted(async () => {
 }
 
 .page :deep(.el-card__header) {
-  padding: 20px 24px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 14px 18px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .card-header {
@@ -522,7 +607,7 @@ onMounted(async () => {
   content: '';
   width: 4px;
   height: 18px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--app-primary);
   border-radius: 2px;
 }
 
@@ -556,17 +641,17 @@ onMounted(async () => {
 }
 
 :deep(.el-dialog__header) {
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--app-border-light);
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: var(--app-surface);
 }
 
 :deep(.el-dialog__body) {
-  padding: 24px;
+  padding: 20px;
 }
 
 :deep(.el-dialog__footer) {
-  padding: 16px 24px;
+  padding: 14px 20px;
   border-top: 1px solid var(--app-border-light);
 }
 

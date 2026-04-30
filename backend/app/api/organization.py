@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
+from app.core.audit import try_record_audit_log
 from app.core.permissions import require_super_admin
 from app.db.session import get_db
 from app.models.organization import Organization
@@ -32,6 +33,17 @@ def create_organization(
     db.add(org)
     db.commit()
     db.refresh(org)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="organization.create",
+        resource_type="organization",
+        resource_id=org.id,
+        resource_name=org.name,
+        org_id=org.id,
+        message="企业已创建",
+        detail={"slug": org.slug},
+    )
     return org
 
 
@@ -67,6 +79,17 @@ def update_organization(
         org.slug = payload.slug
     db.commit()
     db.refresh(org)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="organization.update",
+        resource_type="organization",
+        resource_id=org.id,
+        resource_name=org.name,
+        org_id=org.id,
+        message="企业已更新",
+        detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
+    )
     return org
 
 
@@ -80,5 +103,18 @@ def delete_organization(
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="企业不存在")
+    org_name = org.name
+    org_slug = org.slug
     db.delete(org)
     db.commit()
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="organization.delete",
+        resource_type="organization",
+        resource_id=org_id,
+        resource_name=org_name,
+        org_id=org_id,
+        message="企业已删除",
+        detail={"slug": org_slug},
+    )

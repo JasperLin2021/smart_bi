@@ -192,13 +192,13 @@ const formatTime = (date: Date) => {
 }
 
 .avatar-user {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: #0f766e;
   color: #fff;
   font-weight: 600;
 }
 
 .avatar-assistant {
-  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  background: #102033;
   color: #fff;
   font-weight: 600;
 }
@@ -228,10 +228,10 @@ const formatTime = (date: Date) => {
 }
 
 .chat-bubble--user .bubble-text {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--app-primary);
   color: #fff;
   border-bottom-right-radius: 6px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.18);
 }
 
 .chat-bubble--assistant .bubble-text {
@@ -285,10 +285,10 @@ const formatTime = (date: Date) => {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 16px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: #ecfdf5;
+  color: #0f766e;
   font-size: 12px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid #b7e4d8;
 }
 
 .drill-context-label {

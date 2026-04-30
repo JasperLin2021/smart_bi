@@ -33,15 +33,31 @@
         <el-table-column prop="description" label="描述" />
         <el-table-column prop="table_name" label="表名" width="120" />
         <el-table-column prop="column_name" label="字段名" width="120" />
-        <el-table-column prop="formula" label="计算公式" />
-        <el-table-column label="状态" width="80">
+        <el-table-column prop="formula" label="计算公式" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="unit" label="单位" width="80" />
+        <el-table-column prop="aggregation" label="聚合" width="90" />
+        <el-table-column label="标签" width="160">
+          <template #default="{ row }">
+            <el-tag v-for="tag in row.tags || []" :key="tag" size="small" class="metric-tag">
+              {{ tag }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="发布" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'published' ? 'success' : row.status === 'archived' ? 'info' : 'warning'">
+              {{ statusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="启用" width="80">
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'info'">
               {{ row.is_active ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openDialog(row)">编辑</el-button>
             <el-button size="small" type="danger" @click="deleteMetric(row.id)">删除</el-button>
@@ -50,7 +66,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑指标' : '新增指标'" width="600px">
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑指标' : '新增指标'" width="720px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="数据源" required>
           <el-select v-model="form.datasource_id" placeholder="请选择数据源" style="width: 100%">
@@ -83,6 +99,53 @@
             AI生成公式
           </el-button>
         </el-form-item>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="负责人">
+              <el-input v-model="form.owner_name" placeholder="如：财务分析师" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="单位">
+              <el-input v-model="form.unit" placeholder="如：元、%、单" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="聚合方式">
+              <el-select v-model="form.aggregation" style="width: 100%">
+                <el-option label="求和" value="sum" />
+                <el-option label="平均" value="avg" />
+                <el-option label="计数" value="count" />
+                <el-option label="最大值" value="max" />
+                <el-option label="最小值" value="min" />
+                <el-option label="比率" value="ratio" />
+                <el-option label="自定义" value="custom" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="发布状态">
+              <el-select v-model="form.status" style="width: 100%">
+                <el-option label="草稿" value="draft" />
+                <el-option label="已发布" value="published" />
+                <el-option label="已归档" value="archived" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="标签">
+          <el-input v-model="form.tags_text" placeholder="多个标签用逗号或换行分隔" />
+        </el-form-item>
+        <el-form-item label="适用维度">
+          <el-input
+            v-model="form.dimensions_text"
+            type="textarea"
+            :rows="2"
+            placeholder="如：region, product, month"
+          />
+        </el-form-item>
         <el-form-item label="状态">
           <el-switch v-model="form.is_active" :active-value="1" :inactive-value="0" />
         </el-form-item>
@@ -110,6 +173,29 @@ interface Metric {
   table_name: string
   column_name: string
   formula: string
+  owner_name: string | null
+  unit: string | null
+  aggregation: string
+  tags: string[] | null
+  status: string
+  dimensions: string[] | null
+  is_active: number
+}
+
+interface MetricForm {
+  datasource_id: number | null
+  name: string
+  description: string
+  definition: string
+  table_name: string
+  column_name: string
+  formula: string
+  owner_name: string
+  unit: string
+  aggregation: string
+  tags_text: string
+  status: string
+  dimensions_text: string
   is_active: number
 }
 
@@ -122,7 +208,7 @@ const generatingFormula = ref(false)
 const datasourceStore = useDatasourceStore()
 const selectedDatasourceFilter = ref<number | null>(null)
 
-const form = ref({
+const emptyForm = (): MetricForm => ({
   datasource_id: null as number | null,
   name: "",
   description: "",
@@ -130,8 +216,16 @@ const form = ref({
   table_name: "",
   column_name: "",
   formula: "",
+  owner_name: "",
+  unit: "",
+  aggregation: "sum",
+  tags_text: "",
+  status: "published",
+  dimensions_text: "",
   is_active: 1
 })
+
+const form = ref<MetricForm>(emptyForm())
 
 const fetchMetrics = async () => {
   loading.value = true
@@ -156,22 +250,62 @@ const getDatasourceName = (datasourceId: number) => {
   return datasourceStore.datasources.find(ds => ds.id === datasourceId)?.name || `数据源 #${datasourceId}`
 }
 
+const statusLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    draft: "草稿",
+    published: "已发布",
+    archived: "已归档",
+  }
+  return labels[status] || status
+}
+
+const parseList = (value: string) => {
+  const items = value
+    .split(/[\n,，]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  return items.length > 0 ? items : null
+}
+
+const buildPayload = () => ({
+  datasource_id: form.value.datasource_id,
+  name: form.value.name,
+  description: form.value.description || null,
+  definition: form.value.definition,
+  table_name: form.value.table_name || null,
+  column_name: form.value.column_name || null,
+  formula: form.value.formula || null,
+  owner_name: form.value.owner_name || null,
+  unit: form.value.unit || null,
+  aggregation: form.value.aggregation || "sum",
+  tags: parseList(form.value.tags_text),
+  status: form.value.status || "published",
+  dimensions: parseList(form.value.dimensions_text),
+  is_active: form.value.is_active,
+})
+
 const openDialog = (metric?: Metric) => {
   if (metric) {
     editingId.value = metric.id
-    form.value = { ...metric }
+    form.value = {
+      datasource_id: metric.datasource_id,
+      name: metric.name || "",
+      description: metric.description || "",
+      definition: metric.definition || "",
+      table_name: metric.table_name || "",
+      column_name: metric.column_name || "",
+      formula: metric.formula || "",
+      owner_name: metric.owner_name || "",
+      unit: metric.unit || "",
+      aggregation: metric.aggregation || "sum",
+      tags_text: (metric.tags || []).join(", "),
+      status: metric.status || "published",
+      dimensions_text: (metric.dimensions || []).join(", "),
+      is_active: metric.is_active ?? 1,
+    }
   } else {
     editingId.value = null
-    form.value = {
-      datasource_id: null,
-      name: "",
-      description: "",
-      definition: "",
-      table_name: "",
-      column_name: "",
-      formula: "",
-      is_active: 1
-    }
+    form.value = emptyForm()
   }
   dialogVisible.value = true
 }
@@ -183,10 +317,11 @@ const saveMetric = async () => {
   }
   saving.value = true
   try {
+    const payload = buildPayload()
     if (editingId.value) {
-      await axios.put(`/api/metrics/${editingId.value}`, form.value)
+      await axios.put(`/api/metrics/${editingId.value}`, payload)
     } else {
-      await axios.post("/api/metrics", form.value)
+      await axios.post("/api/metrics", payload)
     }
     ElMessage.success("保存成功")
     dialogVisible.value = false
@@ -205,7 +340,7 @@ const generateFormula = async () => {
   }
   generatingFormula.value = true
   try {
-    const response = await axios.post("/api/metrics/generate-formula", form.value)
+    const response = await axios.post("/api/metrics/generate-formula", buildPayload())
     form.value.formula = response.data.formula || ""
     ElMessage.success("已生成计算公式")
   } catch (error: any) {
@@ -233,3 +368,14 @@ onMounted(() => {
   fetchMetrics()
 })
 </script>
+
+<style scoped>
+.metric-tag {
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+.inline-button {
+  margin-top: 8px;
+}
+</style>

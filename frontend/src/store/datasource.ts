@@ -6,6 +6,7 @@ export interface DataSourceItem {
   name: string
   slug: string
   is_active: number
+  source_type?: string
 }
 
 export const useDatasourceStore = defineStore("datasource", {
@@ -24,7 +25,7 @@ export const useDatasourceStore = defineStore("datasource", {
       this.datasources = response.data
       // Auto-select first if no current selection
       if (!this.currentId && this.datasources.length > 0) {
-        this.currentId = this.datasources[0].id
+        this.currentId = this.datasources.find(ds => ds.source_type === "excel")?.id || this.datasources[0].id
       }
     },
     switchDatasource(id: number) {

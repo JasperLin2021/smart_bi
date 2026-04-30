@@ -118,6 +118,61 @@ class PinnedChartsTests(unittest.TestCase):
         self.assertEqual(result[0]["rows"][0]["LINE"], "A")
         mocked_execute.assert_called_once_with("/tmp/fake.xlsx", "select 1")
 
+    def test_preview_pinned_chart_executes_sql_without_saving_chart(self):
+        from app.api.pinned_charts import PinnedChartPreviewRequest, preview_pinned_chart
+        from app.models.datasource import DataSource
+        from app.models.pinned_chart import PinnedChart
+
+        datasource = SimpleNamespace(
+            id=2,
+            source_type="excel",
+            database_url="/tmp/fake.xlsx",
+        )
+
+        class FakeDatasourceQuery:
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def first(self):
+                return datasource
+
+        class FakeChartQuery:
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def count(self):
+                return 0
+
+        class FakeDb:
+            def __init__(self):
+                self.added = []
+
+            def query(self, model):
+                if model is DataSource:
+                    return FakeDatasourceQuery()
+                if model is PinnedChart:
+                    return FakeChartQuery()
+                raise AssertionError(f"unexpected model: {model}")
+
+            def add(self, row):
+                self.added.append(row)
+
+        db = FakeDb()
+        with patch(
+            "app.api.pinned_charts.execute_excel_query",
+            return_value={"columns": ["LINE", "total_output"], "rows": [{"LINE": "A", "total_output": 10}]},
+        ) as mocked_execute:
+            result = preview_pinned_chart(
+                PinnedChartPreviewRequest(sql_query="select * from Sheet1", datasource_id=2),
+                db=db,
+                current_user=SimpleNamespace(id=10),
+            )
+
+        self.assertEqual(result.columns, ["LINE", "total_output"])
+        self.assertEqual(result.rows, [{"LINE": "A", "total_output": 10}])
+        self.assertEqual(db.added, [])
+        mocked_execute.assert_called_once_with("/tmp/fake.xlsx", "select * from Sheet1")
+
 
 if __name__ == "__main__":
     unittest.main()
