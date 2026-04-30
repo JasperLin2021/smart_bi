@@ -1,115 +1,202 @@
 <template>
-  <div class="page">
-    <el-row :gutter="16">
-      <el-col :span="24">
-        <el-card>
-          <template #header>
-            <div class="card-header">
-              <span class="card-header-title">数据源管理</span>
-              <el-button type="primary" size="small" @click="openCreate">新增数据源</el-button>
+  <div class="governance-page datasource-page">
+    <section class="governance-hero">
+      <div class="governance-hero-copy">
+        <p class="governance-kicker">DATA SOURCE GOVERNANCE</p>
+        <h2 class="governance-title">数据源管理</h2>
+        <p class="governance-desc">
+          管理问数、数据集、看板和大屏共用的数据入口。优先完成连接测试、表结构配置和钻取规则，让业务用户拿到可解释的数据。
+        </p>
+      </div>
+      <div class="governance-actions">
+        <el-button :icon="Refresh" @click="fetchAll" :loading="loading">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">新增数据源</el-button>
+      </div>
+    </section>
+
+    <section class="governance-summary-grid">
+      <div class="governance-summary-card">
+        <span>全部数据源</span>
+        <strong>{{ datasourceStats.total }}</strong>
+      </div>
+      <div class="governance-summary-card">
+        <span>已启用</span>
+        <strong>{{ datasourceStats.active }}</strong>
+      </div>
+      <div class="governance-summary-card">
+        <span>已配置表结构</span>
+        <strong>{{ datasourceStats.schemaReady }}</strong>
+      </div>
+      <div class="governance-summary-card">
+        <span>Excel 数据源</span>
+        <strong>{{ datasourceStats.excel }}</strong>
+      </div>
+    </section>
+
+    <el-card class="governance-workbench" shadow="never">
+      <div class="governance-toolbar">
+        <div class="governance-filters">
+          <el-input
+            v-model="keyword"
+            class="governance-search"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索名称 / 标识 / 说明"
+          />
+          <el-select v-model="typeFilter" clearable class="governance-filter" placeholder="数据源类型">
+            <el-option label="数据库" value="database" />
+            <el-option label="Excel" value="excel" />
+          </el-select>
+          <el-select v-model="statusFilter" clearable class="governance-filter" placeholder="启用状态">
+            <el-option label="启用" :value="1" />
+            <el-option label="禁用" :value="0" />
+          </el-select>
+        </div>
+        <span class="governance-muted">共 {{ filteredDatasources.length }} 个结果</span>
+      </div>
+
+      <el-table :data="filteredDatasources" v-loading="loading" row-key="id" empty-text="暂无数据源">
+        <el-table-column label="数据源" min-width="230">
+          <template #default="{ row }">
+            <div class="governance-table-name">
+              <strong>{{ row.name }}</strong>
+              <span>{{ row.slug }}</span>
             </div>
           </template>
-
-          <el-table :data="datasources" stripe>
-            <el-table-column prop="name" label="名称" width="160" />
-            <el-table-column prop="slug" label="标识" width="120" />
-            <el-table-column prop="source_type" label="类型" width="100">
-              <template #default="{ row }">
-                <el-tag :type="row.source_type === 'excel' ? 'warning' : 'primary'" size="small">
-                  {{ row.source_type === 'excel' ? 'Excel' : '数据库' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="is_active" label="状态" width="80">
-              <template #default="{ row }">
-                <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
-                  {{ row.is_active ? '启用' : '禁用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="元数据提示词" min-width="200">
-              <template #default="{ row }">
-                <span class="truncate-text">{{ row.metadata_prompt?.substring(0, 80) }}...</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="340" fixed="right">
-              <template #default="{ row }">
-                <el-button size="small" @click="openPreview(row)">预览</el-button>
-                <el-button size="small" @click="openSchemaModal(row)">表结构</el-button>
-                <el-button size="small" @click="openDrillConfigModal(row)">钻取</el-button>
-                <el-button size="small" @click="testConnection(row.id)">测试连接</el-button>
-                <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
-                <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
+        </el-table-column>
+        <el-table-column label="类型 / 状态" width="150">
+          <template #default="{ row }">
+            <div class="governance-tag-row">
+              <el-tag :type="row.source_type === 'excel' ? 'warning' : 'primary'" effect="plain">
+                {{ sourceTypeLabel(row.source_type) }}
+              </el-tag>
+              <el-tag :type="row.is_active ? 'success' : 'info'" effect="plain">
+                {{ row.is_active ? '启用' : '禁用' }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="表结构" min-width="180">
+          <template #default="{ row }">
+            <div class="governance-table-name">
+              <strong>{{ schemaTablesCount(row) }} 张表</strong>
+              <span>{{ schemaFieldsCount(row) }} 个字段 · {{ row.drill_config ? '已配置钻取' : '未配置钻取' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="业务口径" min-width="260">
+          <template #default="{ row }">
+            <div class="governance-table-name">
+              <span>{{ row.metrics_prompt ? row.metrics_prompt.substring(0, 96) : '未维护指标描述' }}</span>
+              <span>{{ recommendationCount(row) }} 个推荐问题</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="370">
+          <template #default="{ row }">
+            <el-button text type="primary" :icon="ViewIcon" @click="openPreview(row)">预览</el-button>
+            <el-button text type="primary" :icon="Grid" @click="openSchemaModal(row)">表结构</el-button>
+            <el-button text type="primary" :icon="Connection" @click="openDrillConfigModal(row)">钻取</el-button>
+            <el-button text @click="testConnection(row.id)">测试</el-button>
+            <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button text type="danger" :icon="Delete" @click="handleDelete(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
     <!-- 创建/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑数据源' : '新增数据源'" width="700px">
-      <el-form :model="form" label-width="120px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="如：嘉盛半导体" />
-        </el-form-item>
-        <el-form-item label="标识 (slug)" required>
-          <el-input v-model="form.slug" placeholder="如：carsem（英文标识，URL友好）" />
-        </el-form-item>
-        <el-form-item label="数据源类型" required>
-          <el-select v-model="form.source_type" placeholder="选择类型" style="width: 100%">
-            <el-option label="PostgreSQL" value="database" />
-            <el-option label="Excel 文件" value="excel" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="form.source_type === 'database'" label="数据库连接" required>
-          <el-input
-            v-model="form.database_url"
-            placeholder="postgresql+psycopg2://user:pass@host:port/dbname"
-            type="textarea"
-            :rows="2"
-          />
-        </el-form-item>
-        <el-form-item v-else label="Excel 文件" required>
-          <el-upload
-            drag
-            action="#"
-            :auto-upload="false"
-            :show-file-list="false"
-            :limit="1"
-            accept=".xlsx,.xls"
-            :before-upload="preventAutoUpload"
-            :on-change="handleExcelFileChange"
-          >
-            <div class="upload-content">
-              <div class="upload-title">拖拽 Excel 文件到这里，或点击选择</div>
-              <div class="upload-hint">仅支持 .xlsx / .xls，保存数据源时自动上传到服务器</div>
-              <div v-if="selectedExcelName" class="upload-selected">
-                已选择：{{ selectedExcelName }}
+    <el-dialog
+      v-model="dialogVisible"
+      :title="isEdit ? '编辑数据源' : '新增数据源'"
+      width="min(780px, calc(100vw - 32px))"
+      destroy-on-close
+    >
+      <el-form :model="form" label-position="top">
+        <section class="governance-dialog-section">
+          <div class="governance-section-head">
+            <h3>连接信息</h3>
+            <p>先建立可用连接，保存后再进入表结构识别和钻取规则配置。</p>
+          </div>
+          <el-row :gutter="16">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="名称" required>
+                <el-input v-model="form.name" placeholder="如：嘉盛半导体" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="12">
+              <el-form-item label="标识" required>
+                <el-input v-model="form.slug" placeholder="如：carsem" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="数据源类型" required>
+            <el-segmented
+              v-model="form.source_type"
+              :options="[
+                { label: 'PostgreSQL', value: 'database' },
+                { label: 'Excel 文件', value: 'excel' },
+              ]"
+            />
+          </el-form-item>
+          <el-form-item v-if="form.source_type === 'database'" label="数据库连接" required>
+            <el-input
+              v-model="form.database_url"
+              placeholder="postgresql+psycopg2://user:pass@host:port/dbname"
+              type="textarea"
+              :rows="3"
+              class="code-textarea"
+            />
+          </el-form-item>
+          <el-form-item v-else label="Excel 文件" required>
+            <el-upload
+              drag
+              action="#"
+              :auto-upload="false"
+              :show-file-list="false"
+              :limit="1"
+              accept=".xlsx,.xls"
+              :before-upload="preventAutoUpload"
+              :on-change="handleExcelFileChange"
+            >
+              <div class="upload-content">
+                <el-icon class="upload-icon"><Upload /></el-icon>
+                <div class="upload-title">拖拽 Excel 文件到这里，或点击选择</div>
+                <div class="upload-hint">仅支持 .xlsx / .xls，保存数据源时自动上传到服务器</div>
+                <div v-if="selectedExcelName" class="upload-selected">
+                  已选择：{{ selectedExcelName }}
+                </div>
               </div>
-            </div>
-          </el-upload>
-        </el-form-item>
-        <el-form-item label="指标描述">
-          <el-input
-            v-model="form.metrics_prompt"
-            type="textarea"
-            :rows="3"
-            placeholder="可用的业务指标描述（可选）"
-          />
-        </el-form-item>
-        <el-form-item label="推荐问题">
-          <el-input
-            v-model="recommendQuestionsText"
-            type="textarea"
-            :rows="3"
-            placeholder="每行一个推荐问题（可选）"
-          />
-        </el-form-item>
+            </el-upload>
+          </el-form-item>
+        </section>
+
+        <section class="governance-dialog-section">
+          <div class="governance-section-head">
+            <h3>业务语义</h3>
+            <p>这些内容会参与智能问数理解，建议使用业务能看懂的指标名称和问题表达。</p>
+          </div>
+          <el-form-item label="指标描述">
+            <el-input
+              v-model="form.metrics_prompt"
+              type="textarea"
+              :rows="4"
+              placeholder="可用的业务指标描述（可选）"
+            />
+          </el-form-item>
+          <el-form-item label="推荐问题">
+            <el-input
+              v-model="recommendQuestionsText"
+              type="textarea"
+              :rows="4"
+              placeholder="每行一个推荐问题（可选）"
+            />
+          </el-form-item>
+        </section>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存数据源</el-button>
       </template>
     </el-dialog>
 
@@ -131,12 +218,17 @@
       @save="handleSaveDrillConfig"
     />
 
-    <el-dialog v-model="previewVisible" title="数据预览" width="900px">
+    <el-dialog
+      v-model="previewVisible"
+      title="数据预览"
+      width="min(1080px, calc(100vw - 32px))"
+      class="preview-dialog"
+    >
       <div class="preview-toolbar">
         <el-select
           v-model="previewTable"
           placeholder="选择数据表"
-          style="width: 260px"
+          class="preview-table-select"
           @change="fetchPreview"
         >
           <el-option
@@ -147,6 +239,7 @@
           />
         </el-select>
         <el-button :loading="previewLoading" @click="fetchPreview">刷新</el-button>
+        <span class="governance-muted">{{ previewRows.length }} 行预览数据</span>
       </div>
       <el-table
         :data="previewRows"
@@ -176,6 +269,17 @@ import { computed, onMounted, reactive, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { UploadFile } from "element-plus"
+import {
+  Connection,
+  Delete,
+  Edit,
+  Grid,
+  Plus,
+  Refresh,
+  Search,
+  Upload,
+  View as ViewIcon,
+} from "@element-plus/icons-vue"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import SchemaMetadataModal from "@/components/SchemaMetadataModal.vue"
@@ -257,6 +361,10 @@ const authStore = useAuthStore()
 const datasourceStore = useDatasourceStore()
 
 const datasources = ref<DataSourceDetail[]>([])
+const loading = ref(false)
+const keyword = ref("")
+const typeFilter = ref("")
+const statusFilter = ref<number | null>(null)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editId = ref<number | null>(null)
@@ -282,6 +390,28 @@ const previewRows = ref<Record<string, unknown>[]>([])
 
 const previewTables = computed(() => previewDatasource.value?.schema_metadata?.tables || [])
 
+const datasourceStats = computed(() => {
+  const total = datasources.value.length
+  const active = datasources.value.filter(item => item.is_active).length
+  const excel = datasources.value.filter(item => item.source_type === "excel").length
+  const schemaReady = datasources.value.filter(item => schemaTablesCount(item) > 0).length
+  return { total, active, excel, schemaReady }
+})
+
+const filteredDatasources = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return datasources.value.filter(item => {
+    if (typeFilter.value && item.source_type !== typeFilter.value) return false
+    if (statusFilter.value !== null && statusFilter.value !== undefined && item.is_active !== statusFilter.value) {
+      return false
+    }
+    if (!kw) return true
+    return [item.name, item.slug, item.metadata_prompt, item.metrics_prompt]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(kw))
+  })
+})
+
 const form = reactive({
   name: "",
   slug: "",
@@ -293,13 +423,30 @@ const form = reactive({
 const recommendQuestionsText = ref("")
 
 const fetchAll = async () => {
-  const response = await axios.get("/api/datasources")
-  // Fetch full details for each
-  const details = await Promise.all(
-    response.data.map((ds: any) => axios.get(`/api/datasources/${ds.id}`))
-  )
-  datasources.value = details.map(r => r.data)
+  loading.value = true
+  try {
+    const response = await axios.get("/api/datasources")
+    // Fetch full details for each
+    const details = await Promise.all(
+      response.data.map((ds: any) => axios.get(`/api/datasources/${ds.id}`))
+    )
+    datasources.value = details.map(r => r.data)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "数据源加载失败")
+  } finally {
+    loading.value = false
+  }
 }
+
+const sourceTypeLabel = (value: string) => value === "excel" ? "Excel" : "数据库"
+
+const schemaTablesCount = (row: DataSourceDetail) => row.schema_metadata?.tables?.length || 0
+
+const schemaFieldsCount = (row: DataSourceDetail) =>
+  (row.schema_metadata?.tables || []).reduce((sum, table) => sum + (table.columns?.length || 0), 0)
+
+const recommendationCount = (row: DataSourceDetail) =>
+  Array.isArray(row.recommend_questions) ? row.recommend_questions.length : 0
 
 const openCreate = () => {
   isEdit.value = false
@@ -542,21 +689,31 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.datasource-page :deep(.el-table .cell) {
+  line-height: 1.5;
+}
+
 .upload-content {
-  padding: 8px 0;
+  padding: 16px 0;
   text-align: center;
+}
+
+.upload-icon {
+  margin-bottom: 8px;
+  color: var(--app-primary);
+  font-size: 28px;
 }
 
 .upload-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-text);
 }
 
 .upload-hint {
   margin-top: 6px;
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-muted);
 }
 
 .upload-selected {
@@ -569,64 +726,12 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: 12px;
 }
-</style>
 
-<style scoped>
-.page :deep(.el-card) {
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-soft);
-}
-
-.page :deep(.el-card:hover) {
-  transform: none;
-}
-
-.page :deep(.el-card__header) {
-  padding: 14px 18px;
-  background: var(--app-surface);
-  border-bottom: 1px solid var(--app-border);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-header-title {
-  font-weight: 600;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.card-header-title::before {
-  content: '';
-  width: 4px;
-  height: 18px;
-  background: var(--app-primary);
-  border-radius: 2px;
-}
-
-.page :deep(.el-table) {
-  --el-table-border-color: var(--app-border-light);
-}
-
-.page :deep(.el-table th) {
-  background: var(--app-surface-muted) !important;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.page :deep(.el-table td) {
-  padding: 14px 12px;
-}
-
-.page :deep(.el-table .el-button) {
-  padding: 6px 12px;
+.preview-table-select {
+  width: 280px;
 }
 
 .truncate-text {
@@ -635,27 +740,13 @@ onMounted(async () => {
   line-height: 1.5;
 }
 
-/* Dialog styling */
-:deep(.el-dialog) {
-  border-radius: var(--app-radius);
+.code-textarea :deep(textarea) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
-:deep(.el-dialog__header) {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--app-border-light);
-  background: var(--app-surface);
-}
-
-:deep(.el-dialog__body) {
-  padding: 20px;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 14px 20px;
-  border-top: 1px solid var(--app-border-light);
-}
-
-:deep(.el-form-item__label) {
-  font-weight: 500;
+@media (max-width: 640px) {
+  .preview-table-select {
+    width: 100%;
+  }
 }
 </style>

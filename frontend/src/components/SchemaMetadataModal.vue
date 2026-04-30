@@ -2,20 +2,42 @@
   <el-dialog
     v-model="visible"
     title="表结构管理"
-    width="1200px"
+    width="min(1200px, calc(100vw - 32px))"
     :close-on-click-modal="false"
     @close="handleClose"
   >
     <div class="schema-modal">
-      <div class="schema-toolbar">
-        <el-button type="primary" size="small" @click="detectSchema" :loading="detecting">
-          <el-icon><RefreshRight /></el-icon>
-          自动检测
-        </el-button>
-        <el-button size="small" @click="addTable">
-          <el-icon><Plus /></el-icon>
-          添加表
-        </el-button>
+      <div class="schema-hero">
+        <div>
+          <p class="modal-kicker">SCHEMA SEMANTICS</p>
+          <h3>让系统理解业务表结构</h3>
+          <p>表、字段和关联关系会生成元数据提示词，直接影响智能问数和数据集建模质量。</p>
+        </div>
+        <div class="schema-toolbar">
+          <el-button type="primary" @click="detectSchema" :loading="detecting">
+            <el-icon><RefreshRight /></el-icon>
+            自动检测
+          </el-button>
+          <el-button @click="addTable">
+            <el-icon><Plus /></el-icon>
+            添加表
+          </el-button>
+        </div>
+      </div>
+
+      <div class="schema-metrics">
+        <div>
+          <span>数据表</span>
+          <strong>{{ schema.tables.length }}</strong>
+        </div>
+        <div>
+          <span>字段</span>
+          <strong>{{ totalColumns }}</strong>
+        </div>
+        <div>
+          <span>关联关系</span>
+          <strong>{{ schema.relationships.length }}</strong>
+        </div>
       </div>
 
       <el-empty
@@ -282,6 +304,9 @@ const saving = ref(false)
 const generatingDescriptions = ref(false)
 
 const selectedTable = computed<Table | null>(() => schema.tables[selectedTableIndex.value] || null)
+const totalColumns = computed(() =>
+  schema.tables.reduce((sum, table) => sum + table.columns.length, 0)
+)
 
 // Initialize schema from props
 watch(() => props.initialSchema, (newVal) => {
@@ -437,16 +462,72 @@ const handleClose = () => {
 
 <style scoped>
 .schema-modal {
-  max-height: 60vh;
+  max-height: 68vh;
   overflow-y: auto;
+}
+
+.schema-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 12px;
+  background: var(--app-surface-muted);
+}
+
+.modal-kicker {
+  margin: 0 0 6px;
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.schema-hero h3 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 18px;
+}
+
+.schema-hero p:not(.modal-kicker) {
+  margin: 8px 0 0;
+  color: var(--app-text-muted);
+  line-height: 1.6;
 }
 
 .schema-toolbar {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.schema-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--app-border-light);
+}
+
+.schema-metrics div {
+  padding: 12px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.schema-metrics span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.schema-metrics strong {
+  color: var(--app-text);
+  font-size: 20px;
 }
 
 .schema-workspace {
@@ -616,6 +697,20 @@ const handleClose = () => {
 
 @media (max-width: 960px) {
   .schema-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .schema-hero {
+    flex-direction: column;
+  }
+
+  .schema-toolbar {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .schema-metrics {
     grid-template-columns: 1fr;
   }
 }

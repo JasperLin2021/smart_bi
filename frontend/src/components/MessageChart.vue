@@ -443,7 +443,9 @@ const renderChart = async () => {
     chartInstance.clear()
     chartInstance.setOption(option)
     chartInstance.off("click")
-    chartInstance.on("click", handleChartClick)
+    chartInstance.on("click", (params) => {
+      void handleChartClick(params)
+    })
   }
 }
 

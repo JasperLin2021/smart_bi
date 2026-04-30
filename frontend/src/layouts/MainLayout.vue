@@ -1,6 +1,6 @@
 <template>
   <el-container class="app-shell">
-    <el-aside :width="sidebarWidth" class="app-sidebar" :class="{ collapsed: isSidebarCollapsed }">
+    <el-aside :width="sidebarWidth" class="app-sidebar" :class="{ collapsed: effectiveSidebarCollapsed }">
       <!-- Brand -->
       <div class="sidebar-brand">
         <div class="brand-logo">
@@ -15,13 +15,13 @@
             </defs>
           </svg>
         </div>
-        <span v-if="!isSidebarCollapsed" class="brand-text">Smart BI</span>
+        <span v-if="!effectiveSidebarCollapsed" class="brand-text">Smart BI</span>
         <el-button
           class="sidebar-toggle"
-          :icon="isSidebarCollapsed ? Expand : Fold"
+          :icon="effectiveSidebarCollapsed ? Expand : Fold"
           circle
           text
-          :aria-label="isSidebarCollapsed ? '展开导航' : '收起导航'"
+          :aria-label="effectiveSidebarCollapsed ? '展开导航' : '收起导航'"
           @click="toggleSidebar"
         />
       </div>
@@ -29,7 +29,7 @@
       <!-- Navigation Menu -->
       <nav class="sidebar-nav">
         <el-menu
-          :collapse="isSidebarCollapsed"
+          :collapse="effectiveSidebarCollapsed"
           :default-active="activePath"
           :default-openeds="defaultOpeneds"
           router
@@ -60,7 +60,7 @@
           <div class="user-avatar">
             {{ authStore.profile?.username?.charAt(0).toUpperCase() }}
           </div>
-          <div v-if="!isSidebarCollapsed" class="user-info">
+          <div v-if="!effectiveSidebarCollapsed" class="user-info">
             <div class="user-name">{{ authStore.profile?.username }}</div>
             <div class="user-role">
               <el-tag :type="roleTagType" size="small" effect="plain">
@@ -69,7 +69,7 @@
             </div>
           </div>
         </div>
-        <div v-if="authStore.profile?.org_name && !isSidebarCollapsed" class="org-badge">
+        <div v-if="authStore.profile?.org_name && !effectiveSidebarCollapsed" class="org-badge">
           <el-icon><OfficeBuilding /></el-icon>
           <span>{{ authStore.profile.org_name }}</span>
         </div>
@@ -114,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, type Component } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
@@ -130,9 +130,11 @@ const authStore = useAuthStore()
 const datasourceStore = useDatasourceStore()
 
 const isSidebarCollapsed = ref(false)
+const isMobileLayout = ref(false)
 
 const activePath = computed(() => route.path)
-const sidebarWidth = computed(() => (isSidebarCollapsed.value ? "72px" : "260px"))
+const effectiveSidebarCollapsed = computed(() => isSidebarCollapsed.value || isMobileLayout.value)
+const sidebarWidth = computed(() => (effectiveSidebarCollapsed.value ? "72px" : "260px"))
 
 type MenuRole = "org_admin" | "super_admin"
 type MenuItem = {
@@ -176,7 +178,7 @@ const menuGroups: MenuGroup[] = [
     icon: Coin,
     items: [
       { path: "/datasource-settings", label: "数据源管理", icon: Coin },
-      { path: "/metric-settings", label: "指标配置", icon: TrendCharts },
+      { path: "/metric-settings", label: "可信指标", icon: TrendCharts },
       { path: "/alert-settings", label: "预警管理", icon: Bell },
       { path: "/scheduled-reports", label: "定时报告", icon: AlarmClock },
     ],
@@ -245,7 +247,12 @@ const roleTagType = computed(() => {
 })
 
 const toggleSidebar = () => {
+  if (isMobileLayout.value) return
   isSidebarCollapsed.value = !isSidebarCollapsed.value
+}
+
+const syncViewport = () => {
+  isMobileLayout.value = window.innerWidth <= 768
 }
 
 const refresh = () => {
@@ -258,10 +265,16 @@ const logout = () => {
 }
 
 onMounted(async () => {
+  syncViewport()
+  window.addEventListener("resize", syncViewport)
   if (!authStore.profile && authStore.token) {
     authStore.fetchProfile()
   }
   await datasourceStore.fetchDatasources()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", syncViewport)
 })
 </script>
 

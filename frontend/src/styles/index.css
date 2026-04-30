@@ -542,3 +542,207 @@ body,
     grid-template-columns: 1fr;
   }
 }
+
+/* Data governance workspace */
+.governance-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.governance-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: start;
+  padding: 20px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  background: var(--app-surface);
+}
+
+.governance-hero-copy {
+  min-width: 0;
+  max-width: 760px;
+}
+
+.governance-kicker {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-primary);
+  text-transform: uppercase;
+}
+
+.governance-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+  color: var(--app-text);
+}
+
+.governance-desc {
+  margin: 10px 0 0;
+  color: var(--app-text-muted);
+  line-height: 1.7;
+}
+
+.governance-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.governance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.governance-summary-card {
+  min-height: 84px;
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  background: var(--app-surface);
+}
+
+.governance-summary-card span {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+}
+
+.governance-summary-card strong {
+  color: var(--app-text);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.governance-workbench {
+  border-radius: var(--app-radius);
+}
+
+.governance-workbench .el-card__body {
+  padding: 0;
+}
+
+.governance-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--app-border-light);
+  background: var(--app-surface);
+}
+
+.governance-filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.governance-search {
+  width: 260px;
+}
+
+.governance-filter {
+  width: 160px;
+}
+
+.governance-table-name {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.governance-table-name strong {
+  color: var(--app-text);
+  font-weight: 600;
+}
+
+.governance-table-name span,
+.governance-muted {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.governance-tag-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.governance-dialog-section {
+  padding: 0 0 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--app-border-light);
+}
+
+.governance-dialog-section:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.governance-section-head {
+  margin-bottom: 14px;
+}
+
+.governance-section-head h3 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 16px;
+}
+
+.governance-section-head p {
+  margin: 6px 0 0;
+  color: var(--app-text-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  .governance-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .governance-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .governance-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .governance-hero {
+    padding: 16px;
+  }
+
+  .governance-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .governance-filters,
+  .governance-actions,
+  .governance-search,
+  .governance-filter,
+  .governance-toolbar .el-button {
+    width: 100%;
+  }
+
+  .governance-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

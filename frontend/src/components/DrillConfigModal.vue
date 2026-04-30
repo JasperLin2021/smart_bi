@@ -2,17 +2,33 @@
   <el-dialog
     v-model="visible"
     title="钻取规则配置"
-    width="1180px"
+    width="min(1180px, calc(100vw - 32px))"
     :close-on-click-modal="false"
     @close="handleClose"
   >
     <div class="drill-modal">
       <div class="drill-toolbar">
         <div class="drill-toolbar-info">
+          <p class="modal-kicker">DRILL PATHS</p>
           <div class="drill-toolbar-title">{{ datasourceName || "当前数据源" }}</div>
-          <div class="drill-toolbar-subtitle">先自动生成候选规则，再按业务需要启用或调整。</div>
+          <div class="drill-toolbar-subtitle">把字段关系转成业务能点击的下钻路径，支持从总览自然定位到明细。</div>
         </div>
         <el-button type="primary" @click="emit('generate')" :loading="generating">自动生成候选规则</el-button>
+      </div>
+
+      <div class="drill-metrics">
+        <div>
+          <span>维度候选</span>
+          <strong>{{ draft.dimensions.length }}</strong>
+        </div>
+        <div>
+          <span>指标候选</span>
+          <strong>{{ draft.metrics.length }}</strong>
+        </div>
+        <div>
+          <span>可用路径</span>
+          <strong>{{ enabledPathCount }}</strong>
+        </div>
       </div>
 
       <el-empty
@@ -199,6 +215,8 @@ const dimensionLabelMap = computed<Record<string, string>>(() =>
   Object.fromEntries(draft.dimensions.map((item) => [item.id, item.label]))
 )
 
+const enabledPathCount = computed(() => draft.paths.filter(item => item.enabled).length)
+
 const handleSave = () => {
   emit("save", cloneConfig(draft))
 }
@@ -226,6 +244,13 @@ const handleClose = () => {
   background: var(--app-surface-muted);
 }
 
+.modal-kicker {
+  margin: 0 0 6px;
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .drill-toolbar-title {
   font-size: 16px;
   font-weight: 700;
@@ -236,6 +261,31 @@ const handleClose = () => {
   margin-top: 4px;
   color: var(--app-text-muted);
   font-size: 13px;
+}
+
+.drill-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.drill-metrics div {
+  padding: 12px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.drill-metrics span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.drill-metrics strong {
+  color: var(--app-text);
+  font-size: 20px;
 }
 
 .drill-sections {
@@ -252,5 +302,16 @@ const handleClose = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+@media (max-width: 760px) {
+  .drill-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .drill-metrics {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

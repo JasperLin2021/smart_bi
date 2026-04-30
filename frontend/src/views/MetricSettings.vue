@@ -1,62 +1,69 @@
 <template>
-  <div class="metric-page">
-    <section class="metric-hero">
-      <div class="hero-copy">
-        <p class="eyebrow">TRUSTED METRIC CENTER</p>
-        <h2>可信指标中心</h2>
-        <p>统一维护指标口径、认证状态、负责人、质量说明和数据血缘，让问数、看板和数据目录使用同一套可信指标。</p>
+  <div class="governance-page metric-page">
+    <section class="governance-hero">
+      <div class="governance-hero-copy">
+        <p class="governance-kicker">TRUSTED METRIC CENTER</p>
+        <h2 class="governance-title">可信指标中心</h2>
+        <p class="governance-desc">统一维护指标口径、认证状态、负责人、质量说明和数据血缘，让问数、看板和数据目录使用同一套可信指标。</p>
       </div>
-      <div class="hero-actions">
-        <el-input
-          v-model="keyword"
-          class="search-input"
-          clearable
-          placeholder="搜索指标 / 口径 / 负责人"
-        />
-        <el-select v-model="selectedDatasourceFilter" clearable placeholder="数据源" class="filter-select">
-          <el-option
-            v-for="ds in datasourceStore.datasources"
-            :key="ds.id"
-            :label="ds.name"
-            :value="ds.id"
-          />
-        </el-select>
-        <el-select v-model="certificationFilter" clearable placeholder="认证状态" class="filter-select">
-          <el-option label="草稿" value="draft" />
-          <el-option label="待审核" value="pending_review" />
-          <el-option label="已认证" value="certified" />
-          <el-option label="已废弃" value="deprecated" />
-        </el-select>
-        <el-select v-model="qualityFilter" clearable placeholder="质量状态" class="filter-select">
-          <el-option label="未知" value="unknown" />
-          <el-option label="正常" value="normal" />
-          <el-option label="过期" value="stale" />
-          <el-option label="异常" value="error" />
-        </el-select>
-        <el-button type="primary" @click="openDialog()">新增指标</el-button>
+      <div class="governance-actions">
+        <el-button :icon="Refresh" @click="fetchMetrics" :loading="loading">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="openDialog()">新增指标</el-button>
       </div>
     </section>
 
-    <section class="summary-grid">
-      <div class="summary-card">
+    <section class="governance-summary-grid">
+      <div class="governance-summary-card">
         <span>全部指标</span>
         <strong>{{ metricStats.total }}</strong>
       </div>
-      <div class="summary-card trusted">
+      <div class="governance-summary-card trusted">
         <span>已认证</span>
         <strong>{{ metricStats.certified }}</strong>
       </div>
-      <div class="summary-card pending">
+      <div class="governance-summary-card pending">
         <span>待审核</span>
         <strong>{{ metricStats.pending }}</strong>
       </div>
-      <div class="summary-card risk">
+      <div class="governance-summary-card risk">
         <span>质量风险</span>
         <strong>{{ metricStats.risk }}</strong>
       </div>
     </section>
 
-    <el-card class="metric-card" shadow="never">
+    <el-card class="governance-workbench metric-card" shadow="never">
+      <div class="governance-toolbar">
+        <div class="governance-filters">
+          <el-input
+            v-model="keyword"
+            class="governance-search"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索指标 / 口径 / 负责人"
+          />
+          <el-select v-model="selectedDatasourceFilter" clearable placeholder="数据源" class="governance-filter">
+            <el-option
+              v-for="ds in datasourceStore.datasources"
+              :key="ds.id"
+              :label="ds.name"
+              :value="ds.id"
+            />
+          </el-select>
+          <el-select v-model="certificationFilter" clearable placeholder="认证状态" class="governance-filter">
+            <el-option label="草稿" value="draft" />
+            <el-option label="待审核" value="pending_review" />
+            <el-option label="已认证" value="certified" />
+            <el-option label="已废弃" value="deprecated" />
+          </el-select>
+          <el-select v-model="qualityFilter" clearable placeholder="质量状态" class="governance-filter">
+            <el-option label="未知" value="unknown" />
+            <el-option label="正常" value="normal" />
+            <el-option label="过期" value="stale" />
+            <el-option label="异常" value="error" />
+          </el-select>
+        </div>
+        <span class="governance-muted">共 {{ filteredMetrics.length }} 个结果</span>
+      </div>
       <el-table
         :data="filteredMetrics"
         v-loading="loading"
@@ -126,7 +133,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="220">
           <template #default="{ row }">
             <el-button text type="primary" @click.stop="openLineage(row)">血缘</el-button>
             <el-button text type="primary" @click.stop="openDialog(row)">编辑</el-button>
@@ -144,8 +151,8 @@
       destroy-on-close
     >
       <el-form :model="form" label-position="top">
-        <section class="form-section">
-          <div class="section-head">
+        <section class="governance-dialog-section">
+          <div class="governance-section-head">
             <div>
               <h3>基础信息</h3>
               <p>业务用户理解指标时最先看到的名称、定义和负责人。</p>
@@ -190,8 +197,8 @@
           </el-form-item>
         </section>
 
-        <section class="form-section">
-          <div class="section-head">
+        <section class="governance-dialog-section">
+          <div class="governance-section-head">
             <div>
               <h3>计算口径</h3>
               <p>把业务口径落到表、字段和公式，供 Text2SQL、看板和目录复用。</p>
@@ -240,8 +247,8 @@
           </el-row>
         </section>
 
-        <section class="form-section trust-section">
-          <div class="section-head">
+        <section class="governance-dialog-section trust-section">
+          <div class="governance-section-head">
             <div>
               <h3>可信治理</h3>
               <p>认证状态、质量状态和更新时间会同步到数据目录，帮助用户判断这个数是否可信。</p>
@@ -370,6 +377,7 @@
 import { computed, onMounted, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
+import { Plus, Refresh, Search } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
 
 interface Metric {
@@ -770,101 +778,27 @@ onMounted(() => {
 
 <style scoped>
 .metric-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  padding: 0;
 }
 
-.metric-hero {
-  display: flex;
-  gap: 20px;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 20px;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--app-bg-card);
-}
-
-.hero-copy {
-  max-width: 680px;
-}
-
-.eyebrow {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #2563eb;
-}
-
-.metric-hero h2 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--app-text);
-}
-
-.metric-hero p {
-  margin: 8px 0 0;
-  color: var(--app-text-muted);
-  line-height: 1.6;
-}
-
-.hero-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  max-width: 680px;
-}
-
-.search-input {
-  width: 240px;
-}
-
-.filter-select {
-  width: 150px;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.summary-card {
-  min-height: 88px;
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--app-bg-card);
-}
-
-.summary-card span {
-  display: block;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: var(--app-text-muted);
-}
-
-.summary-card strong {
-  font-size: 28px;
-  color: var(--app-text);
-}
-
-.summary-card.trusted {
+.governance-summary-card.trusted {
   border-top: 3px solid #16a34a;
 }
 
-.summary-card.pending {
+.governance-summary-card.pending {
   border-top: 3px solid #d97706;
 }
 
-.summary-card.risk {
+.governance-summary-card.risk {
   border-top: 3px solid #dc2626;
 }
 
 .metric-card {
-  border-radius: 8px;
+  border-radius: var(--app-radius);
+}
+
+.metric-card :deep(.el-table .cell) {
+  line-height: 1.5;
 }
 
 .metric-name-cell,
@@ -904,36 +838,11 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.form-section {
-  padding: 0 0 18px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.form-section:last-child {
-  padding-bottom: 0;
-  margin-bottom: 0;
-  border-bottom: none;
-}
-
-.section-head {
+.governance-section-head {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 14px;
-}
-
-.section-head h3 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--app-text);
-}
-
-.section-head p {
-  margin: 6px 0 0;
-  color: var(--app-text-muted);
-  line-height: 1.5;
 }
 
 .code-input :deep(textarea) {
@@ -998,37 +907,13 @@ onMounted(() => {
   line-height: 1.5;
 }
 
-@media (max-width: 1100px) {
-  .metric-hero {
-    flex-direction: column;
-  }
-
-  .hero-actions {
-    justify-content: flex-start;
-    max-width: none;
-    width: 100%;
-  }
-}
-
 @media (max-width: 900px) {
-  .summary-grid,
   .lineage-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .metric-hero {
-    padding: 16px;
-  }
-
-  .search-input,
-  .filter-select,
-  .hero-actions :deep(.el-button) {
-    width: 100%;
-  }
-
-  .summary-grid,
   .lineage-summary {
     grid-template-columns: 1fr;
   }
