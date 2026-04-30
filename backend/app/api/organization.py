@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
 from app.core.permissions import require_super_admin
+from app.core.tenant_limits import get_organization_usage, normalize_plan_type
 from app.db.session import get_db
 from app.models.organization import Organization
 from app.models.user import User
@@ -20,6 +21,16 @@ def list_organizations(
     return db.query(Organization).all()
 
 
+@router.get("/{org_id}/usage")
+def get_organization_usage_endpoint(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    require_super_admin(current_user)
+    return get_organization_usage(db, org_id)
+
+
 @router.post("", response_model=OrganizationOut, status_code=status.HTTP_201_CREATED)
 def create_organization(
     payload: OrganizationCreate,
@@ -29,7 +40,9 @@ def create_organization(
     require_super_admin(current_user)
     if db.query(Organization).filter(Organization.slug == payload.slug).first():
         raise HTTPException(status_code=400, detail="Slug已存在")
-    org = Organization(name=payload.name, slug=payload.slug)
+    values = payload.model_dump()
+    values["plan_type"] = normalize_plan_type(values.get("plan_type"))
+    org = Organization(**values)
     db.add(org)
     db.commit()
     db.refresh(org)
@@ -42,7 +55,7 @@ def create_organization(
         resource_name=org.name,
         org_id=org.id,
         message="企业已创建",
-        detail={"slug": org.slug},
+        detail={"slug": org.slug, "plan_type": org.plan_type},
     )
     return org
 
@@ -77,6 +90,11 @@ def update_organization(
         if db.query(Organization).filter(Organization.slug == payload.slug, Organization.id != org_id).first():
             raise HTTPException(status_code=400, detail="Slug已存在")
         org.slug = payload.slug
+    values = payload.model_dump(exclude_unset=True, exclude={"name", "slug"})
+    if "plan_type" in values:
+        values["plan_type"] = normalize_plan_type(values["plan_type"])
+    for key, value in values.items():
+        setattr(org, key, value)
     db.commit()
     db.refresh(org)
     try_record_audit_log(

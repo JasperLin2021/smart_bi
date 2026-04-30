@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.tenant_limits import assert_can_create_resource
 from app.db.session import get_db
 from app.models.catalog import DataAsset
 from app.models.dashboard_config import Dashboard
@@ -91,6 +92,7 @@ def create_dashboard(
 ):
     _ensure_dashboard_values(payload.status, payload.visibility)
     org_id = payload.org_id if current_user.role == "super_admin" else current_user.org_id
+    assert_can_create_resource(db, org_id, "dashboards")
     dashboard = Dashboard(
         **payload.model_dump(exclude={"org_id", "owner_id"}),
         org_id=org_id,

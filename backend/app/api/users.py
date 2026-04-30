@@ -6,6 +6,7 @@ from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
 from app.core.permissions import require_org_admin_or_above
 from app.core.security import get_password_hash
+from app.core.tenant_limits import assert_can_create_resource
 from app.db.session import get_db
 from app.models.organization import Organization
 from app.models.user import User
@@ -80,6 +81,8 @@ def create_user(
     
     if db.query(User).filter(User.username == payload.username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
+
+    assert_can_create_resource(db, payload.org_id, "users")
     
     user = User(
         username=payload.username,

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.tenant_limits import assert_can_create_resource
 from app.db.session import get_db
 from app.models.big_screen import BigScreen
 from app.models.catalog import DataAsset
@@ -85,6 +86,7 @@ def create_big_screen(
 ):
     _ensure_values(payload.status, payload.visibility)
     org_id = payload.org_id if current_user.role == "super_admin" and payload.org_id else current_user.org_id
+    assert_can_create_resource(db, org_id, "big_screens")
     screen = BigScreen(
         **payload.model_dump(exclude={"org_id", "owner_id"}),
         org_id=org_id,

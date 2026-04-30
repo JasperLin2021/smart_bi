@@ -107,6 +107,57 @@
               创建
             </el-button>
           </div>
+
+          <div v-if="hasResult" class="insight-action-bar">
+            <div>
+              <strong>智能洞察</strong>
+              <span>自动识别贡献项、异常低值和可下钻方向</span>
+            </div>
+            <div class="insight-buttons">
+              <el-button size="small" plain :loading="insightLoading" :icon="DataAnalysis" @click="runAutoInsights">
+                自动洞察
+              </el-button>
+              <el-button size="small" plain :loading="attributionLoading" :icon="Tickets" @click="runAttribution">
+                异常归因
+              </el-button>
+            </div>
+          </div>
+
+          <div v-if="insightResult || attributionResult" class="insight-panel">
+            <div v-if="insightResult" class="insight-section">
+              <div class="insight-title">
+                <span>自动洞察</span>
+                <small>{{ insightResult.summary }}</small>
+              </div>
+              <div class="insight-list">
+                <div v-for="item in insightResult.insights" :key="`${item.type}-${item.title}`" class="insight-item">
+                  <el-tag size="small" :type="insightTagType(item.severity)" effect="light">{{ insightSeverityLabel(item.severity) }}</el-tag>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    <p>{{ item.description }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-if="attributionResult" class="insight-section">
+              <div class="insight-title">
+                <span>异常归因</span>
+                <small>{{ attributionResult.summary }}</small>
+              </div>
+              <div class="driver-list">
+                <div v-for="driver in attributionResult.drivers" :key="`${driver.dimension}-${driver.value}`" class="driver-item">
+                  <div>
+                    <strong>{{ driver.dimension }} = {{ driver.value }}</strong>
+                    <span>{{ driver.impact === 'negative' ? '负向' : '正向' }}贡献 {{ driver.contribution }}</span>
+                  </div>
+                  <el-progress :percentage="Math.min(driver.share, 100)" :stroke-width="8" />
+                </div>
+              </div>
+              <div v-if="attributionResult.recommendations?.length" class="recommendation-strip">
+                <span v-for="item in attributionResult.recommendations" :key="item">{{ item }}</span>
+              </div>
+            </div>
+          </div>
           
           <!-- 查询结果图表 -->
           <div v-if="hasResult" class="chart-container">
@@ -210,6 +261,35 @@ const actionForm = reactive({
   owner_id: null as number | null,
   linked_metric_id: null as number | null,
 })
+const insightLoading = ref(false)
+const attributionLoading = ref(false)
+const insightResult = ref<AutoInsightResponse | null>(null)
+const attributionResult = ref<AttributionResponse | null>(null)
+
+interface AutoInsightResponse {
+  summary: string
+  insights: Array<{
+    type: string
+    title: string
+    description: string
+    severity: string
+  }>
+  metadata: Record<string, unknown>
+}
+
+interface AttributionResponse {
+  metric_column: string | null
+  summary: string
+  confidence: string
+  drivers: Array<{
+    dimension: string
+    value: string
+    contribution: number
+    share: number
+    impact: string
+  }>
+  recommendations: string[]
+}
 
 const hasResult = computed(() => {
   return props.message.result && 
@@ -289,6 +369,58 @@ const createActionItem = async () => {
   } finally {
     actionSaving.value = false
   }
+}
+
+const runAutoInsights = async () => {
+  if (!props.message.result) return
+  insightLoading.value = true
+  try {
+    const res = await axios.post("/api/insights/auto-insights", {
+      columns: props.message.result.columns,
+      rows: props.message.result.rows,
+    })
+    insightResult.value = res.data
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "自动洞察生成失败")
+  } finally {
+    insightLoading.value = false
+  }
+}
+
+const runAttribution = async () => {
+  if (!props.message.result) return
+  attributionLoading.value = true
+  try {
+    const res = await axios.post("/api/insights/anomaly-attribution", {
+      columns: props.message.result.columns,
+      rows: props.message.result.rows,
+    })
+    attributionResult.value = res.data
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "异常归因生成失败")
+  } finally {
+    attributionLoading.value = false
+  }
+}
+
+const insightSeverityLabel = (severity: string) => {
+  const labels: Record<string, string> = {
+    success: "机会",
+    warning: "关注",
+    danger: "风险",
+    info: "洞察",
+  }
+  return labels[severity] || "洞察"
+}
+
+const insightTagType = (severity: string) => {
+  const types: Record<string, "success" | "warning" | "info" | "danger"> = {
+    success: "success",
+    warning: "warning",
+    danger: "danger",
+    info: "info",
+  }
+  return types[severity] || "info"
 }
 
 const certificationLabel = (status: string) => {
@@ -723,6 +855,132 @@ const formatTime = (date: Date) => {
   background: var(--app-surface-muted);
 }
 
+.insight-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.insight-action-bar > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.insight-action-bar strong {
+  color: #1e3a8a;
+  font-size: 14px;
+}
+
+.insight-action-bar span {
+  color: #475569;
+  font-size: 12px;
+}
+
+.insight-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.insight-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.insight-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.insight-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.insight-title span {
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.insight-title small {
+  color: var(--app-text-muted);
+  text-align: right;
+}
+
+.insight-list,
+.driver-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insight-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 8px;
+  background: var(--app-surface-muted);
+}
+
+.insight-item strong,
+.driver-item strong {
+  display: block;
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.insight-item p,
+.driver-item span {
+  margin: 4px 0 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.driver-item {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(160px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 8px;
+}
+
+.recommendation-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recommendation-strip span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  border: 1px solid #e2e8f0;
+}
+
 .decision-action-bar div {
   display: flex;
   flex-direction: column;
@@ -768,9 +1026,14 @@ const formatTime = (date: Date) => {
 }
 
 @media (max-width: 640px) {
-  .decision-action-bar {
+  .decision-action-bar,
+  .insight-action-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .driver-item {
+    grid-template-columns: 1fr;
   }
 }
 </style>

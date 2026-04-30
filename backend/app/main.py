@@ -195,6 +195,21 @@ def _startup():
         pass
 
     for column_definition in [
+        "plan_type VARCHAR(32) DEFAULT 'team'",
+        "user_limit INTEGER",
+        "datasource_limit INTEGER",
+        "dashboard_limit INTEGER",
+        "big_screen_limit INTEGER",
+        "monthly_query_limit INTEGER",
+        "white_label_enabled INTEGER DEFAULT 0",
+        "branding_json JSON",
+    ]:
+        try:
+            _ensure_column(engine, "organizations", column_definition)
+        except Exception:
+            pass
+
+    for column_definition in [
         "is_public INTEGER DEFAULT 0",
         "share_token VARCHAR(64)",
         "shared_user_ids JSON",
