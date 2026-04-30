@@ -19,6 +19,55 @@
             </div>
           </template>
 
+          <div v-if="queryStore.mode === 'text2sql'" class="query-scope-panel">
+            <div class="scope-mode">
+              <span class="scope-label">问数范围</span>
+              <el-segmented v-model="queryStore.scopeMode" :options="scopeOptions" />
+            </div>
+            <el-select
+              v-if="queryStore.scopeMode === 'datasource'"
+              v-model="queryStore.selectedDatasourceId"
+              class="scope-select"
+              filterable
+              placeholder="选择数据源"
+              :loading="datasourceStore.datasources.length === 0"
+            >
+              <el-option
+                v-for="datasource in datasourceStore.datasources"
+                :key="datasource.id"
+                :label="datasource.name"
+                :value="datasource.id"
+              >
+                <div class="scope-option">
+                  <strong>{{ datasource.name }}</strong>
+                  <small>{{ datasource.source_type === "excel" ? "Excel 数据源" : "数据库数据源" }}</small>
+                </div>
+              </el-option>
+            </el-select>
+            <el-select
+              v-else
+              v-model="queryStore.selectedDatasetId"
+              class="scope-select"
+              filterable
+              placeholder="选择数据集"
+              :loading="datasetsLoading"
+              :disabled="datasets.length === 0"
+            >
+              <el-option
+                v-for="dataset in datasets"
+                :key="dataset.id"
+                :label="dataset.name"
+                :value="dataset.id"
+              >
+                <div class="scope-option">
+                  <strong>{{ dataset.name }}</strong>
+                  <small>{{ datasourceName(dataset.datasource_id) }}</small>
+                </div>
+              </el-option>
+            </el-select>
+            <span class="scope-current">{{ activeScopeText }}</span>
+          </div>
+
           <div ref="chatContainerRef" class="chat-container">
             <div v-if="queryStore.messages.length === 0" class="welcome-message">
               <div class="welcome-icon">
@@ -54,7 +103,7 @@
             <el-input
               v-model="question"
               :placeholder="inputPlaceholder"
-              :disabled="queryStore.loading"
+              :disabled="queryStore.loading || !queryContextReady"
               size="large"
               @keyup.enter="submit"
             >
@@ -65,7 +114,7 @@
                 <el-button
                   type="primary"
                   :loading="queryStore.loading"
-                  :disabled="!question.trim()"
+                  :disabled="!question.trim() || !queryContextReady"
                   @click="submit"
                 >
                   <el-icon><Promotion /></el-icon>
@@ -74,8 +123,11 @@
               </template>
             </el-input>
             <div class="input-tips">
-              <span v-if="queryStore.mode === 'text2sql'">
-                提示：输入数据查询相关问题，系统会自动生成SQL并执行
+              <span v-if="queryStore.mode === 'text2sql' && queryContextReady">
+                当前使用{{ queryStore.scopeMode === "dataset" ? "数据集" : "数据源" }}：{{ activeScopeText }}
+              </span>
+              <span v-else-if="queryStore.mode === 'text2sql'">
+                请先选择问数范围
               </span>
               <span v-else>
                 提示：闲聊模式下可以进行自由对话
@@ -146,17 +198,37 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue"
-import { ElMessageBox } from "element-plus"
+import axios from "axios"
+import { ElMessage, ElMessageBox } from "element-plus"
 import {
   ChatDotRound, Search, Promotion, Delete, Refresh,
   ChatLineSquare, Star, StarFilled, Close
 } from "@element-plus/icons-vue"
 import ChatBubble from "@/components/ChatBubble.vue"
 import { useQueryStore } from "@/store/query"
+import { useDatasourceStore } from "@/store/datasource"
 
 const queryStore = useQueryStore()
+const datasourceStore = useDatasourceStore()
 const question = ref("")
 const chatContainerRef = ref<HTMLDivElement | null>(null)
+const datasetsLoading = ref(false)
+
+interface DatasetItem {
+  id: number
+  name: string
+  description: string | null
+  datasource_id: number
+  status: string
+  visibility: string
+}
+
+const datasets = ref<DatasetItem[]>([])
+
+const scopeOptions = [
+  { label: "数据源", value: "datasource" },
+  { label: "数据集", value: "dataset" },
+]
 
 const examples = [
   "产出最高的前5个单元",
@@ -165,14 +237,65 @@ const examples = [
 ]
 
 const inputPlaceholder = computed(() => {
-  return queryStore.mode === "text2sql"
-    ? "输入您的数据查询问题..."
-    : "输入您想聊的内容..."
+  if (queryStore.mode === "chat") return "输入您想聊的内容..."
+  if (!queryContextReady.value) return "请先选择问数范围..."
+  return `基于${queryStore.scopeMode === "dataset" ? "数据集" : "数据源"}提问...`
 })
+
+const selectedDataset = computed(() =>
+  datasets.value.find((dataset) => dataset.id === queryStore.selectedDatasetId) || null
+)
+
+const activeDatasource = computed(() =>
+  datasourceStore.datasources.find((datasource) => datasource.id === queryStore.selectedDatasourceId) || null
+)
+
+const queryContextReady = computed(() => {
+  if (queryStore.mode === "chat") return true
+  if (queryStore.scopeMode === "dataset") return Boolean(queryStore.selectedDatasetId)
+  return Boolean(queryStore.selectedDatasourceId)
+})
+
+const activeScopeText = computed(() => {
+  if (queryStore.mode === "chat") return "闲聊模式"
+  if (queryStore.scopeMode === "dataset") return selectedDataset.value?.name || "未选择数据集"
+  return activeDatasource.value?.name || "未选择数据源"
+})
+
+const datasourceName = (id: number) =>
+  datasourceStore.datasources.find((datasource) => datasource.id === id)?.name || `数据源 #${id}`
+
+const fetchDatasets = async () => {
+  datasetsLoading.value = true
+  try {
+    const response = await axios.get("/api/datasets")
+    datasets.value = response.data.items || []
+  } catch {
+    ElMessage.error("数据集加载失败")
+  } finally {
+    datasetsLoading.value = false
+  }
+}
+
+const ensureScopeDefaults = () => {
+  if (!queryStore.selectedDatasourceId) {
+    queryStore.selectedDatasourceId = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
+  }
+  if (queryStore.scopeMode === "dataset" && !queryStore.selectedDatasetId && datasets.value.length > 0) {
+    queryStore.selectedDatasetId = datasets.value[0].id
+  }
+  if (selectedDataset.value) {
+    queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
+  }
+}
 
 const submit = async () => {
   const q = question.value.trim()
   if (!q || queryStore.loading) return
+  if (!queryContextReady.value) {
+    ElMessage.warning("请先选择问数范围")
+    return
+  }
 
   question.value = ""
   await queryStore.ask(q)
@@ -229,7 +352,32 @@ watch(() => queryStore.messages.length, () => {
   scrollToBottom()
 })
 
-onMounted(() => {
+watch(() => queryStore.scopeMode, () => {
+  ensureScopeDefaults()
+  queryStore.fetchHistory()
+})
+
+watch(() => queryStore.selectedDatasourceId, (id) => {
+  if (id) datasourceStore.switchDatasource(id)
+  if (queryStore.scopeMode === "datasource") {
+    queryStore.fetchHistory()
+  }
+})
+
+watch(() => queryStore.selectedDatasetId, () => {
+  if (selectedDataset.value) {
+    queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
+    datasourceStore.switchDatasource(selectedDataset.value.datasource_id)
+  }
+  if (queryStore.scopeMode === "dataset") {
+    queryStore.fetchHistory()
+  }
+})
+
+onMounted(async () => {
+  await datasourceStore.fetchDatasources()
+  await fetchDatasets()
+  ensureScopeDefaults()
   queryStore.fetchHistory()
 })
 </script>
@@ -295,6 +443,58 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.query-scope-panel {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 340px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.scope-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scope-label {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.scope-select {
+  width: 100%;
+}
+
+.scope-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.scope-option strong {
+  color: var(--app-text);
+  font-weight: 500;
+}
+
+.scope-option small,
+.scope-current {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.scope-current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-container {
@@ -520,5 +720,16 @@ onMounted(() => {
 .delete-icon:hover {
   color: var(--app-danger);
   transform: scale(1.1);
+}
+
+@media (max-width: 1024px) {
+  .query-scope-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .scope-mode {
+    justify-content: space-between;
+  }
 }
 </style>

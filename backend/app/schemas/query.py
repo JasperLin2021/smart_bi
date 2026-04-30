@@ -6,6 +6,7 @@ class QueryAskRequest(BaseModel):
     question: str
     mode: Optional[str] = "text2sql"
     datasource_id: Optional[int] = None
+    dataset_id: Optional[int] = None
     drill_context: Optional[Dict[str, Any]] = None
     parent_history_id: Optional[int] = None
 

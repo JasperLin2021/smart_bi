@@ -1,7 +1,7 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 from fastapi_cache.decorator import cache
 
 from app.api.auth import get_current_user
@@ -13,6 +13,7 @@ from app.core.excel_executor import execute_excel_query
 from app.core.sql_guard import detect_excel_join_risk
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
+from app.models.dataset import Dataset
 from app.models.llm_setting import LlmSetting
 from app.models.query import QueryHistory
 from app.models.user import User
@@ -40,18 +41,34 @@ def _get_persisted_llm_model(db: Session) -> str | None:
     ).get("model")
 
 
-def _get_datasource(db: Session, datasource_id: int | None) -> DataSource | None:
+def _can_access_org_resource(user: User | None, org_id: int | None) -> bool:
+    if user is None or user.role == "super_admin":
+        return True
+    return org_id == user.org_id
+
+
+def _get_datasource(db: Session, datasource_id: int | None, user: User | None = None) -> DataSource | None:
     if not datasource_id:
-        return db.query(DataSource).filter(DataSource.is_active == 1).first()
+        query = db.query(DataSource).filter(DataSource.is_active == 1)
+        if user and user.role != "super_admin":
+            query = query.filter(DataSource.org_id == user.org_id)
+        return query.first()
     ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
+    if not _can_access_org_resource(user, ds.org_id):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
     return ds
 
 
 def _get_recommendations(datasource: DataSource | None) -> list[str]:
     if not datasource or not datasource.recommend_questions:
         return []
+    try:
+        recommendations = json.loads(datasource.recommend_questions)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return recommendations if isinstance(recommendations, list) else []
 
 
 def _normalize_summary(question: str, result: dict, summary: str) -> str:
@@ -77,10 +94,51 @@ def _get_drill_config(datasource: DataSource | None) -> dict | None:
         return json.loads(datasource.drill_config)
     except (json.JSONDecodeError, TypeError):
         return None
-    try:
-        return json.loads(datasource.recommend_questions)
-    except (json.JSONDecodeError, TypeError):
-        return []
+
+
+def _get_dataset_for_user(db: Session, dataset_id: int, user: User) -> Dataset:
+    query = db.query(Dataset).filter(Dataset.id == dataset_id)
+    if user.role != "super_admin":
+        query = query.filter(Dataset.org_id == user.org_id)
+        if user.role != "org_admin":
+            query = query.filter(or_(Dataset.status == "published", Dataset.owner_id == user.id))
+    dataset = query.first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    return dataset
+
+
+def _format_dataset_list(value: object, key: str) -> str:
+    if not isinstance(value, dict):
+        return "无"
+    items = value.get(key)
+    if not isinstance(items, list) or not items:
+        return "无"
+    return ", ".join(str(item) for item in items)
+
+
+def _build_dataset_query_context(dataset: Dataset) -> str:
+    fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
+    table = str(fields_json.get("table") or "").strip()
+    fields = _format_dataset_list(fields_json, "fields")
+    filters = _format_dataset_list(dataset.filters_json, "filters")
+    derived_columns = _format_dataset_list(dataset.derived_columns_json, "expressions")
+    joins = _format_dataset_list(dataset.joins_json, "joins")
+    aggregations = _format_dataset_list(dataset.aggregations_json, "aggregations")
+    lines = [
+        f"当前选择数据集：{dataset.name}",
+        "请优先按照这个数据集已经定义好的业务口径生成 SQL。",
+        f"主表：{table or '未配置'}",
+        f"已选字段：{fields}",
+        f"固定筛选：{filters}",
+        f"派生列：{derived_columns}",
+        f"Join 关系：{joins}",
+        f"聚合口径：{aggregations}",
+        "如果用户问题没有明确要求跳出数据集范围，不要使用上述数据集未包含的字段或口径。",
+    ]
+    if dataset.description:
+        lines.insert(1, f"数据集说明：{dataset.description}")
+    return "\n".join(lines)
 
 
 async def _generate_safe_sql(
@@ -88,10 +146,12 @@ async def _generate_safe_sql(
     datasource: DataSource,
     query_plan: dict | None = None,
     metric_match: dict | None = None,
+    context: str = "",
 ) -> str:
     sql_response = await generate_sql_query(
         question,
         datasource=datasource,
+        context=context,
         query_plan=query_plan,
         metric_match=metric_match,
     )
@@ -108,7 +168,7 @@ async def _generate_safe_sql(
         retry_response = await generate_sql_query(
             question,
             datasource=datasource,
-            context=retry_context,
+            context=f"{context}\n\n{retry_context}" if context else retry_context,
             query_plan=query_plan,
             metric_match=metric_match,
         )
@@ -133,7 +193,7 @@ async def _generate_safe_sql(
     retry_response = await generate_sql_query(
         question,
         datasource=datasource,
-        context=retry_context,
+        context=f"{context}\n\n{retry_context}" if context else retry_context,
         query_plan=query_plan,
         metric_match=metric_match,
     )
@@ -156,12 +216,20 @@ async def ask(
     question = payload.question.strip()
     mode = payload.mode or "text2sql"
     datasource_id = getattr(payload, "datasource_id", None)
+    dataset_id = getattr(payload, "dataset_id", None)
     drill_context = payload.drill_context
     parent_history_id = payload.parent_history_id
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
 
-    datasource = _get_datasource(db, datasource_id)
+    dataset = None
+    dataset_context = ""
+    if dataset_id:
+        dataset = _get_dataset_for_user(db, dataset_id, current_user)
+        datasource = _get_datasource(db, dataset.datasource_id, current_user)
+        dataset_context = _build_dataset_query_context(dataset)
+    else:
+        datasource = _get_datasource(db, datasource_id, current_user)
     runtime_llm_model = normalize_llm_config(await get_llm_config()).get("model")
 
     # 闲聊模式
@@ -229,6 +297,7 @@ async def ask(
             datasource,
             query_plan,
             metric_match=metric_match,
+            context=dataset_context,
         )
     except Exception as exc:
         try_record_audit_log(
@@ -240,7 +309,13 @@ async def ask(
             org_id=datasource.org_id,
             status="error",
             message=f"SQL生成失败: {exc}",
-            detail={"stage": "generate_sql", "question": question, "datasource_id": datasource.id, "llm_model": runtime_llm_model},
+            detail={
+                "stage": "generate_sql",
+                "question": question,
+                "datasource_id": datasource.id,
+                "dataset_id": dataset.id if dataset else None,
+                "llm_model": runtime_llm_model,
+            },
         )
         raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
 
@@ -268,7 +343,13 @@ async def ask(
             org_id=datasource.org_id,
             status="error",
             message=f"SQL执行失败: {exc}",
-            detail={"stage": "execute_sql", "question": question, "datasource_id": datasource.id, "llm_model": runtime_llm_model},
+            detail={
+                "stage": "execute_sql",
+                "question": question,
+                "datasource_id": datasource.id,
+                "dataset_id": dataset.id if dataset else None,
+                "llm_model": runtime_llm_model,
+            },
         )
         raise HTTPException(status_code=502, detail=f"SQL执行失败: {exc}")
 
@@ -309,6 +390,7 @@ async def ask(
             "mode": "text2sql",
             "question": question,
             "datasource_id": datasource.id,
+            "dataset_id": dataset.id if dataset else None,
             "llm_model": runtime_llm_model,
             "row_count": len(rows),
         },
@@ -441,7 +523,7 @@ async def drill_preview(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    datasource = _get_datasource(db, payload.datasource_id)
+    datasource = _get_datasource(db, payload.datasource_id, current_user)
     if not datasource:
         raise HTTPException(status_code=404, detail="数据源不存在")
 

@@ -3,6 +3,8 @@ import axios from "axios"
 import { ElMessage } from "element-plus"
 import { useDatasourceStore } from "@/store/datasource"
 
+export type QueryScopeMode = "datasource" | "dataset"
+
 export interface QueryResult {
   columns: string[]
   rows: Array<Record<string, string | number>>
@@ -68,7 +70,10 @@ export const useQueryStore = defineStore("query", {
     loading: false,
     messages: [] as ChatMessage[],
     history: [] as QueryHistoryItem[],
-    mode: "text2sql" as "text2sql" | "chat"
+    mode: "text2sql" as "text2sql" | "chat",
+    scopeMode: "datasource" as QueryScopeMode,
+    selectedDatasourceId: null as number | null,
+    selectedDatasetId: null as number | null,
   }),
   actions: {
     generateId() {
@@ -109,10 +114,13 @@ export const useQueryStore = defineStore("query", {
       
       try {
         const dsStore = useDatasourceStore()
+        const datasourceId = this.selectedDatasourceId || dsStore.currentId
+        const datasetId = this.scopeMode === "dataset" ? this.selectedDatasetId : null
         const response = await axios.post("/api/query/ask", {
           question,
           mode,
-          datasource_id: dsStore.currentId,
+          datasource_id: datasourceId,
+          dataset_id: datasetId,
           drill_context: drillContext || null,
           parent_history_id: parentHistoryId || null,
         })
@@ -163,7 +171,8 @@ export const useQueryStore = defineStore("query", {
       try {
         const dsStore = useDatasourceStore()
         const params: Record<string, any> = {}
-        if (dsStore.currentId) params.datasource_id = dsStore.currentId
+        const datasourceId = this.selectedDatasourceId || dsStore.currentId
+        if (datasourceId) params.datasource_id = datasourceId
         const response = await axios.get("/api/query/history", { params })
         this.history = response.data.items
       } catch (error) {
@@ -194,7 +203,8 @@ export const useQueryStore = defineStore("query", {
       try {
         const dsStore = useDatasourceStore()
         const params: Record<string, any> = {}
-        if (dsStore.currentId) params.datasource_id = dsStore.currentId
+        const datasourceId = this.selectedDatasourceId || dsStore.currentId
+        if (datasourceId) params.datasource_id = datasourceId
         await axios.delete("/api/query/history", { params })
         this.history = []
         this.messages = []
@@ -258,9 +268,10 @@ export const useQueryStore = defineStore("query", {
       row: Record<string, any>
     ): Promise<DrillPreviewResult> {
       const dsStore = useDatasourceStore()
-      if (!dsStore.currentId) return { actions: [], detail_action: null }
+      const datasourceId = this.selectedDatasourceId || dsStore.currentId
+      if (!datasourceId) return { actions: [], detail_action: null }
       const response = await axios.post("/api/query/drill-preview", {
-        datasource_id: dsStore.currentId,
+        datasource_id: datasourceId,
         question,
         sql_query: sqlQuery,
         selected_column: selectedColumn,

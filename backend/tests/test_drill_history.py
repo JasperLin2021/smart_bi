@@ -22,6 +22,19 @@ class DrillHistoryPayloadTests(unittest.TestCase):
         self.assertEqual(payload.drill_context["sourceLabel"], "产线")
         self.assertEqual(payload.drill_context["targetLabel"], "异常类型")
 
+    def test_query_ask_request_accepts_dataset_scope(self):
+        from app.schemas.query import QueryAskRequest
+
+        payload = QueryAskRequest.model_validate(
+            {
+                "question": "按区域统计销售额",
+                "mode": "text2sql",
+                "dataset_id": 12,
+            }
+        )
+
+        self.assertEqual(payload.dataset_id, 12)
+
 
 if __name__ == "__main__":
     unittest.main()
