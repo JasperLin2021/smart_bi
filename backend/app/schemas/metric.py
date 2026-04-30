@@ -17,6 +17,14 @@ class MetricBase(BaseModel):
     tags: Optional[list[str]] = None
     status: str = "published"
     dimensions: Optional[list[str]] = None
+    certification_status: str = "draft"
+    certified_by: Optional[str] = None
+    certified_at: Optional[datetime] = None
+    caliber_version: str = "v1"
+    data_updated_at: Optional[datetime] = None
+    quality_status: str = "unknown"
+    quality_message: Optional[str] = None
+    lineage_json: Optional[dict] = None
     is_active: int = 1
 
 
@@ -38,6 +46,14 @@ class MetricUpdate(BaseModel):
     tags: Optional[list[str]] = None
     status: Optional[str] = None
     dimensions: Optional[list[str]] = None
+    certification_status: Optional[str] = None
+    certified_by: Optional[str] = None
+    certified_at: Optional[datetime] = None
+    caliber_version: Optional[str] = None
+    data_updated_at: Optional[datetime] = None
+    quality_status: Optional[str] = None
+    quality_message: Optional[str] = None
+    lineage_json: Optional[dict] = None
     is_active: Optional[int] = None
 
 

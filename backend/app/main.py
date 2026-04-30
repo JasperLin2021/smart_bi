@@ -215,6 +215,21 @@ def _startup():
         except Exception:
             pass
 
+    for column_definition in [
+        "certification_status VARCHAR(32) DEFAULT 'draft'",
+        "certified_by VARCHAR(128)",
+        "certified_at TIMESTAMP",
+        "caliber_version VARCHAR(64) DEFAULT 'v1'",
+        "data_updated_at TIMESTAMP",
+        "quality_status VARCHAR(32) DEFAULT 'unknown'",
+        "quality_message TEXT",
+        "lineage_json JSON",
+    ]:
+        try:
+            _ensure_column(engine, "metrics", column_definition)
+        except Exception:
+            pass
+
     init_cache()
     db: Session = SessionLocal()
 

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
@@ -13,6 +15,10 @@ from app.core.metric_prompt_sync import sync_datasource_metrics_prompt
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
+VALID_METRIC_STATUSES = {"draft", "published", "archived"}
+VALID_CERTIFICATION_STATUSES = {"draft", "pending_review", "certified", "deprecated"}
+VALID_QUALITY_STATUSES = {"unknown", "normal", "stale", "error"}
+
 
 def ensure_admin(user: User):
     if user.role != "super_admin":
@@ -24,6 +30,30 @@ def _get_datasource_or_404(db: Session, datasource_id: int) -> DataSource:
     if not datasource:
         raise HTTPException(status_code=404, detail="数据源不存在")
     return datasource
+
+
+def _ensure_metric_values(status: str | None = None, certification_status: str | None = None, quality_status: str | None = None) -> None:
+    if status is not None and status not in VALID_METRIC_STATUSES:
+        raise HTTPException(status_code=400, detail="无效指标发布状态")
+    if certification_status is not None and certification_status not in VALID_CERTIFICATION_STATUSES:
+        raise HTTPException(status_code=400, detail="无效指标认证状态")
+    if quality_status is not None and quality_status not in VALID_QUALITY_STATUSES:
+        raise HTTPException(status_code=400, detail="无效指标质量状态")
+
+
+def _apply_metric_visibility(query, user: User):
+    if user.role == "super_admin":
+        return query
+    return query.join(DataSource, Metric.datasource_id == DataSource.id).filter(DataSource.org_id == user.org_id)
+
+
+def _touch_certification(metric: Metric, current_user: User, previous_status: str | None = None) -> None:
+    if metric.certification_status != "certified":
+        return
+    if previous_status == "certified" and metric.certified_at:
+        return
+    metric.certified_by = getattr(current_user, "username", None) or getattr(current_user, "name", None)
+    metric.certified_at = datetime.utcnow()
 
 
 def _supports_catalog_sync(db: Session) -> bool:
@@ -63,6 +93,14 @@ def _sync_metric_catalog_asset(db: Session, metric: Metric, datasource: DataSour
         "unit": metric.unit,
         "aggregation": metric.aggregation,
         "dimensions": metric.dimensions,
+        "certification_status": metric.certification_status,
+        "certified_by": metric.certified_by,
+        "certified_at": metric.certified_at.isoformat() if metric.certified_at else None,
+        "caliber_version": metric.caliber_version,
+        "data_updated_at": metric.data_updated_at.isoformat() if metric.data_updated_at else None,
+        "quality_status": metric.quality_status,
+        "quality_message": metric.quality_message,
+        "lineage": metric.lineage_json,
         "is_active": metric.is_active,
     }
     db.flush()
@@ -101,7 +139,8 @@ def list_metrics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    items = db.query(Metric).order_by(Metric.updated_at.desc()).all()
+    query = _apply_metric_visibility(db.query(Metric), current_user)
+    items = query.order_by(Metric.updated_at.desc(), Metric.id.desc()).all()
     return {"items": items}
 
 
@@ -112,11 +151,13 @@ def create_metric(
     current_user: User = Depends(get_current_user),
 ):
     ensure_admin(current_user)
+    _ensure_metric_values(payload.status, payload.certification_status, payload.quality_status)
     datasource = _get_datasource_or_404(db, payload.datasource_id)
     existing = db.query(Metric).filter(Metric.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="指标名称已存在")
     metric = Metric(**payload.model_dump())
+    _touch_certification(metric, current_user)
     db.add(metric)
     db.commit()
     db.refresh(metric)
@@ -145,7 +186,58 @@ def get_metric(
     metric = db.query(Metric).filter(Metric.id == metric_id).first()
     if not metric:
         raise HTTPException(status_code=404, detail="指标不存在")
+    if current_user.role != "super_admin":
+        datasource = db.query(DataSource).filter(DataSource.id == metric.datasource_id).first()
+        if not datasource or datasource.org_id != current_user.org_id:
+            raise HTTPException(status_code=404, detail="指标不存在")
     return metric
+
+
+@router.get("/{metric_id}/lineage")
+def get_metric_lineage(
+    metric_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    metric = get_metric(metric_id, db=db, current_user=current_user)
+    datasource = (
+        db.query(DataSource).filter(DataSource.id == metric.datasource_id).first()
+        if metric.datasource_id
+        else None
+    )
+    return {
+        "metric": {
+            "id": metric.id,
+            "name": metric.name,
+            "definition": metric.definition,
+            "formula": metric.formula,
+            "unit": metric.unit,
+            "aggregation": metric.aggregation,
+            "caliber_version": metric.caliber_version,
+        },
+        "datasource": {
+            "id": datasource.id if datasource else None,
+            "name": datasource.name if datasource else None,
+            "source_type": datasource.source_type if datasource else None,
+        },
+        "source": {
+            "table_name": metric.table_name,
+            "column_name": metric.column_name,
+            "lineage": metric.lineage_json,
+        },
+        "trust": {
+            "certification_status": metric.certification_status,
+            "certified_by": metric.certified_by,
+            "certified_at": metric.certified_at,
+            "quality_status": metric.quality_status,
+            "quality_message": metric.quality_message,
+            "data_updated_at": metric.data_updated_at,
+        },
+        "usage": {
+            "catalog_asset": "metric",
+            "datasource_id": metric.datasource_id,
+        },
+    }
 
 
 @router.put("/{metric_id}", response_model=MetricOut)
@@ -167,8 +259,16 @@ def update_metric(
     )
     if payload.datasource_id is not None:
         _get_datasource_or_404(db, payload.datasource_id)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    values = payload.model_dump(exclude_unset=True)
+    _ensure_metric_values(
+        values.get("status"),
+        values.get("certification_status"),
+        values.get("quality_status"),
+    )
+    previous_certification_status = metric.certification_status
+    for key, value in values.items():
         setattr(metric, key, value)
+    _touch_certification(metric, current_user, previous_status=previous_certification_status)
     db.commit()
     db.refresh(metric)
     current_datasource = (
