@@ -30,7 +30,6 @@ from app.core.schema_detector import detect_schema, schema_to_prompt
 from app.core.drill_config import generate_drill_config
 from app.core.schema_enrichment import generate_column_descriptions
 from app.core.audit import try_record_audit_log
-from app.core.tenant_limits import assert_can_create_resource
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 SAFE_EXCEL_TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -119,8 +118,6 @@ def create_datasource(
         org_id = current_user.org_id
     elif payload.org_id:
         org_id = payload.org_id
-
-    assert_can_create_resource(db, org_id, "datasources")
 
     ds = DataSource(
         name=payload.name,

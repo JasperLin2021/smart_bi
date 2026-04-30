@@ -1,7 +1,6 @@
 import unittest
 from types import SimpleNamespace
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -14,58 +13,22 @@ class P2ProductizationTests(unittest.TestCase):
         Base.metadata.create_all(bind=engine, tables=tables)
         return sessionmaker(bind=engine)()
 
-    def test_org_usage_resolves_plan_limits_and_current_counts(self):
-        from app.core.tenant_limits import get_organization_usage
-        from app.models.big_screen import BigScreen
-        from app.models.dashboard_config import Dashboard
-        from app.models.datasource import DataSource
+    def test_organization_model_does_not_expose_commercial_package_fields(self):
         from app.models.organization import Organization
-        from app.models.query import QueryHistory
-        from app.models.user import User
 
-        db = self._db(
-            [
-                Organization.__table__,
-                User.__table__,
-                DataSource.__table__,
-                Dashboard.__table__,
-                BigScreen.__table__,
-                QueryHistory.__table__,
-            ]
-        )
-        org = Organization(
-            name="Acme",
-            slug="acme",
-            plan_type="free",
-            user_limit=3,
-            datasource_limit=2,
-            dashboard_limit=4,
-            big_screen_limit=1,
-            monthly_query_limit=10,
-        )
-        db.add(org)
-        db.flush()
-        db.add_all(
-            [
-                User(username="u1", hashed_password="x", org_id=org.id),
-                DataSource(name="Sales", slug="sales", database_url="sqlite:///:memory:", metadata_prompt="", org_id=org.id),
-                Dashboard(title="Board", org_id=org.id),
-                BigScreen(title="Screen", org_id=org.id),
-                QueryHistory(user_id=1, datasource_id=1, question="q"),
-            ]
-        )
-        db.commit()
+        for field in (
+            "plan_type",
+            "user_limit",
+            "datasource_limit",
+            "dashboard_limit",
+            "big_screen_limit",
+            "monthly_query_limit",
+            "white_label_enabled",
+            "branding_json",
+        ):
+            self.assertFalse(hasattr(Organization, field), field)
 
-        usage = get_organization_usage(db, org.id)
-
-        self.assertEqual(usage["plan_type"], "free")
-        self.assertEqual(usage["limits"]["users"], 3)
-        self.assertEqual(usage["usage"]["users"], 1)
-        self.assertEqual(usage["usage"]["datasources"], 1)
-        self.assertEqual(usage["remaining"]["big_screens"], 0)
-        self.assertEqual(usage["remaining"]["monthly_queries"], 9)
-
-    def test_datasource_creation_is_blocked_when_org_limit_is_reached(self):
+    def test_datasource_creation_stays_unlimited_for_each_org(self):
         from app.api.datasource import create_datasource
         from app.models.audit_log import AuditLog
         from app.models.datasource import DataSource
@@ -73,27 +36,37 @@ class P2ProductizationTests(unittest.TestCase):
         from app.schemas.datasource import DataSourceCreate
 
         db = self._db([Organization.__table__, DataSource.__table__, AuditLog.__table__])
-        org = Organization(name="Acme", slug="acme", datasource_limit=1)
+        org = Organization(name="Acme", slug="acme")
         db.add(org)
         db.flush()
-        db.add(DataSource(name="Existing", slug="existing", database_url="sqlite:///:memory:", metadata_prompt="", org_id=org.id))
-        db.commit()
-
-        with self.assertRaises(HTTPException) as raised:
-            create_datasource(
-                DataSourceCreate(
-                    name="Next",
-                    slug="next",
+        db.add_all(
+            [
+                DataSource(
+                    name=f"Existing {index}",
+                    slug=f"existing-{index}",
                     database_url="sqlite:///:memory:",
                     metadata_prompt="",
                     org_id=org.id,
-                ),
-                db=db,
-                current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
-            )
+                )
+                for index in range(10)
+            ]
+        )
+        db.commit()
 
-        self.assertEqual(raised.exception.status_code, 400)
-        self.assertIn("数据源", raised.exception.detail)
+        created = create_datasource(
+            DataSourceCreate(
+                name="Next",
+                slug="next",
+                database_url="sqlite:///:memory:",
+                metadata_prompt="",
+                org_id=org.id,
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        self.assertEqual(created["name"], "Next")
+        self.assertEqual(db.query(DataSource).filter(DataSource.org_id == org.id).count(), 11)
 
     def test_data_service_catalog_lists_metric_and_dashboard_contracts(self):
         from app.api.data_services import get_data_service_catalog
