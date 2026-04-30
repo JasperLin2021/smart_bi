@@ -158,7 +158,7 @@
           <aside class="governance-modal-rail">
             <div>
               <p class="governance-modal-title">预警配置流程</p>
-              <p class="governance-modal-copy">把异常规则变成可执行任务，并明确通知渠道与处理责任人。</p>
+              <p class="governance-modal-copy">设置异常规则、通知和负责人。</p>
             </div>
             <div class="governance-modal-steps">
               <div
@@ -188,14 +188,14 @@
                 <dd>{{ [form.notify_system, form.notify_email, form.notify_wechat, form.notify_dingtalk].filter(Boolean).length }} 个</dd>
               </div>
             </dl>
-            <div class="governance-modal-tip">预警规则至少需要一个指标条件；没有处理人时也可以先保存，但异常闭环会不完整。</div>
+            <div class="governance-modal-tip">至少添加一个指标条件。</div>
           </aside>
 
           <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>监控对象</h3>
-            <p>先明确要监控哪个可信指标，以及规则属于哪个数据源。</p>
+            <p>选择指标和数据源。</p>
           </div>
           <el-row :gutter="16">
             <el-col :xs="24" :md="12">
@@ -241,7 +241,7 @@
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>触发规则</h3>
-            <p>用时间窗口、维度条件和指标阈值定义什么情况算异常。</p>
+            <p>配置窗口和阈值。</p>
           </div>
           <el-row :gutter="16">
             <el-col :xs="24" :md="12">
@@ -316,7 +316,7 @@
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>通知与处理人</h3>
-            <p>预警不是只发消息，还要指定谁负责处理、谁需要同步。</p>
+            <p>指定渠道和负责人。</p>
           </div>
           <el-row :gutter="16">
             <el-col :xs="24" :md="12">
@@ -363,7 +363,7 @@
 
       <template #footer>
         <div class="governance-modal-footer">
-          <span class="governance-modal-footer-note">保存后系统会按检测周期执行，触发异常时创建通知和待办。</span>
+          <span class="governance-modal-footer-note">保存后按周期检测并通知。</span>
           <div class="governance-modal-footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
             <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
@@ -429,17 +429,17 @@ const rules: FormRules = {
 const alertFormSteps = computed(() => [
   {
     label: "监控对象",
-    desc: "选择数据源、可信指标和预警名称",
+    desc: "数据源和指标",
     done: Boolean(form.name.trim() && form.datasource_id && form.metric_id),
   },
   {
     label: "触发规则",
-    desc: "配置检测窗口、维度条件和指标阈值",
+    desc: "窗口、条件和阈值",
     done: metricConditions.value.length > 0,
   },
   {
     label: "通知闭环",
-    desc: "选择渠道、待办人和通知内容",
+    desc: "渠道和处理人",
     done: Boolean(
       [form.notify_system, form.notify_email, form.notify_wechat, form.notify_dingtalk].some(Boolean) &&
       (assigneeIds.value.length > 0 || form.content.trim())

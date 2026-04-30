@@ -12,7 +12,7 @@
         <div class="drill-toolbar-info">
           <p class="modal-kicker">DRILL PATHS</p>
           <h3>{{ datasourceName || "当前数据源" }}</h3>
-          <span>把字段关系转成业务能点击的下钻路径，支持从总览自然定位到明细。</span>
+          <span>配置图表点击后的下钻路径。</span>
         </div>
         <el-button type="primary" @click="emit('generate')" :loading="generating">自动生成候选规则</el-button>
 
@@ -34,15 +34,15 @@
         <div class="drill-flow">
           <div class="drill-flow-item" :class="{ 'is-done': draft.dimensions.length > 0 || draft.metrics.length > 0 }">
             <strong>生成候选</strong>
-            <span>从表结构中识别维度和指标</span>
+            <span>识别维度和指标</span>
           </div>
           <div class="drill-flow-item" :class="{ 'is-done': enabledDimensionCount > 0 && enabledMetricCount > 0 }">
             <strong>人工确认</strong>
-            <span>关闭不适合业务点击的字段</span>
+            <span>保留可用字段</span>
           </div>
           <div class="drill-flow-item" :class="{ 'is-done': enabledPathCount > 0 }">
             <strong>路径生效</strong>
-            <span>图表点击后可继续追问</span>
+            <span>图表可继续下钻</span>
           </div>
         </div>
       </aside>
@@ -59,7 +59,7 @@
             <div class="section-header">
               <div>
                 <span>维度候选</span>
-                <small>决定用户能按哪些业务对象继续下钻。</small>
+                <small>选择可下钻对象。</small>
               </div>
               <el-tag size="small" type="info">{{ draft.dimensions.length }}</el-tag>
             </div>
@@ -84,7 +84,7 @@
             <div class="section-header">
               <div>
                 <span>指标候选</span>
-                <small>决定下钻后默认展示哪些可比较的业务数。</small>
+                <small>选择默认指标。</small>
               </div>
               <el-tag size="small" type="info">{{ draft.metrics.length }}</el-tag>
             </div>
@@ -109,7 +109,7 @@
             <div class="section-header">
               <div>
                 <span>钻取路径</span>
-                <small>决定图表点击后出现的操作入口和下一步分析方向。</small>
+                <small>配置点击入口。</small>
               </div>
               <el-tag size="small" type="info">{{ draft.paths.length }}</el-tag>
             </div>
@@ -150,7 +150,7 @@
 
     <template #footer>
       <div class="governance-modal-footer">
-        <span class="governance-modal-footer-note">保存后，问数结果图表和看板图表会根据这些路径提供下钻入口。</span>
+        <span class="governance-modal-footer-note">保存后图表会显示下钻入口。</span>
         <div class="governance-modal-footer-actions">
           <el-button @click="handleClose">取消</el-button>
           <el-button type="primary" :loading="saving" @click="handleSave">保存配置</el-button>
@@ -259,22 +259,25 @@ const handleClose = () => {
 .drill-modal {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: 560px;
-  max-height: 72vh;
+  height: min(680px, calc(100vh - 178px));
+  min-height: 0;
   overflow: hidden;
 }
 
 .drill-rail {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
   border-right: 1px solid var(--app-border-light);
   background: #f3f7fa;
 }
 
 .drill-content {
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
 }

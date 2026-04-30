@@ -149,7 +149,7 @@
           <aside class="governance-modal-rail">
             <div>
               <p class="governance-modal-title">数据源接入流程</p>
-              <p class="governance-modal-copy">先把连接、业务语义补齐，保存后继续配置表结构和钻取规则。</p>
+              <p class="governance-modal-copy">配置连接与语义，保存后补表结构。</p>
             </div>
             <div class="governance-modal-steps">
               <div
@@ -179,14 +179,14 @@
                 <dd>{{ recommendQuestionsText.split('\n').filter(Boolean).length }} 个</dd>
               </div>
             </dl>
-            <div class="governance-modal-tip">保存之后请继续进入“表结构”，否则智能问数和数据集建模无法理解字段语义。</div>
+            <div class="governance-modal-tip">保存后继续配置表结构。</div>
           </aside>
 
           <div class="governance-modal-main">
             <section class="governance-dialog-section">
               <div class="governance-section-head">
                 <h3>连接信息</h3>
-                <p>先建立可用连接，保存后再进入表结构识别和钻取规则配置。</p>
+                <p>填写基础连接。</p>
               </div>
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12">
@@ -245,7 +245,7 @@
             <section class="governance-dialog-section">
               <div class="governance-section-head">
                 <h3>业务语义</h3>
-                <p>这些内容会参与智能问数理解，建议使用业务能看懂的指标名称和问题表达。</p>
+                <p>供智能问数理解。</p>
               </div>
               <el-form-item label="指标描述">
                 <el-input
@@ -254,7 +254,7 @@
                   :rows="4"
                   placeholder="可用的业务指标描述（可选）"
                 />
-                <div class="governance-field-hint">例如：收入、回款、客户数等核心指标的口径和常用筛选条件。</div>
+                <div class="governance-field-hint">填写核心指标口径。</div>
               </el-form-item>
               <el-form-item label="推荐问题">
                 <el-input
@@ -263,7 +263,7 @@
                   :rows="4"
                   placeholder="每行一个推荐问题（可选）"
                 />
-                <div class="governance-field-hint">推荐问题会展示给业务用户，帮助他们快速开始问数。</div>
+                <div class="governance-field-hint">每行一个常用问题。</div>
               </el-form-item>
             </section>
           </div>
@@ -271,7 +271,7 @@
       </el-form>
       <template #footer>
         <div class="governance-modal-footer">
-          <span class="governance-modal-footer-note">保存后会回到数据源列表，可继续做表结构识别、数据预览和钻取配置。</span>
+          <span class="governance-modal-footer-note">保存后可继续配置表结构和钻取。</span>
           <div class="governance-modal-footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
             <el-button type="primary" :loading="saving" @click="handleSave">保存数据源</el-button>
@@ -309,7 +309,7 @@
           <div>
             <p class="preview-kicker">DATA PREVIEW</p>
             <h3>{{ previewDatasource?.name || '当前数据源' }}</h3>
-            <span>{{ previewTableMeta?.description || '查看样例数据，确认字段含义和数据范围是否符合预期。' }}</span>
+            <span>{{ previewTableMeta?.description || '查看样例数据。' }}</span>
           </div>
           <div class="preview-stats">
             <div>
@@ -358,7 +358,7 @@
       </div>
       <template #footer>
         <div class="governance-modal-footer">
-          <span class="governance-modal-footer-note">预览仅用于校验表结构和字段语义，不会保存样例数据。</span>
+          <span class="governance-modal-footer-note">预览不会保存样例数据。</span>
           <div class="governance-modal-footer-actions">
             <el-button @click="previewVisible = false">关闭</el-button>
           </div>
@@ -499,18 +499,18 @@ const previewTableMeta = computed(() => previewTables.value.find(table => table.
 
 const datasourceFormSteps = computed(() => [
   {
-    label: "命名与标识",
-    desc: "用于列表展示、权限和后续引用",
+    label: "命名",
+    desc: "显示名和唯一标识",
     done: Boolean(form.name.trim() && form.slug.trim()),
   },
   {
-    label: form.source_type === "excel" ? "上传文件" : "连接数据库",
-    desc: form.source_type === "excel" ? "选择要导入的 Excel 文件" : "填写 PostgreSQL 连接串",
+    label: form.source_type === "excel" ? "上传" : "连接",
+    desc: form.source_type === "excel" ? "选择 Excel 文件" : "填写连接串",
     done: form.source_type === "excel" ? Boolean(selectedExcelFile.value || isEdit.value) : Boolean(form.database_url.trim()),
   },
   {
-    label: "补充业务语义",
-    desc: "指标描述和推荐问题会帮助业务用户自助问数",
+    label: "语义",
+    desc: "指标和推荐问题",
     done: Boolean(form.metrics_prompt.trim() || recommendQuestionsText.value.trim()),
   },
 ])

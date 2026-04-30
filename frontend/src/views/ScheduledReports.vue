@@ -153,7 +153,7 @@
           <aside class="governance-modal-rail">
             <div>
               <p class="governance-modal-title">自动报告配置</p>
-              <p class="governance-modal-copy">把固定经营问题设为周期任务，持续产出同一口径的数据结论。</p>
+              <p class="governance-modal-copy">定时执行固定问数问题。</p>
             </div>
             <div class="governance-modal-steps">
               <div
@@ -183,14 +183,14 @@
                 <dd>{{ form.is_active ? '启用' : '禁用' }}</dd>
               </div>
             </dl>
-            <div class="governance-modal-tip">报告问题建议写成业务能复用的固定问题，例如“本周销售异常区域及原因”。</div>
+            <div class="governance-modal-tip">问题尽量写成固定业务问题。</div>
           </aside>
 
           <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>报告内容</h3>
-            <p>定义报告名称、数据源和要自动执行的自然语言问题。</p>
+            <p>名称、数据源和问题。</p>
           </div>
           <el-row :gutter="16">
             <el-col :xs="24" :md="12">
@@ -224,7 +224,7 @@
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>执行计划</h3>
-            <p>选择常用计划或输入 Cron 表达式，系统会按这个规则自动执行。</p>
+            <p>选择计划或输入 Cron。</p>
           </div>
           <el-form-item label="Cron 表达式" prop="cron_expression">
             <div class="cron-editor">
@@ -249,7 +249,7 @@
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>通知方式</h3>
-            <p>配置报告生成后的推送渠道。</p>
+            <p>选择推送渠道。</p>
           </div>
           <el-form-item label="通知方式">
             <div class="notify-group">
@@ -269,7 +269,7 @@
 
       <template #footer>
         <div class="governance-modal-footer">
-          <span class="governance-modal-footer-note">保存后可在列表手动执行一次，确认生成内容和通知配置是否正确。</span>
+          <span class="governance-modal-footer-note">保存后可在列表手动执行。</span>
           <div class="governance-modal-footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
             <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
@@ -332,17 +332,17 @@ const rules: FormRules = {
 const reportFormSteps = computed(() => [
   {
     label: "报告内容",
-    desc: "名称、数据源和固定问数问题",
+    desc: "名称、数据源、问题",
     done: Boolean(form.name.trim() && form.datasource_id && form.question.trim()),
   },
   {
     label: "执行计划",
-    desc: "选择常用计划或填写 Cron 表达式",
+    desc: "快捷计划或 Cron",
     done: Boolean(form.cron_expression.trim()),
   },
   {
     label: "通知方式",
-    desc: "配置报告生成后的推送渠道",
+    desc: "选择推送渠道",
     done: [form.notify_email, form.notify_wechat, form.notify_dingtalk].some(Boolean),
   },
 ])

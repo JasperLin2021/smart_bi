@@ -12,7 +12,7 @@
         <div>
           <p class="modal-kicker">SCHEMA SEMANTICS</p>
           <h3>让系统理解业务表结构</h3>
-          <p>表、字段和关联关系会生成元数据提示词，直接影响智能问数和数据集建模质量。</p>
+          <p>维护表、字段和关联。</p>
         </div>
         <div class="schema-toolbar">
           <el-button type="primary" @click="detectSchema" :loading="detecting">
@@ -29,19 +29,19 @@
       <div class="schema-flow">
         <div class="schema-flow-item" :class="{ 'is-done': schema.tables.length > 0 }">
           <strong>自动检测</strong>
-          <span>读取数据表和字段</span>
+          <span>读取表字段</span>
         </div>
         <div class="schema-flow-item" :class="{ 'is-done': totalColumns > 0 }">
           <strong>补字段说明</strong>
-          <span>把字段翻译成业务语义</span>
+          <span>补充中文语义</span>
         </div>
         <div class="schema-flow-item" :class="{ 'is-done': schema.relationships.length > 0 }">
           <strong>确认关联</strong>
-          <span>维护主外键和 Join 关系</span>
+          <span>维护 Join 关系</span>
         </div>
         <div class="schema-flow-item">
           <strong>保存生效</strong>
-          <span>生成问数元数据提示词</span>
+          <span>更新问数元数据</span>
         </div>
       </div>
 
@@ -262,7 +262,7 @@
 
     <template #footer>
       <div class="governance-modal-footer">
-        <span class="governance-modal-footer-note">保存后会同步更新 Text2SQL 的元数据提示词，影响问数和数据集建模结果。</span>
+        <span class="governance-modal-footer-note">保存后更新 Text2SQL 元数据。</span>
         <div class="governance-modal-footer-actions">
           <el-button @click="handleClose">取消</el-button>
           <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
@@ -489,7 +489,8 @@ const handleClose = () => {
 <style scoped>
 .schema-modal {
   padding: 20px;
-  max-height: 68vh;
+  height: min(680px, calc(100vh - 178px));
+  min-height: 0;
   overflow-y: auto;
 }
 

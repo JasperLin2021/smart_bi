@@ -187,7 +187,7 @@
           <aside class="governance-modal-rail">
             <div>
               <p class="governance-modal-title">可信指标配置</p>
-              <p class="governance-modal-copy">先让业务读得懂，再把口径落到字段、公式、负责人和质量说明。</p>
+              <p class="governance-modal-copy">统一指标口径，供问数和看板复用。</p>
             </div>
             <div class="governance-modal-steps">
               <div
@@ -217,7 +217,7 @@
                 <dd>{{ qualityLabel(form.quality_status) }}</dd>
               </div>
             </dl>
-            <div class="governance-modal-tip">已认证指标会在数据目录、问数结果和看板配置中优先作为可信口径展示。</div>
+            <div class="governance-modal-tip">认证后优先作为可信口径。</div>
           </aside>
 
           <div class="governance-modal-main">
@@ -225,7 +225,7 @@
           <div class="governance-section-head">
             <div>
               <h3>基础信息</h3>
-              <p>业务用户理解指标时最先看到的名称、定义和负责人。</p>
+              <p>名称、定义和负责人。</p>
             </div>
           </div>
           <el-row :gutter="16">
@@ -271,7 +271,7 @@
           <div class="governance-section-head">
             <div>
               <h3>计算口径</h3>
-              <p>把业务口径落到表、字段和公式，供 Text2SQL、看板和目录复用。</p>
+              <p>绑定字段与公式。</p>
             </div>
             <el-button :loading="generatingFormula" @click="generateFormula">AI 生成公式</el-button>
           </div>
@@ -321,7 +321,7 @@
           <div class="governance-section-head">
             <div>
               <h3>可信治理</h3>
-              <p>认证状态、质量状态和更新时间会同步到数据目录，帮助用户判断这个数是否可信。</p>
+              <p>认证、质量和血缘。</p>
             </div>
           </div>
           <el-row :gutter="16">
@@ -394,7 +394,7 @@
       </el-form>
       <template #footer>
         <div class="governance-modal-footer">
-          <span class="governance-modal-footer-note">建议保存前至少补齐定义、公式、负责人和质量说明，避免业务侧出现多个口径。</span>
+          <span class="governance-modal-footer-note">建议补齐定义、公式和负责人。</span>
           <div class="governance-modal-footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
             <el-button type="primary" @click="saveMetric" :loading="saving">保存指标</el-button>
@@ -415,7 +415,7 @@
             <div>
               <p class="lineage-kicker">METRIC LINEAGE</p>
               <h3>{{ lineage.metric.name }}</h3>
-              <span>查看公式、来源字段、上游表和可信状态，判断这个指标能否直接用于经营决策。</span>
+              <span>查看来源、公式和可信状态。</span>
             </div>
           </section>
           <section class="lineage-summary">
@@ -460,7 +460,7 @@
       </div>
       <template #footer>
         <div class="governance-modal-footer">
-          <span class="governance-modal-footer-note">血缘信息来自指标配置和数据源元数据，后续会用于解释问数结果。</span>
+          <span class="governance-modal-footer-note">血缘用于解释问数结果。</span>
           <div class="governance-modal-footer-actions">
             <el-button @click="lineageVisible = false">关闭</el-button>
           </div>
@@ -604,17 +604,17 @@ const form = ref<MetricForm>(emptyForm())
 const metricFormSteps = computed(() => [
   {
     label: "基础信息",
-    desc: "名称、定义、负责人让业务知道这个指标是什么",
+    desc: "名称、定义、负责人",
     done: Boolean(form.value.datasource_id && form.value.name.trim() && form.value.definition.trim()),
   },
   {
     label: "计算口径",
-    desc: "绑定表字段、聚合方式和计算公式",
+    desc: "字段、聚合和公式",
     done: Boolean(form.value.table_name.trim() || form.value.column_name.trim() || form.value.formula.trim()),
   },
   {
     label: "可信治理",
-    desc: "认证状态、质量说明、血缘和更新时间",
+    desc: "认证、质量和血缘",
     done: Boolean(
       form.value.certification_status === "certified" ||
       form.value.quality_message.trim() ||
