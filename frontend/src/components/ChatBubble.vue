@@ -57,6 +57,30 @@
             <span class="model-chip-label">实际模型</span>
             <code class="model-chip-value">{{ message.llmModel }}</code>
           </div>
+
+          <div v-if="message.trustSignals?.length" class="trust-panel">
+            <div class="trust-panel-title">
+              <span>可信指标</span>
+              <small>本次查询命中 {{ message.trustSignals.length }} 个统一口径</small>
+            </div>
+            <div class="trust-list">
+              <div v-for="signal in message.trustSignals" :key="signal.metric_id" class="trust-item">
+                <div class="trust-item-main">
+                  <strong>{{ signal.metric_name }}</strong>
+                  <span>{{ signal.owner_name || "未设置负责人" }} · {{ signal.caliber_version || "v1" }}</span>
+                </div>
+                <div class="trust-tags">
+                  <el-tag size="small" :type="certificationTagType(signal.certification_status)" effect="plain">
+                    {{ certificationLabel(signal.certification_status) }}
+                  </el-tag>
+                  <el-tag size="small" :type="qualityTagType(signal.quality_status)" effect="plain">
+                    {{ qualityLabel(signal.quality_status) }}
+                  </el-tag>
+                </div>
+                <p v-if="signal.quality_message">{{ signal.quality_message }}</p>
+              </div>
+            </div>
+          </div>
           
           <!-- SQL 查询 (可折叠) -->
           <el-collapse v-if="message.sqlQuery" class="sql-collapse">
@@ -149,6 +173,46 @@ const goBackOneLevel = async () => {
   const drillContext = props.message.drillContext
   if (!drillContext?.parentQuestion) return
   await queryStore.ask(drillContext.parentQuestion, "text2sql", drillContext.parentContext)
+}
+
+const certificationLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    draft: "草稿",
+    pending_review: "待审核",
+    certified: "已认证",
+    deprecated: "已废弃",
+  }
+  return labels[status] || status
+}
+
+const certificationTagType = (status: string) => {
+  const types: Record<string, "success" | "warning" | "info" | "danger"> = {
+    draft: "info",
+    pending_review: "warning",
+    certified: "success",
+    deprecated: "danger",
+  }
+  return types[status] || "info"
+}
+
+const qualityLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    unknown: "未知",
+    normal: "正常",
+    stale: "过期",
+    error: "异常",
+  }
+  return labels[status] || status
+}
+
+const qualityTagType = (status: string) => {
+  const types: Record<string, "success" | "warning" | "info" | "danger"> = {
+    unknown: "info",
+    normal: "success",
+    stale: "warning",
+    error: "danger",
+  }
+  return types[status] || "info"
 }
 
 const formatTime = (date: Date) => {
@@ -338,6 +402,77 @@ const formatTime = (date: Date) => {
   font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
   font-size: 12px;
   color: #0f172a;
+}
+
+.trust-panel {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.trust-panel-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.trust-panel-title span {
+  font-weight: 600;
+  color: #1e3a8a;
+}
+
+.trust-panel-title small {
+  color: #64748b;
+}
+
+.trust-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trust-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.trust-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trust-item-main strong {
+  color: #0f172a;
+}
+
+.trust-item-main span,
+.trust-item p {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.trust-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.trust-item p {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .sql-collapse :deep(.el-collapse-item__header) {

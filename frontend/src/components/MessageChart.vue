@@ -1,7 +1,20 @@
 <template>
   <div class="message-chart">
     <div class="chart-header">
-      <span class="chart-title">数据可视化（点击图表钻取）</span>
+      <div class="chart-title-wrap">
+        <span class="chart-title">数据可视化（点击图表钻取）</span>
+        <div v-if="message.trustSignals?.length" class="chart-trust-tags">
+          <el-tag
+            v-for="signal in message.trustSignals"
+            :key="signal.metric_id"
+            size="small"
+            :type="certificationTagType(signal.certification_status)"
+            effect="plain"
+          >
+            {{ signal.metric_name }} · {{ certificationLabel(signal.certification_status) }}
+          </el-tag>
+        </div>
+      </div>
       <div class="chart-actions">
         <el-select v-model="chartType" size="small" style="width: 90px;" placeholder="图表类型">
           <el-option label="折线图" value="line" />
@@ -224,6 +237,26 @@ const selectedSummary = computed(() => {
   if (!selectedRow.value || !selectedXField.value) return ""
   return `${selectedXField.value}: ${selectedRow.value[selectedXField.value]}`
 })
+
+const certificationLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    draft: "草稿",
+    pending_review: "待审核",
+    certified: "已认证",
+    deprecated: "已废弃",
+  }
+  return labels[status] || status
+}
+
+const certificationTagType = (status: string) => {
+  const types: Record<string, "success" | "warning" | "info" | "danger"> = {
+    draft: "info",
+    pending_review: "warning",
+    certified: "success",
+    deprecated: "danger",
+  }
+  return types[status] || "info"
+}
 
 // 构建多系列图表配置
 const buildMultiSeriesOption = () => {
@@ -487,10 +520,18 @@ onMounted(() => {
 .chart-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
   padding: 8px 12px;
   background: #fafafa;
   border-bottom: 1px solid #e4e7ed;
+}
+
+.chart-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 .chart-title {
@@ -499,10 +540,18 @@ onMounted(() => {
   color: #606266;
 }
 
+.chart-trust-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .chart-actions {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .dimension-config {

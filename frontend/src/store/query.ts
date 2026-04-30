@@ -10,6 +10,22 @@ export interface QueryResult {
   rows: Array<Record<string, string | number>>
 }
 
+export interface MetricTrustSignal {
+  metric_id: number
+  metric_name: string
+  definition?: string | null
+  formula?: string | null
+  owner_name?: string | null
+  unit?: string | null
+  certification_status: string
+  certified_by?: string | null
+  certified_at?: string | null
+  caliber_version: string
+  data_updated_at?: string | null
+  quality_status: string
+  quality_message?: string | null
+}
+
 export interface DrillAction {
   id: string
   label: string
@@ -51,6 +67,7 @@ export interface ChatMessage {
   summary?: string
   llmModel?: string
   recommendations?: string[]
+  trustSignals?: MetricTrustSignal[]
   mode?: "text2sql" | "chat"
   error?: string
   sourceQuestion?: string
@@ -138,6 +155,7 @@ export const useQueryStore = defineStore("query", {
             summary: response.data.summary,
             llmModel: response.data.llm_model,
             recommendations: response.data.recommendations || [],
+            trustSignals: response.data.trust_signals || [],
             sourceQuestion: question,
             drillContext
           }
@@ -247,6 +265,7 @@ export const useQueryStore = defineStore("query", {
           summary: data.summary,
           llmModel: data.llm_model,
           mode: data.mode,
+          trustSignals: data.trust_signals || [],
           sourceQuestion: cleanQuestion,
           drillContext: data.drill_context || undefined,
         }

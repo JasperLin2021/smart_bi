@@ -1,6 +1,6 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, text
+from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 from fastapi_cache.decorator import cache
 
@@ -15,6 +15,7 @@ from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.dataset import Dataset
 from app.models.llm_setting import LlmSetting
+from app.models.metric import Metric
 from app.models.query import QueryHistory
 from app.models.user import User
 from app.schemas.query import QueryAskRequest, QueryAskResponse, HistoryListResponse
@@ -139,6 +140,56 @@ def _build_dataset_query_context(dataset: Dataset) -> str:
     if dataset.description:
         lines.insert(1, f"数据集说明：{dataset.description}")
     return "\n".join(lines)
+
+
+def _metric_trust_signal(metric: Metric) -> dict:
+    return {
+        "metric_id": metric.id,
+        "metric_name": metric.name,
+        "definition": metric.definition,
+        "formula": metric.formula,
+        "owner_name": metric.owner_name,
+        "unit": metric.unit,
+        "certification_status": metric.certification_status,
+        "certified_by": metric.certified_by,
+        "certified_at": metric.certified_at.isoformat() if metric.certified_at else None,
+        "caliber_version": metric.caliber_version,
+        "data_updated_at": metric.data_updated_at.isoformat() if metric.data_updated_at else None,
+        "quality_status": metric.quality_status,
+        "quality_message": metric.quality_message,
+    }
+
+
+def _query_metric_trust_signals(
+    db: Session,
+    datasource: DataSource,
+    question: str,
+    sql_query: str,
+    metric_match: dict | None = None,
+) -> list[dict]:
+    if hasattr(db, "get_bind") and not inspect(db.get_bind()).has_table("metrics"):
+        return []
+    metrics = (
+        db.query(Metric)
+        .filter(Metric.datasource_id == datasource.id, Metric.is_active == 1)
+        .order_by(Metric.updated_at.desc(), Metric.id.desc())
+        .all()
+    )
+    if metric_match and metric_match.get("name"):
+        metrics.sort(key=lambda item: item.name != metric_match["name"])
+    signals: list[dict] = []
+    seen: set[int] = set()
+    for metric in metrics:
+        if not metric.formula:
+            continue
+        formula_used = sql_uses_metric_formula(sql_query, metric.formula)
+        if not formula_used:
+            continue
+        if metric.id in seen:
+            continue
+        seen.add(metric.id)
+        signals.append(_metric_trust_signal(metric))
+    return signals
 
 
 async def _generate_safe_sql(
@@ -283,6 +334,7 @@ async def ask(
             "history_id": history.id,
             "recommendations": [],
             "mode": "chat",
+            "trust_signals": [],
         }
 
     # Text2SQL 模式
@@ -361,6 +413,8 @@ async def ask(
     summary = _normalize_summary(question, result, summary)
 
     recommendations = _get_recommendations(datasource)
+    trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
+    stored_result = {**result, "_trust_signals": trust_signals}
 
     history = QueryHistory(
         user_id=current_user.id,
@@ -368,7 +422,7 @@ async def ask(
         parent_history_id=parent_history_id,
         question=f"[SQL] {question}",
         sql_query=sql_query,
-        result_json=json.dumps(result, ensure_ascii=False, default=str),
+        result_json=json.dumps(stored_result, ensure_ascii=False, default=str),
         summary=summary,
         mode="text2sql",
         drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
@@ -405,6 +459,7 @@ async def ask(
         "history_id": history.id,
         "recommendations": recommendations,
         "mode": "text2sql",
+        "trust_signals": trust_signals,
     }
 
 
@@ -497,9 +552,11 @@ def get_history_detail(
         raise HTTPException(status_code=404, detail="记录不存在")
 
     result = {"columns": [], "rows": []}
+    trust_signals = []
     if item.result_json:
         try:
             result = json.loads(item.result_json)
+            trust_signals = result.pop("_trust_signals", []) or []
         except Exception:
             pass
 
@@ -514,6 +571,7 @@ def get_history_detail(
         "drill_context": json.loads(item.drill_context) if item.drill_context else None,
         "parent_history_id": item.parent_history_id,
         "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),
+        "trust_signals": trust_signals,
     }
 
 

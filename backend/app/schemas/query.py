@@ -16,6 +16,22 @@ class QueryResult(BaseModel):
     rows: List[Dict[str, Any]]
 
 
+class MetricTrustSignal(BaseModel):
+    metric_id: int
+    metric_name: str
+    definition: Optional[str] = None
+    formula: Optional[str] = None
+    owner_name: Optional[str] = None
+    unit: Optional[str] = None
+    certification_status: str
+    certified_by: Optional[str] = None
+    certified_at: Optional[str] = None
+    caliber_version: str
+    data_updated_at: Optional[str] = None
+    quality_status: str
+    quality_message: Optional[str] = None
+
+
 class QueryAskResponse(BaseModel):
     answer: str
     result: QueryResult
@@ -26,6 +42,7 @@ class QueryAskResponse(BaseModel):
     history_id: Optional[int] = None
     recommendations: List[str]
     mode: str
+    trust_signals: List[MetricTrustSignal] = []
 
 
 class DrillAction(BaseModel):

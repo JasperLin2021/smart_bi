@@ -23,12 +23,12 @@
 - Create: `backend/tests/test_metric_trust_center.py`
 - Modify: `frontend/src/views/MetricSettings.vue`
 
-- [ ] Write failing tests for trust fields, certification status, lineage output, catalog metadata sync, and org-scoped metric visibility.
-- [ ] Add metric trust columns: certification status, certifier, certification time, caliber version, data update time, quality status, quality message, lineage JSON.
-- [ ] Validate certification and quality states in create/update.
-- [ ] Add metric lineage API.
-- [ ] Merge trusted metric UX into the existing metric page.
-- [ ] Verify with targeted tests, full backend tests, and frontend build.
+- [x] Write failing tests for trust fields, certification status, lineage output, catalog metadata sync, and org-scoped metric visibility.
+- [x] Add metric trust columns: certification status, certifier, certification time, caliber version, data update time, quality status, quality message, lineage JSON.
+- [x] Validate certification and quality states in create/update.
+- [x] Add metric lineage API.
+- [x] Merge trusted metric UX into the existing metric page.
+- [x] Verify with targeted tests, full backend tests, and frontend build.
 
 ### P1: Trust Signals Across Consumption Surfaces
 
@@ -38,9 +38,9 @@
 - Modify: `frontend/src/components/MessageChart.vue`
 - Modify: `backend/app/api/query.py`
 
-- [ ] Show metric trust status, owner, caliber version, and update status in catalog detail.
-- [ ] Include trusted metric context in smart-query output when the generated SQL uses a known metric formula.
-- [ ] Add visible trust badges to query result cards and chart cards.
+- [x] Show metric trust status, owner, caliber version, and update status in catalog detail.
+- [x] Include trusted metric context in smart-query output when the generated SQL uses a known metric formula.
+- [x] Add visible trust badges to query result cards and chart cards.
 
 ### P2: Decision Loop
 
