@@ -144,7 +144,8 @@
     <el-dialog
       v-model="dialogVisible"
       :title="editingId ? '编辑预警' : '新建预警'"
-      width="min(820px, calc(100vw - 32px))"
+      width="min(1080px, calc(100vw - 32px))"
+      class="governance-modal"
       destroy-on-close
     >
       <el-form
@@ -153,6 +154,44 @@
         :rules="rules"
         label-position="top"
       >
+        <div class="governance-modal-shell">
+          <aside class="governance-modal-rail">
+            <div>
+              <p class="governance-modal-title">预警配置流程</p>
+              <p class="governance-modal-copy">把异常规则变成可执行任务，并明确通知渠道与处理责任人。</p>
+            </div>
+            <div class="governance-modal-steps">
+              <div
+                v-for="(step, index) in alertFormSteps"
+                :key="step.label"
+                class="governance-modal-step"
+                :class="{ 'is-done': step.done }"
+              >
+                <span class="governance-modal-step-index">{{ index + 1 }}</span>
+                <div>
+                  <strong>{{ step.label }}</strong>
+                  <span>{{ step.desc }}</span>
+                </div>
+              </div>
+            </div>
+            <dl class="governance-modal-facts">
+              <div>
+                <dt>维度条件</dt>
+                <dd>{{ dimensionConditions.length }} 个</dd>
+              </div>
+              <div>
+                <dt>指标条件</dt>
+                <dd>{{ metricConditions.length }} 个</dd>
+              </div>
+              <div>
+                <dt>通知渠道</dt>
+                <dd>{{ [form.notify_system, form.notify_email, form.notify_wechat, form.notify_dingtalk].filter(Boolean).length }} 个</dd>
+              </div>
+            </dl>
+            <div class="governance-modal-tip">预警规则至少需要一个指标条件；没有处理人时也可以先保存，但异常闭环会不完整。</div>
+          </aside>
+
+          <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>监控对象</h3>
@@ -318,11 +357,18 @@
             />
           </el-form-item>
         </section>
+          </div>
+        </div>
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <div class="governance-modal-footer">
+          <span class="governance-modal-footer-note">保存后系统会按检测周期执行，触发异常时创建通知和待办。</span>
+          <div class="governance-modal-footer-actions">
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -379,6 +425,27 @@ const rules: FormRules = {
   name: [{ required: true, message: "请输入预警名称", trigger: "blur" }],
   datasource_id: [{ required: true, message: "请选择数据源", trigger: "change" }],
 }
+
+const alertFormSteps = computed(() => [
+  {
+    label: "监控对象",
+    desc: "选择数据源、可信指标和预警名称",
+    done: Boolean(form.name.trim() && form.datasource_id && form.metric_id),
+  },
+  {
+    label: "触发规则",
+    desc: "配置检测窗口、维度条件和指标阈值",
+    done: metricConditions.value.length > 0,
+  },
+  {
+    label: "通知闭环",
+    desc: "选择渠道、待办人和通知内容",
+    done: Boolean(
+      [form.notify_system, form.notify_email, form.notify_wechat, form.notify_dingtalk].some(Boolean) &&
+      (assigneeIds.value.length > 0 || form.content.trim())
+    ),
+  },
+])
 
 const hasNotification = (row: any) =>
   Boolean(row.notify_system || row.notify_email || row.notify_wechat || row.notify_dingtalk)

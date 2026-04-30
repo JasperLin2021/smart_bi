@@ -3,6 +3,7 @@
     v-model="visible"
     title="表结构管理"
     width="min(1200px, calc(100vw - 32px))"
+    class="governance-modal schema-governance-dialog"
     :close-on-click-modal="false"
     @close="handleClose"
   >
@@ -22,6 +23,25 @@
             <el-icon><Plus /></el-icon>
             添加表
           </el-button>
+        </div>
+      </div>
+
+      <div class="schema-flow">
+        <div class="schema-flow-item" :class="{ 'is-done': schema.tables.length > 0 }">
+          <strong>自动检测</strong>
+          <span>读取数据表和字段</span>
+        </div>
+        <div class="schema-flow-item" :class="{ 'is-done': totalColumns > 0 }">
+          <strong>补字段说明</strong>
+          <span>把字段翻译成业务语义</span>
+        </div>
+        <div class="schema-flow-item" :class="{ 'is-done': schema.relationships.length > 0 }">
+          <strong>确认关联</strong>
+          <span>维护主外键和 Join 关系</span>
+        </div>
+        <div class="schema-flow-item">
+          <strong>保存生效</strong>
+          <span>生成问数元数据提示词</span>
         </div>
       </div>
 
@@ -80,9 +100,21 @@
                 </div>
                 <span v-if="selectedTable.description" class="editor-desc">{{ selectedTable.description }}</span>
               </div>
-              <el-button type="danger" size="small" text @click="removeTable(selectedTableIndex)">
-                删除表
-              </el-button>
+              <div class="editor-header-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="generatingDescriptions"
+                  @click="fillColumnDescriptions"
+                >
+                  <el-icon><MagicStick /></el-icon>
+                  AI补全字段说明
+                </el-button>
+                <el-button type="danger" size="small" text @click="removeTable(selectedTableIndex)">
+                  删除表
+                </el-button>
+              </div>
             </div>
 
             <el-form :inline="true" size="small" class="table-info-form">
@@ -147,17 +179,6 @@
                   >
                     <el-icon><Plus /></el-icon>
                     添加列
-                  </el-button>
-                  <el-button
-                    size="small"
-                    text
-                    type="primary"
-                    :loading="generatingDescriptions"
-                    @click="fillColumnDescriptions"
-                    class="add-column-btn"
-                  >
-                    <el-icon><MagicStick /></el-icon>
-                    AI补全字段说明
                   </el-button>
                 </div>
               </el-tab-pane>
@@ -240,8 +261,13 @@
     </div>
 
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
-      <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
+      <div class="governance-modal-footer">
+        <span class="governance-modal-footer-note">保存后会同步更新 Text2SQL 的元数据提示词，影响问数和数据集建模结果。</span>
+        <div class="governance-modal-footer-actions">
+          <el-button @click="handleClose">取消</el-button>
+          <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -462,6 +488,7 @@ const handleClose = () => {
 
 <style scoped>
 .schema-modal {
+  padding: 20px;
   max-height: 68vh;
   overflow-y: auto;
 }
@@ -502,6 +529,40 @@ const handleClose = () => {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.schema-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.schema-flow-item {
+  position: relative;
+  padding: 12px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius);
+  background: var(--app-surface);
+}
+
+.schema-flow-item.is-done {
+  border-color: rgba(18, 128, 92, 0.28);
+  background: rgba(18, 128, 92, 0.06);
+}
+
+.schema-flow-item strong {
+  display: block;
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.schema-flow-item span {
+  display: block;
+  margin-top: 5px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .schema-metrics {
@@ -545,6 +606,8 @@ const handleClose = () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-height: 480px;
+  overflow-y: auto;
 }
 
 .sidebar-header {
@@ -628,6 +691,15 @@ const handleClose = () => {
   gap: 16px;
 }
 
+.editor-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
 .editor-heading {
   display: flex;
   flex-direction: column;
@@ -707,11 +779,22 @@ const handleClose = () => {
   .schema-toolbar {
     justify-content: flex-start;
   }
+
+  .schema-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
-  .schema-metrics {
+  .schema-metrics,
+  .schema-flow {
     grid-template-columns: 1fr;
+  }
+
+  .editor-header,
+  .editor-header-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

@@ -861,6 +861,200 @@ body,
   background: var(--app-primary);
 }
 
+.governance-modal .el-dialog__body {
+  padding: 0;
+  background: linear-gradient(180deg, #fbfdff 0%, #f7fafc 100%);
+}
+
+.governance-modal .el-dialog__footer {
+  padding: 0;
+  background: var(--app-surface);
+}
+
+.governance-modal-shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 0;
+  min-height: 520px;
+  max-height: min(72vh, 760px);
+  overflow: hidden;
+}
+
+.governance-modal-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border-right: 1px solid var(--app-border-light);
+  background: #f3f7fa;
+}
+
+.governance-modal-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.governance-modal-title {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.governance-modal-copy {
+  margin: 8px 0 0;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.governance-modal-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.governance-modal-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.governance-modal-step.is-done {
+  border-color: rgba(18, 128, 92, 0.28);
+  background: rgba(18, 128, 92, 0.07);
+}
+
+.governance-modal-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--app-surface);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--app-border-light);
+}
+
+.governance-modal-step.is-done .governance-modal-step-index {
+  color: #fff;
+  border-color: var(--app-success);
+  background: var(--app-success);
+}
+
+.governance-modal-step strong {
+  display: block;
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.governance-modal-step span {
+  display: block;
+  margin-top: 3px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.governance-modal-facts {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin: 0;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.governance-modal-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.governance-modal-facts dt {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.governance-modal-facts dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.governance-modal-tip {
+  padding: 12px;
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.governance-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--app-border-light);
+}
+
+.governance-modal-footer-note {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.governance-modal-footer-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.governance-field-hint {
+  margin-top: 6px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.governance-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.governance-choice-grid .el-checkbox {
+  min-height: 48px;
+  padding: 10px 12px;
+  margin-right: 0;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+}
+
 @media (max-width: 1100px) {
   .governance-hero {
     grid-template-columns: 1fr;
@@ -874,6 +1068,20 @@ body,
 @media (max-width: 900px) {
   .governance-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .governance-modal-shell {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .governance-modal-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border-light);
+  }
+
+  .governance-modal-main {
+    max-height: 58vh;
   }
 }
 
@@ -898,5 +1106,15 @@ body,
 
   .governance-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .governance-modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .governance-modal-footer-actions,
+  .governance-modal-footer-actions .el-button {
+    width: 100%;
   }
 }

@@ -178,11 +178,49 @@
     <el-dialog
       v-model="dialogVisible"
       :title="editingId ? '编辑可信指标' : '新增可信指标'"
-      width="min(920px, calc(100vw - 32px))"
-      class="metric-dialog"
+      width="min(1080px, calc(100vw - 32px))"
+      class="metric-dialog governance-modal"
       destroy-on-close
     >
       <el-form :model="form" label-position="top">
+        <div class="governance-modal-shell">
+          <aside class="governance-modal-rail">
+            <div>
+              <p class="governance-modal-title">可信指标配置</p>
+              <p class="governance-modal-copy">先让业务读得懂，再把口径落到字段、公式、负责人和质量说明。</p>
+            </div>
+            <div class="governance-modal-steps">
+              <div
+                v-for="(step, index) in metricFormSteps"
+                :key="step.label"
+                class="governance-modal-step"
+                :class="{ 'is-done': step.done }"
+              >
+                <span class="governance-modal-step-index">{{ index + 1 }}</span>
+                <div>
+                  <strong>{{ step.label }}</strong>
+                  <span>{{ step.desc }}</span>
+                </div>
+              </div>
+            </div>
+            <dl class="governance-modal-facts">
+              <div>
+                <dt>数据源</dt>
+                <dd>{{ form.datasource_id ? getDatasourceName(form.datasource_id) : '未选择' }}</dd>
+              </div>
+              <div>
+                <dt>认证</dt>
+                <dd>{{ certificationLabel(form.certification_status) }}</dd>
+              </div>
+              <div>
+                <dt>质量</dt>
+                <dd>{{ qualityLabel(form.quality_status) }}</dd>
+              </div>
+            </dl>
+            <div class="governance-modal-tip">已认证指标会在数据目录、问数结果和看板配置中优先作为可信口径展示。</div>
+          </aside>
+
+          <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <div>
@@ -351,16 +389,35 @@
             <el-switch v-model="form.is_active" :active-value="1" :inactive-value="0" />
           </el-form-item>
         </section>
+          </div>
+        </div>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveMetric" :loading="saving">保存指标</el-button>
+        <div class="governance-modal-footer">
+          <span class="governance-modal-footer-note">建议保存前至少补齐定义、公式、负责人和质量说明，避免业务侧出现多个口径。</span>
+          <div class="governance-modal-footer-actions">
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="saveMetric" :loading="saving">保存指标</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="lineageVisible" title="指标血缘与可信说明" width="min(720px, calc(100vw - 32px))">
+    <el-dialog
+      v-model="lineageVisible"
+      title="指标血缘与可信说明"
+      width="min(860px, calc(100vw - 32px))"
+      class="governance-modal lineage-governance-dialog"
+    >
       <div v-loading="lineageLoading" class="lineage-dialog">
         <template v-if="lineage">
+          <section class="lineage-hero">
+            <div>
+              <p class="lineage-kicker">METRIC LINEAGE</p>
+              <h3>{{ lineage.metric.name }}</h3>
+              <span>查看公式、来源字段、上游表和可信状态，判断这个指标能否直接用于经营决策。</span>
+            </div>
+          </section>
           <section class="lineage-summary">
             <div>
               <span>指标</span>
@@ -401,6 +458,14 @@
           <pre class="lineage-json">{{ lineageJsonText }}</pre>
         </template>
       </div>
+      <template #footer>
+        <div class="governance-modal-footer">
+          <span class="governance-modal-footer-note">血缘信息来自指标配置和数据源元数据，后续会用于解释问数结果。</span>
+          <div class="governance-modal-footer-actions">
+            <el-button @click="lineageVisible = false">关闭</el-button>
+          </div>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -535,6 +600,28 @@ const emptyForm = (): MetricForm => ({
 })
 
 const form = ref<MetricForm>(emptyForm())
+
+const metricFormSteps = computed(() => [
+  {
+    label: "基础信息",
+    desc: "名称、定义、负责人让业务知道这个指标是什么",
+    done: Boolean(form.value.datasource_id && form.value.name.trim() && form.value.definition.trim()),
+  },
+  {
+    label: "计算口径",
+    desc: "绑定表字段、聚合方式和计算公式",
+    done: Boolean(form.value.table_name.trim() || form.value.column_name.trim() || form.value.formula.trim()),
+  },
+  {
+    label: "可信治理",
+    desc: "认证状态、质量说明、血缘和更新时间",
+    done: Boolean(
+      form.value.certification_status === "certified" ||
+      form.value.quality_message.trim() ||
+      form.value.lineage_text.trim()
+    ),
+  },
+])
 
 const metricQuickFilters = [
   { label: "全部", value: "all" },
@@ -907,6 +994,35 @@ onMounted(() => {
 
 .lineage-dialog {
   min-height: 180px;
+  padding: 20px;
+}
+
+.lineage-hero {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius);
+  background: var(--app-surface);
+}
+
+.lineage-kicker {
+  margin: 0 0 6px;
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lineage-hero h3 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 18px;
+}
+
+.lineage-hero span {
+  display: block;
+  margin-top: 6px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
 }
 
 .lineage-summary {
@@ -920,7 +1036,7 @@ onMounted(() => {
   padding: 12px;
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: var(--app-bg-soft);
+  background: var(--app-surface-muted);
 }
 
 .lineage-summary span {

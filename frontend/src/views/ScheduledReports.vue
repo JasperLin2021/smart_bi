@@ -144,10 +144,49 @@
     <el-dialog
       v-model="dialogVisible"
       :title="editingId ? '编辑定时报告' : '新建定时报告'"
-      width="min(760px, calc(100vw - 32px))"
+      width="min(980px, calc(100vw - 32px))"
+      class="governance-modal"
       destroy-on-close
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+        <div class="governance-modal-shell">
+          <aside class="governance-modal-rail">
+            <div>
+              <p class="governance-modal-title">自动报告配置</p>
+              <p class="governance-modal-copy">把固定经营问题设为周期任务，持续产出同一口径的数据结论。</p>
+            </div>
+            <div class="governance-modal-steps">
+              <div
+                v-for="(step, index) in reportFormSteps"
+                :key="step.label"
+                class="governance-modal-step"
+                :class="{ 'is-done': step.done }"
+              >
+                <span class="governance-modal-step-index">{{ index + 1 }}</span>
+                <div>
+                  <strong>{{ step.label }}</strong>
+                  <span>{{ step.desc }}</span>
+                </div>
+              </div>
+            </div>
+            <dl class="governance-modal-facts">
+              <div>
+                <dt>执行计划</dt>
+                <dd>{{ describeCron(form.cron_expression) || '未设置' }}</dd>
+              </div>
+              <div>
+                <dt>通知渠道</dt>
+                <dd>{{ [form.notify_email, form.notify_wechat, form.notify_dingtalk].filter(Boolean).length }} 个</dd>
+              </div>
+              <div>
+                <dt>状态</dt>
+                <dd>{{ form.is_active ? '启用' : '禁用' }}</dd>
+              </div>
+            </dl>
+            <div class="governance-modal-tip">报告问题建议写成业务能复用的固定问题，例如“本周销售异常区域及原因”。</div>
+          </aside>
+
+          <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
             <h3>报告内容</h3>
@@ -214,9 +253,9 @@
           </div>
           <el-form-item label="通知方式">
             <div class="notify-group">
-              <el-checkbox v-model="form.notify_email">邮件</el-checkbox>
-              <el-checkbox v-model="form.notify_wechat">企业微信</el-checkbox>
-              <el-checkbox v-model="form.notify_dingtalk">钉钉</el-checkbox>
+              <el-checkbox v-model="form.notify_email"><div class="notify-item"><el-icon><Message /></el-icon><span>邮件</span></div></el-checkbox>
+              <el-checkbox v-model="form.notify_wechat"><div class="notify-item"><el-icon><ChatDotRound /></el-icon><span>企业微信</span></div></el-checkbox>
+              <el-checkbox v-model="form.notify_dingtalk"><div class="notify-item"><el-icon><Phone /></el-icon><span>钉钉</span></div></el-checkbox>
             </div>
           </el-form-item>
 
@@ -224,11 +263,18 @@
             <el-input v-model="form.email_recipients" placeholder="多个地址用英文逗号分隔：a@x.com, b@x.com" />
           </el-form-item>
         </section>
+          </div>
+        </div>
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <div class="governance-modal-footer">
+          <span class="governance-modal-footer-note">保存后可在列表手动执行一次，确认生成内容和通知配置是否正确。</span>
+          <div class="governance-modal-footer-actions">
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -237,7 +283,7 @@
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted } from "vue"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
-import { Plus, Edit, Delete, CaretRight, Search, MoreFilled, Refresh } from "@element-plus/icons-vue"
+import { Plus, Edit, Delete, CaretRight, Search, MoreFilled, Refresh, Message, ChatDotRound, Phone } from "@element-plus/icons-vue"
 import axios from "axios"
 import { useDatasourceStore } from "@/store/datasource"
 
@@ -282,6 +328,24 @@ const rules: FormRules = {
   question: [{ required: true, message: "请输入查询问题", trigger: "blur" }],
   cron_expression: [{ required: true, message: "请输入 Cron 表达式", trigger: "blur" }],
 }
+
+const reportFormSteps = computed(() => [
+  {
+    label: "报告内容",
+    desc: "名称、数据源和固定问数问题",
+    done: Boolean(form.name.trim() && form.datasource_id && form.question.trim()),
+  },
+  {
+    label: "执行计划",
+    desc: "选择常用计划或填写 Cron 表达式",
+    done: Boolean(form.cron_expression.trim()),
+  },
+  {
+    label: "通知方式",
+    desc: "配置报告生成后的推送渠道",
+    done: [form.notify_email, form.notify_wechat, form.notify_dingtalk].some(Boolean),
+  },
+])
 
 const hasNotification = (row: any) => Boolean(row.notify_email || row.notify_wechat || row.notify_dingtalk)
 
@@ -437,6 +501,12 @@ onMounted(async () => {
   border: 1px solid var(--app-border-light);
   border-radius: var(--app-radius-sm);
   background: var(--app-surface);
+}
+
+.notify-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .cron-editor {
