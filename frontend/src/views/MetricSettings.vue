@@ -183,43 +183,7 @@
       destroy-on-close
     >
       <el-form :model="form" label-position="top">
-        <div class="governance-modal-shell">
-          <aside class="governance-modal-rail">
-            <div>
-              <p class="governance-modal-title">可信指标配置</p>
-              <p class="governance-modal-copy">统一指标口径，供问数和看板复用。</p>
-            </div>
-            <div class="governance-modal-steps">
-              <div
-                v-for="(step, index) in metricFormSteps"
-                :key="step.label"
-                class="governance-modal-step"
-                :class="{ 'is-done': step.done }"
-              >
-                <span class="governance-modal-step-index">{{ index + 1 }}</span>
-                <div>
-                  <strong>{{ step.label }}</strong>
-                  <span>{{ step.desc }}</span>
-                </div>
-              </div>
-            </div>
-            <dl class="governance-modal-facts">
-              <div>
-                <dt>数据源</dt>
-                <dd>{{ form.datasource_id ? getDatasourceName(form.datasource_id) : '未选择' }}</dd>
-              </div>
-              <div>
-                <dt>认证</dt>
-                <dd>{{ certificationLabel(form.certification_status) }}</dd>
-              </div>
-              <div>
-                <dt>质量</dt>
-                <dd>{{ qualityLabel(form.quality_status) }}</dd>
-              </div>
-            </dl>
-            <div class="governance-modal-tip">认证后优先作为可信口径。</div>
-          </aside>
-
+        <div class="governance-modal-shell is-single">
           <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
@@ -600,28 +564,6 @@ const emptyForm = (): MetricForm => ({
 })
 
 const form = ref<MetricForm>(emptyForm())
-
-const metricFormSteps = computed(() => [
-  {
-    label: "基础信息",
-    desc: "名称、定义、负责人",
-    done: Boolean(form.value.datasource_id && form.value.name.trim() && form.value.definition.trim()),
-  },
-  {
-    label: "计算口径",
-    desc: "字段、聚合和公式",
-    done: Boolean(form.value.table_name.trim() || form.value.column_name.trim() || form.value.formula.trim()),
-  },
-  {
-    label: "可信治理",
-    desc: "认证、质量和血缘",
-    done: Boolean(
-      form.value.certification_status === "certified" ||
-      form.value.quality_message.trim() ||
-      form.value.lineage_text.trim()
-    ),
-  },
-])
 
 const metricQuickFilters = [
   { label: "全部", value: "all" },

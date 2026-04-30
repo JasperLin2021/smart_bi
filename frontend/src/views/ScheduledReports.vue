@@ -149,43 +149,7 @@
       destroy-on-close
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-        <div class="governance-modal-shell">
-          <aside class="governance-modal-rail">
-            <div>
-              <p class="governance-modal-title">自动报告配置</p>
-              <p class="governance-modal-copy">定时执行固定问数问题。</p>
-            </div>
-            <div class="governance-modal-steps">
-              <div
-                v-for="(step, index) in reportFormSteps"
-                :key="step.label"
-                class="governance-modal-step"
-                :class="{ 'is-done': step.done }"
-              >
-                <span class="governance-modal-step-index">{{ index + 1 }}</span>
-                <div>
-                  <strong>{{ step.label }}</strong>
-                  <span>{{ step.desc }}</span>
-                </div>
-              </div>
-            </div>
-            <dl class="governance-modal-facts">
-              <div>
-                <dt>执行计划</dt>
-                <dd>{{ describeCron(form.cron_expression) || '未设置' }}</dd>
-              </div>
-              <div>
-                <dt>通知渠道</dt>
-                <dd>{{ [form.notify_email, form.notify_wechat, form.notify_dingtalk].filter(Boolean).length }} 个</dd>
-              </div>
-              <div>
-                <dt>状态</dt>
-                <dd>{{ form.is_active ? '启用' : '禁用' }}</dd>
-              </div>
-            </dl>
-            <div class="governance-modal-tip">问题尽量写成固定业务问题。</div>
-          </aside>
-
+        <div class="governance-modal-shell is-single">
           <div class="governance-modal-main">
         <section class="governance-dialog-section">
           <div class="governance-section-head">
@@ -328,24 +292,6 @@ const rules: FormRules = {
   question: [{ required: true, message: "请输入查询问题", trigger: "blur" }],
   cron_expression: [{ required: true, message: "请输入 Cron 表达式", trigger: "blur" }],
 }
-
-const reportFormSteps = computed(() => [
-  {
-    label: "报告内容",
-    desc: "名称、数据源、问题",
-    done: Boolean(form.name.trim() && form.datasource_id && form.question.trim()),
-  },
-  {
-    label: "执行计划",
-    desc: "快捷计划或 Cron",
-    done: Boolean(form.cron_expression.trim()),
-  },
-  {
-    label: "通知方式",
-    desc: "选择推送渠道",
-    done: [form.notify_email, form.notify_wechat, form.notify_dingtalk].some(Boolean),
-  },
-])
 
 const hasNotification = (row: any) => Boolean(row.notify_email || row.notify_wechat || row.notify_dingtalk)
 

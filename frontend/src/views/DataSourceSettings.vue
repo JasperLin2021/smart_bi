@@ -145,43 +145,7 @@
       destroy-on-close
     >
       <el-form :model="form" label-position="top">
-        <div class="governance-modal-shell">
-          <aside class="governance-modal-rail">
-            <div>
-              <p class="governance-modal-title">数据源接入流程</p>
-              <p class="governance-modal-copy">配置连接与语义，保存后补表结构。</p>
-            </div>
-            <div class="governance-modal-steps">
-              <div
-                v-for="(step, index) in datasourceFormSteps"
-                :key="step.label"
-                class="governance-modal-step"
-                :class="{ 'is-done': step.done }"
-              >
-                <span class="governance-modal-step-index">{{ index + 1 }}</span>
-                <div>
-                  <strong>{{ step.label }}</strong>
-                  <span>{{ step.desc }}</span>
-                </div>
-              </div>
-            </div>
-            <dl class="governance-modal-facts">
-              <div>
-                <dt>类型</dt>
-                <dd>{{ form.source_type === 'excel' ? 'Excel 文件' : 'PostgreSQL' }}</dd>
-              </div>
-              <div>
-                <dt>连接</dt>
-                <dd>{{ form.source_type === 'excel' ? (selectedExcelName || '未选择') : (form.database_url ? '已填写' : '未填写') }}</dd>
-              </div>
-              <div>
-                <dt>推荐问题</dt>
-                <dd>{{ recommendQuestionsText.split('\n').filter(Boolean).length }} 个</dd>
-              </div>
-            </dl>
-            <div class="governance-modal-tip">保存后继续配置表结构。</div>
-          </aside>
-
+        <div class="governance-modal-shell is-single">
           <div class="governance-modal-main">
             <section class="governance-dialog-section">
               <div class="governance-section-head">
@@ -496,24 +460,6 @@ const previewRows = ref<Record<string, unknown>[]>([])
 
 const previewTables = computed(() => previewDatasource.value?.schema_metadata?.tables || [])
 const previewTableMeta = computed(() => previewTables.value.find(table => table.name === previewTable.value))
-
-const datasourceFormSteps = computed(() => [
-  {
-    label: "命名",
-    desc: "显示名和唯一标识",
-    done: Boolean(form.name.trim() && form.slug.trim()),
-  },
-  {
-    label: form.source_type === "excel" ? "上传" : "连接",
-    desc: form.source_type === "excel" ? "选择 Excel 文件" : "填写连接串",
-    done: form.source_type === "excel" ? Boolean(selectedExcelFile.value || isEdit.value) : Boolean(form.database_url.trim()),
-  },
-  {
-    label: "语义",
-    desc: "指标和推荐问题",
-    done: Boolean(form.metrics_prompt.trim() || recommendQuestionsText.value.trim()),
-  },
-])
 
 const datasourceQuickFilters = [
   { label: "全部", value: "all" },
