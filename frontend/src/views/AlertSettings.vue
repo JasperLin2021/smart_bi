@@ -9,7 +9,7 @@
         </p>
       </div>
       <div class="governance-actions">
-        <el-button @click="fetchAlerts" :loading="loading">刷新</el-button>
+        <el-button :icon="Refresh" @click="fetchAlerts" :loading="loading">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建预警</el-button>
       </div>
     </section>
@@ -58,10 +58,29 @@
             />
           </el-select>
         </div>
+        <div class="governance-quick-filters">
+          <button
+            v-for="item in alertQuickFilters"
+            :key="item.value"
+            type="button"
+            class="governance-pill"
+            :class="{ 'is-active': quickFilter === item.value }"
+            @click="quickFilter = item.value"
+          >
+            {{ item.label }}
+          </button>
+        </div>
         <span class="governance-muted">共 {{ filteredAlerts.length }} 个结果</span>
       </div>
 
-      <el-table :data="filteredAlerts" v-loading="loading" row-key="id" empty-text="暂无预警">
+      <el-table class="governance-table" :data="filteredAlerts" v-loading="loading" row-key="id" empty-text="暂无预警">
+        <template #empty>
+          <div class="governance-empty">
+            <strong>还没有匹配的预警规则</strong>
+            <span>为核心指标设置阈值、检测周期和通知方式，异常触发后可以进入行动闭环。</span>
+            <el-button type="primary" :icon="Plus" @click="openCreate">新建预警</el-button>
+          </div>
+        </template>
         <el-table-column label="预警" min-width="220">
           <template #default="{ row }">
             <div class="governance-table-name">
@@ -104,9 +123,18 @@
         </el-table-column>
         <el-table-column label="操作" width="220">
           <template #default="{ row }">
-            <el-button text type="success" @click="runAlert(row)" :loading="runningId === row.id">触发</el-button>
-            <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button text type="danger" :icon="Delete" @click="handleDelete(row)">删除</el-button>
+            <div class="governance-action-group">
+              <el-button text type="success" @click="runAlert(row)" :loading="runningId === row.id">触发</el-button>
+              <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-dropdown trigger="click">
+                <el-button text :icon="MoreFilled">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :icon="Delete" @click="handleDelete(row)">删除预警</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -206,6 +234,9 @@
 
           <el-form-item label="维度条件">
             <div class="condition-list">
+              <div v-if="dimensionConditions.length === 0" class="condition-empty">
+                默认不限制维度。需要只监控某个区域、渠道或产线时再添加条件。
+              </div>
               <div v-for="(cond, idx) in dimensionConditions" :key="idx" class="condition-row">
                 <el-input v-model="cond.field" placeholder="字段名" />
                 <el-select v-model="cond.operator">
@@ -223,6 +254,9 @@
 
           <el-form-item label="指标条件">
             <div class="condition-list">
+              <div v-if="metricConditions.length === 0" class="condition-empty">
+                至少添加一个指标阈值，预警才知道什么情况算异常。
+              </div>
               <div v-for="(cond, idx) in metricConditions" :key="idx" class="condition-row">
                 <el-input v-model="cond.metric" placeholder="指标名" />
                 <el-select v-model="cond.operator">
@@ -297,7 +331,7 @@
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted } from "vue"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
-import { Plus, Edit, Delete, Close, Bell, Message, ChatDotRound, Phone, Search } from "@element-plus/icons-vue"
+import { Plus, Edit, Delete, Close, Bell, Message, ChatDotRound, Phone, Search, MoreFilled, Refresh } from "@element-plus/icons-vue"
 import axios from "axios"
 import { useDatasourceStore } from "@/store/datasource"
 
@@ -311,6 +345,7 @@ const alerts = ref<any[]>([])
 const metrics = ref<any[]>([])
 const users = ref<any[]>([])
 const keyword = ref("")
+const quickFilter = ref("all")
 const filterDatasourceId = ref<number | null>(null)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
@@ -361,14 +396,31 @@ const alertStats = computed(() => {
   return { total, active, email, multiChannel }
 })
 
+const alertQuickFilters = [
+  { label: "全部", value: "all" },
+  { label: "启用中", value: "active" },
+  { label: "未配置通知", value: "no_notify" },
+  { label: "多渠道", value: "multi_channel" },
+  { label: "已禁用", value: "inactive" },
+]
+
 const filteredAlerts = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return alerts.value
-  return alerts.value.filter(item =>
-    [item.name, item.metric_name, item.content]
+  return alerts.value.filter(item => {
+    if (quickFilter.value === "active" && !item.is_active) return false
+    if (quickFilter.value === "inactive" && item.is_active) return false
+    if (quickFilter.value === "no_notify" && hasNotification(item)) return false
+    if (quickFilter.value === "multi_channel" && [
+      item.notify_system,
+      item.notify_email,
+      item.notify_wechat,
+      item.notify_dingtalk,
+    ].filter(Boolean).length <= 1) return false
+    if (!kw) return true
+    return [item.name, item.metric_name, item.content]
       .filter(Boolean)
       .some(value => String(value).toLowerCase().includes(kw))
-  )
+  })
 })
 
 // ---- Labels ----
@@ -544,7 +596,7 @@ onMounted(async () => {
 .condition-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
 
@@ -553,18 +605,41 @@ onMounted(async () => {
   grid-template-columns: minmax(120px, 1fr) 120px minmax(120px, 1fr) 36px;
   gap: 8px;
   align-items: center;
+  padding: 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+}
+
+.condition-empty {
+  padding: 12px;
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  color: var(--app-text-muted);
+  line-height: 1.6;
 }
 
 .notify-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
 }
 
 .notify-item {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.notify-group :deep(.el-checkbox) {
+  min-height: 44px;
+  padding: 10px 12px;
+  margin-right: 0;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
 }
 
 @media (max-width: 700px) {
@@ -574,6 +649,10 @@ onMounted(async () => {
 
   .condition-row :deep(.el-button) {
     width: 36px;
+  }
+
+  .notify-group {
+    grid-template-columns: 1fr;
   }
 }
 </style>

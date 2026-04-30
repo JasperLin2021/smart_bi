@@ -9,7 +9,7 @@
         </p>
       </div>
       <div class="governance-actions">
-        <el-button @click="fetchReports" :loading="loading">刷新</el-button>
+        <el-button :icon="Refresh" @click="fetchReports" :loading="loading">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建定时报告</el-button>
       </div>
     </section>
@@ -58,10 +58,29 @@
             />
           </el-select>
         </div>
+        <div class="governance-quick-filters">
+          <button
+            v-for="item in reportQuickFilters"
+            :key="item.value"
+            type="button"
+            class="governance-pill"
+            :class="{ 'is-active': quickFilter === item.value }"
+            @click="quickFilter = item.value"
+          >
+            {{ item.label }}
+          </button>
+        </div>
         <span class="governance-muted">共 {{ filteredReports.length }} 个结果</span>
       </div>
 
-      <el-table :data="filteredReports" v-loading="loading" row-key="id" empty-text="暂无定时报告">
+      <el-table class="governance-table" :data="filteredReports" v-loading="loading" row-key="id" empty-text="暂无定时报告">
+        <template #empty>
+          <div class="governance-empty">
+            <strong>还没有匹配的定时报告</strong>
+            <span>把固定经营问题沉淀为自动报告，让团队按日、周、月持续收到同一口径的数据结论。</span>
+            <el-button type="primary" :icon="Plus" @click="openCreate">新建定时报告</el-button>
+          </div>
+        </template>
         <el-table-column label="报告" min-width="260">
           <template #default="{ row }">
             <div class="governance-table-name">
@@ -104,9 +123,18 @@
         </el-table-column>
         <el-table-column label="操作" width="220">
           <template #default="{ row }">
-            <el-button text type="success" :icon="CaretRight" @click="runNow(row)" :loading="runningId === row.id">执行</el-button>
-            <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button text type="danger" :icon="Delete" @click="handleDelete(row)">删除</el-button>
+            <div class="governance-action-group">
+              <el-button text type="success" :icon="CaretRight" @click="runNow(row)" :loading="runningId === row.id">执行</el-button>
+              <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-dropdown trigger="click">
+                <el-button text :icon="MoreFilled">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :icon="Delete" @click="handleDelete(row)">删除报告</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -171,6 +199,7 @@
               v-for="p in cronPresets"
               :key="p.value"
               class="cron-preset-tag"
+              :class="{ 'is-active': form.cron_expression === p.value }"
               size="small"
               effect="plain"
               @click="form.cron_expression = p.value"
@@ -208,7 +237,7 @@
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted } from "vue"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
-import { Plus, Edit, Delete, CaretRight, Search } from "@element-plus/icons-vue"
+import { Plus, Edit, Delete, CaretRight, Search, MoreFilled, Refresh } from "@element-plus/icons-vue"
 import axios from "axios"
 import { useDatasourceStore } from "@/store/datasource"
 
@@ -218,6 +247,7 @@ const loading = ref(false)
 const saving = ref(false)
 const reports = ref<any[]>([])
 const keyword = ref("")
+const quickFilter = ref("all")
 const filterDatasourceId = ref<number | null>(null)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
@@ -263,14 +293,26 @@ const reportStats = computed(() => {
   return { total, active, ran, notified }
 })
 
+const reportQuickFilters = [
+  { label: "全部", value: "all" },
+  { label: "启用中", value: "active" },
+  { label: "未配置通知", value: "no_notify" },
+  { label: "从未执行", value: "never_run" },
+  { label: "已禁用", value: "inactive" },
+]
+
 const filteredReports = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return reports.value
-  return reports.value.filter(item =>
-    [item.name, item.question, item.cron_expression]
+  return reports.value.filter(item => {
+    if (quickFilter.value === "active" && !item.is_active) return false
+    if (quickFilter.value === "inactive" && item.is_active) return false
+    if (quickFilter.value === "no_notify" && hasNotification(item)) return false
+    if (quickFilter.value === "never_run" && item.last_run_at) return false
+    if (!kw) return true
+    return [item.name, item.question, item.cron_expression]
       .filter(Boolean)
       .some(value => String(value).toLowerCase().includes(kw))
-  )
+  })
 })
 
 function describeCron(expr: string): string {
@@ -382,9 +424,19 @@ onMounted(async () => {
 }
 
 .notify-group {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.notify-group :deep(.el-checkbox) {
+  min-height: 44px;
+  padding: 10px 12px;
+  margin-right: 0;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
 }
 
 .cron-editor {
@@ -405,6 +457,11 @@ onMounted(async () => {
   cursor: pointer;
   padding: 7px 10px;
 }
+.cron-preset-tag.is-active {
+  border-color: var(--app-primary);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--app-primary-dark);
+}
 .cron-preset-tag:hover {
   border-color: var(--app-primary);
   color: var(--app-primary);
@@ -412,6 +469,10 @@ onMounted(async () => {
 
 @media (max-width: 640px) {
   .cron-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .notify-group {
     grid-template-columns: 1fr;
   }
 }

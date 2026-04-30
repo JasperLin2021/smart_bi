@@ -62,15 +62,35 @@
             <el-option label="异常" value="error" />
           </el-select>
         </div>
+        <div class="governance-quick-filters">
+          <button
+            v-for="item in metricQuickFilters"
+            :key="item.value"
+            type="button"
+            class="governance-pill"
+            :class="{ 'is-active': quickFilter === item.value }"
+            @click="quickFilter = item.value"
+          >
+            {{ item.label }}
+          </button>
+        </div>
         <span class="governance-muted">共 {{ filteredMetrics.length }} 个结果</span>
       </div>
       <el-table
+        class="governance-table"
         :data="filteredMetrics"
         v-loading="loading"
         row-key="id"
         empty-text="暂无指标"
         @row-click="openDialog"
       >
+        <template #empty>
+          <div class="governance-empty">
+            <strong>还没有匹配的可信指标</strong>
+            <span>新增指标并补齐口径、公式、负责人和质量说明后，问数、看板与数据目录会复用同一套定义。</span>
+            <el-button type="primary" :icon="Plus" @click="openDialog()">新增指标</el-button>
+          </div>
+        </template>
         <el-table-column label="指标与口径" min-width="260">
           <template #default="{ row }">
             <div class="metric-name-cell">
@@ -94,6 +114,9 @@
                 {{ certificationLabel(row.certification_status) }}
               </el-tag>
               <small v-if="row.certified_by">认证人：{{ row.certified_by }}</small>
+              <div class="governance-progress" :aria-label="`可信完整度 ${trustScore(row)}%`">
+                <span :style="{ width: `${trustScore(row)}%` }"></span>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -135,9 +158,18 @@
         </el-table-column>
         <el-table-column label="操作" width="220">
           <template #default="{ row }">
-            <el-button text type="primary" @click.stop="openLineage(row)">血缘</el-button>
-            <el-button text type="primary" @click.stop="openDialog(row)">编辑</el-button>
-            <el-button text type="danger" @click.stop="deleteMetric(row.id)">删除</el-button>
+            <div class="governance-action-group">
+              <el-button text type="primary" @click.stop="openLineage(row)">血缘</el-button>
+              <el-button text type="primary" @click.stop="openDialog(row)">编辑</el-button>
+              <el-dropdown trigger="click" @click.stop>
+                <el-button text :icon="MoreFilled">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :icon="Delete" @click="deleteMetric(row.id)">删除指标</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -377,7 +409,7 @@
 import { computed, onMounted, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
-import { Plus, Refresh, Search } from "@element-plus/icons-vue"
+import { Delete, MoreFilled, Plus, Refresh, Search } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
 
 interface Metric {
@@ -473,6 +505,7 @@ const datasourceStore = useDatasourceStore()
 const selectedDatasourceFilter = ref<number | null>(null)
 const certificationFilter = ref("")
 const qualityFilter = ref("")
+const quickFilter = ref("all")
 const keyword = ref("")
 const lineageVisible = ref(false)
 const lineageLoading = ref(false)
@@ -503,6 +536,14 @@ const emptyForm = (): MetricForm => ({
 
 const form = ref<MetricForm>(emptyForm())
 
+const metricQuickFilters = [
+  { label: "全部", value: "all" },
+  { label: "已认证", value: "certified" },
+  { label: "待审核", value: "pending" },
+  { label: "质量风险", value: "risk" },
+  { label: "未绑定字段", value: "unbound" },
+]
+
 const fetchMetrics = async () => {
   loading.value = true
   try {
@@ -526,6 +567,10 @@ const metricStats = computed(() => {
 const filteredMetrics = computed(() => {
   const normalizedKeyword = keyword.value.trim().toLowerCase()
   return metrics.value.filter(item => {
+    if (quickFilter.value === "certified" && item.certification_status !== "certified") return false
+    if (quickFilter.value === "pending" && item.certification_status !== "pending_review") return false
+    if (quickFilter.value === "risk" && !["stale", "error"].includes(item.quality_status)) return false
+    if (quickFilter.value === "unbound" && (item.table_name || item.column_name)) return false
     if (selectedDatasourceFilter.value && item.datasource_id !== selectedDatasourceFilter.value) {
       return false
     }
@@ -618,6 +663,17 @@ const formatDate = (value?: string | null) => {
     return value
   }
   return date.toLocaleString("zh-CN", { hour12: false })
+}
+
+const trustScore = (metric: Metric) => {
+  let score = 20
+  if (metric.definition) score += 15
+  if (metric.formula) score += 20
+  if (metric.owner_name) score += 10
+  if (metric.certification_status === "certified") score += 20
+  if (metric.quality_status === "normal") score += 10
+  if (metric.lineage_json) score += 5
+  return Math.min(score, 100)
 }
 
 const parseList = (value: string) => {

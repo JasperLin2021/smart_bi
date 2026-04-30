@@ -52,10 +52,29 @@
             <el-option label="禁用" :value="0" />
           </el-select>
         </div>
+        <div class="governance-quick-filters">
+          <button
+            v-for="item in datasourceQuickFilters"
+            :key="item.value"
+            type="button"
+            class="governance-pill"
+            :class="{ 'is-active': quickFilter === item.value }"
+            @click="quickFilter = item.value"
+          >
+            {{ item.label }}
+          </button>
+        </div>
         <span class="governance-muted">共 {{ filteredDatasources.length }} 个结果</span>
       </div>
 
-      <el-table :data="filteredDatasources" v-loading="loading" row-key="id" empty-text="暂无数据源">
+      <el-table class="governance-table" :data="filteredDatasources" v-loading="loading" row-key="id" empty-text="暂无数据源">
+        <template #empty>
+          <div class="governance-empty">
+            <strong>还没有匹配的数据源</strong>
+            <span>调整筛选条件，或新增一个 PostgreSQL / Excel 数据源后再配置表结构和钻取规则。</span>
+            <el-button type="primary" :icon="Plus" @click="openCreate">新增数据源</el-button>
+          </div>
+        </template>
         <el-table-column label="数据源" min-width="230">
           <template #default="{ row }">
             <div class="governance-table-name">
@@ -81,6 +100,9 @@
             <div class="governance-table-name">
               <strong>{{ schemaTablesCount(row) }} 张表</strong>
               <span>{{ schemaFieldsCount(row) }} 个字段 · {{ row.drill_config ? '已配置钻取' : '未配置钻取' }}</span>
+              <div class="governance-progress" :aria-label="`配置完成度 ${datasourceCompletion(row)}%`">
+                <span :style="{ width: `${datasourceCompletion(row)}%` }"></span>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -94,12 +116,21 @@
         </el-table-column>
         <el-table-column label="操作" width="370">
           <template #default="{ row }">
-            <el-button text type="primary" :icon="ViewIcon" @click="openPreview(row)">预览</el-button>
-            <el-button text type="primary" :icon="Grid" @click="openSchemaModal(row)">表结构</el-button>
-            <el-button text type="primary" :icon="Connection" @click="openDrillConfigModal(row)">钻取</el-button>
-            <el-button text @click="testConnection(row.id)">测试</el-button>
-            <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button text type="danger" :icon="Delete" @click="handleDelete(row.id)">删除</el-button>
+            <div class="governance-action-group">
+              <el-button text type="primary" :icon="ViewIcon" @click="openPreview(row)">预览</el-button>
+              <el-button text type="primary" :icon="Grid" @click="openSchemaModal(row)">表结构</el-button>
+              <el-dropdown trigger="click">
+                <el-button text :icon="MoreFilled">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :icon="Connection" @click="openDrillConfigModal(row)">配置钻取</el-dropdown-item>
+                    <el-dropdown-item @click="testConnection(row.id)">测试连接</el-dropdown-item>
+                    <el-dropdown-item :icon="Edit" @click="openEdit(row)">编辑数据源</el-dropdown-item>
+                    <el-dropdown-item :icon="Delete" divided @click="handleDelete(row.id)">删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -274,6 +305,7 @@ import {
   Delete,
   Edit,
   Grid,
+  MoreFilled,
   Plus,
   Refresh,
   Search,
@@ -365,6 +397,7 @@ const loading = ref(false)
 const keyword = ref("")
 const typeFilter = ref("")
 const statusFilter = ref<number | null>(null)
+const quickFilter = ref("all")
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editId = ref<number | null>(null)
@@ -390,6 +423,14 @@ const previewRows = ref<Record<string, unknown>[]>([])
 
 const previewTables = computed(() => previewDatasource.value?.schema_metadata?.tables || [])
 
+const datasourceQuickFilters = [
+  { label: "全部", value: "all" },
+  { label: "待补表结构", value: "missing_schema" },
+  { label: "待配钻取", value: "missing_drill" },
+  { label: "Excel", value: "excel" },
+  { label: "已禁用", value: "disabled" },
+]
+
 const datasourceStats = computed(() => {
   const total = datasources.value.length
   const active = datasources.value.filter(item => item.is_active).length
@@ -401,6 +442,10 @@ const datasourceStats = computed(() => {
 const filteredDatasources = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   return datasources.value.filter(item => {
+    if (quickFilter.value === "missing_schema" && schemaTablesCount(item) > 0) return false
+    if (quickFilter.value === "missing_drill" && item.drill_config) return false
+    if (quickFilter.value === "excel" && item.source_type !== "excel") return false
+    if (quickFilter.value === "disabled" && item.is_active) return false
     if (typeFilter.value && item.source_type !== typeFilter.value) return false
     if (statusFilter.value !== null && statusFilter.value !== undefined && item.is_active !== statusFilter.value) {
       return false
@@ -447,6 +492,15 @@ const schemaFieldsCount = (row: DataSourceDetail) =>
 
 const recommendationCount = (row: DataSourceDetail) =>
   Array.isArray(row.recommend_questions) ? row.recommend_questions.length : 0
+
+const datasourceCompletion = (row: DataSourceDetail) => {
+  let score = 20
+  if (row.is_active) score += 20
+  if (schemaTablesCount(row) > 0) score += 25
+  if (row.drill_config) score += 20
+  if (row.metrics_prompt || recommendationCount(row) > 0) score += 15
+  return Math.min(score, 100)
+}
 
 const openCreate = () => {
   isEdit.value = false
