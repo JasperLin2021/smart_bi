@@ -84,11 +84,37 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="刷新" width="140">
+          <template #default="{ row }">
+            <div class="refresh-cell">
+              <el-tag
+                v-if="row.last_refresh_status"
+                :type="row.last_refresh_status === 'success' ? 'success' : 'danger'"
+                size="small"
+                effect="plain"
+              >
+                {{ row.last_refresh_status === "success" ? "成功" : "失败" }}
+              </el-tag>
+              <span v-else class="muted">未刷新</span>
+              <small v-if="row.last_refresh_row_count">{{ row.last_refresh_row_count }} 行</small>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="可见范围" width="110">
           <template #default="{ row }">{{ row.visibility === "org" ? "组织内" : "仅自己" }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
+            <el-button text type="primary" :icon="ViewIcon" @click.stop="previewDataset(row)">预览</el-button>
+            <el-button
+              text
+              type="primary"
+              :icon="Refresh"
+              :loading="Boolean(datasetRefreshLoading[row.id])"
+              @click.stop="refreshDataset(row)"
+            >
+              刷新
+            </el-button>
             <el-button text type="primary" @click.stop="openEdit(row)">编辑</el-button>
             <el-button
               v-if="row.status !== 'published'"
@@ -602,6 +628,25 @@
         </div>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="datasetPreviewVisible" :title="datasetPreviewTitle" width="78%">
+      <el-table
+        v-loading="datasetPreviewLoading"
+        :data="datasetPreviewRows"
+        height="420"
+        border
+        empty-text="暂无预览数据"
+      >
+        <el-table-column
+          v-for="column in datasetPreviewColumns"
+          :key="column"
+          :prop="column"
+          :label="column"
+          min-width="140"
+          show-overflow-tooltip
+        />
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -609,7 +654,7 @@
 import { computed, onMounted, reactive, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
-import { Plus, Search } from "@element-plus/icons-vue"
+import { Plus, Refresh, Search, View as ViewIcon } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
 
 interface SchemaColumn {
@@ -648,6 +693,9 @@ interface DatasetItem {
   derived_columns_json: Record<string, unknown> | null
   joins_json: Record<string, unknown> | null
   aggregations_json: Record<string, unknown> | null
+  last_refresh_status: string | null
+  last_refresh_row_count: number
+  last_refresh_at: string | null
   status: string
   visibility: string
 }
@@ -689,6 +737,12 @@ const previewLoading = ref(false)
 const previewRows = ref<Record<string, unknown>[]>([])
 const rawPreviewColumns = ref<string[]>([])
 const saveAndPublish = ref(false)
+const datasetPreviewVisible = ref(false)
+const datasetPreviewLoading = ref(false)
+const datasetPreviewTitle = ref("数据集预览")
+const datasetPreviewRows = ref<Record<string, unknown>[]>([])
+const datasetPreviewColumns = ref<string[]>([])
+const datasetRefreshLoading = ref<Record<number, boolean>>({})
 
 const steps: { key: StepKey; title: string; subtitle: string }[] = [
   { key: "source", title: "数据范围", subtitle: "数据源与主表" },
@@ -1149,6 +1203,36 @@ const fetchPreview = async () => {
   }
 }
 
+const previewDataset = async (dataset: DatasetItem) => {
+  datasetPreviewVisible.value = true
+  datasetPreviewLoading.value = true
+  datasetPreviewTitle.value = `${dataset.name} - 数据预览`
+  datasetPreviewRows.value = []
+  datasetPreviewColumns.value = []
+  try {
+    const response = await axios.post(`/api/datasets/${dataset.id}/preview`, { limit: 100 })
+    datasetPreviewColumns.value = response.data.columns || []
+    datasetPreviewRows.value = response.data.rows || []
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "数据集预览失败")
+  } finally {
+    datasetPreviewLoading.value = false
+  }
+}
+
+const refreshDataset = async (dataset: DatasetItem) => {
+  datasetRefreshLoading.value = { ...datasetRefreshLoading.value, [dataset.id]: true }
+  try {
+    await axios.post(`/api/datasets/${dataset.id}/refresh`)
+    ElMessage.success("数据集刷新完成")
+    await fetchDatasets()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "数据集刷新失败")
+  } finally {
+    datasetRefreshLoading.value = { ...datasetRefreshLoading.value, [dataset.id]: false }
+  }
+}
+
 const validateSourceStep = () => {
   if (!form.name.trim() || !form.datasource_id) {
     ElMessage.warning("请填写名称并选择数据源")
@@ -1352,6 +1436,17 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.refresh-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.refresh-cell small {
+  color: var(--app-text-muted);
 }
 
 .designer-shell {

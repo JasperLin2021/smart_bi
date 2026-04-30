@@ -11,11 +11,11 @@ from app.models.scheduled_report import ScheduledReport  # noqa: F401
 from app.models.catalog import DataAsset  # noqa: F401
 from app.models.dashboard_config import Dashboard  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
-from app.models.dataset import Dataset  # noqa: F401
+from app.models.dataset import Dataset, DatasetRefreshLog  # noqa: F401
 from app.models.big_screen import BigScreen  # noqa: F401
 
 __all__ = [
     "Base", "User", "QueryHistory", "LlmSetting", "Metric", "Organization",
     "Alert", "NotificationSetting", "AlertHistory", "ScheduledReport",
-    "DataAsset", "Dashboard", "AuditLog", "Dataset", "BigScreen",
+    "DataAsset", "Dashboard", "AuditLog", "Dataset", "DatasetRefreshLog", "BigScreen",
 ]

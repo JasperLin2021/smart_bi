@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, DateTime, Integer, String, Text, func
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, func
 
 from app.db.base_class import Base
 
@@ -15,9 +15,26 @@ class Dataset(Base):
     derived_columns_json = Column(JSON, nullable=True)
     joins_json = Column(JSON, nullable=True)
     aggregations_json = Column(JSON, nullable=True)
+    pipeline_json = Column(JSON, nullable=True)
     status = Column(String(32), default="draft", nullable=False, index=True)
     visibility = Column(String(32), default="private", nullable=False)
+    last_refresh_status = Column(String(32), nullable=True)
+    last_refresh_at = Column(DateTime, nullable=True)
+    last_refresh_row_count = Column(Integer, default=0, nullable=False)
     org_id = Column(Integer, nullable=True, index=True)
     owner_id = Column(Integer, nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class DatasetRefreshLog(Base):
+    __tablename__ = "dataset_refresh_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False, index=True)
+    status = Column(String(32), nullable=False, index=True)
+    row_count = Column(Integer, default=0, nullable=False)
+    message = Column(Text, nullable=True)
+    org_id = Column(Integer, nullable=True, index=True)
+    triggered_by_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, server_default=func.now())

@@ -22,7 +22,7 @@ from app.models.notification_setting import NotificationSetting  # noqa: F401
 from app.models.alert_history import AlertHistory  # noqa: F401
 from app.models.scheduled_report import ScheduledReport  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
-from app.models.dataset import Dataset  # noqa: F401
+from app.models.dataset import Dataset, DatasetRefreshLog  # noqa: F401
 from app.models.big_screen import BigScreen  # noqa: F401
 
 
@@ -201,6 +201,17 @@ def _startup():
     ]:
         try:
             _ensure_column(engine, "dashboards", column_definition)
+        except Exception:
+            pass
+
+    for column_definition in [
+        "pipeline_json JSON",
+        "last_refresh_status VARCHAR(32)",
+        "last_refresh_at TIMESTAMP",
+        "last_refresh_row_count INTEGER DEFAULT 0",
+    ]:
+        try:
+            _ensure_column(engine, "datasets", column_definition)
         except Exception:
             pass
 
