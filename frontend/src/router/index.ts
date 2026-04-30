@@ -14,6 +14,7 @@ const router = createRouter({
     { path: "/data-catalog", component: () => import("@/views/DataCatalog.vue") },
     { path: "/dataset-center", component: () => import("@/views/DatasetCenter.vue") },
     { path: "/smart-query", component: () => import("@/views/SmartQuery.vue") },
+    { path: "/action-items", component: () => import("@/views/ActionItems.vue") },
     { path: "/datasource-settings", component: () => import("@/views/DataSourceSettings.vue") },
     { 
       path: "/user-management", 

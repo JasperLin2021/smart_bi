@@ -121,7 +121,7 @@ import { useDatasourceStore } from "@/store/datasource"
 import {
   DataLine, ChatDotRound, Coin, User, OfficeBuilding,
   TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock,
-  Grid, FolderOpened, Document, Fold, Expand
+  Grid, FolderOpened, Document, Fold, Expand, Tickets
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -159,6 +159,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { path: "/dashboard", label: "Dashboard", icon: DataLine },
       { path: "/smart-query", label: "智能问数", icon: ChatDotRound },
+      { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
   {

@@ -1,0 +1,508 @@
+<template>
+  <div class="governance-page action-items-page">
+    <section class="governance-hero">
+      <div class="governance-hero-copy">
+        <p class="governance-kicker">DECISION LOOP</p>
+        <h2 class="governance-title">行动闭环</h2>
+        <p class="governance-desc">
+          把问数结论、异常预警和业务洞察转成明确的责任人、截止日期和处理结果，让 BI 不只停留在“看到问题”，而是推动后续动作。
+        </p>
+      </div>
+      <div class="governance-actions">
+        <el-button :icon="Refresh" @click="fetchAll" :loading="loading">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">新建行动项</el-button>
+      </div>
+    </section>
+
+    <section class="governance-summary-grid">
+      <div class="governance-summary-card">
+        <span>全部行动</span>
+        <strong>{{ actionStats.total }}</strong>
+      </div>
+      <div class="governance-summary-card">
+        <span>待处理</span>
+        <strong>{{ actionStats.open }}</strong>
+      </div>
+      <div class="governance-summary-card">
+        <span>临近截止</span>
+        <strong>{{ actionStats.dueSoon }}</strong>
+      </div>
+      <div class="governance-summary-card">
+        <span>已闭环</span>
+        <strong>{{ actionStats.done }}</strong>
+      </div>
+    </section>
+
+    <el-card class="governance-workbench" shadow="never">
+      <div class="governance-toolbar">
+        <div class="governance-filters">
+          <el-input
+            v-model="keyword"
+            class="governance-search"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索行动项 / 结论"
+          />
+          <el-select v-model="statusFilter" clearable placeholder="状态" class="governance-filter">
+            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+          <el-select v-model="priorityFilter" clearable placeholder="优先级" class="governance-filter">
+            <el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+          <el-select v-model="sourceFilter" clearable placeholder="来源" class="governance-filter">
+            <el-option v-for="item in sourceOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </div>
+        <span class="governance-muted">共 {{ filteredItems.length }} 个结果</span>
+      </div>
+
+      <el-table :data="filteredItems" v-loading="loading" row-key="id" empty-text="暂无行动项">
+        <el-table-column label="行动项" min-width="280">
+          <template #default="{ row }">
+            <div class="governance-table-name">
+              <strong>{{ row.title }}</strong>
+              <span>{{ row.description || sourceSummary(row) }}</span>
+              <div class="governance-tag-row">
+                <el-tag size="small" :type="priorityTagType(row.priority)" effect="plain">
+                  {{ priorityLabel(row.priority) }}
+                </el-tag>
+                <el-tag size="small" type="info" effect="plain">{{ sourceLabel(row.source_type) }}</el-tag>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="关联资源" min-width="220">
+          <template #default="{ row }">
+            <div class="link-tags">
+              <el-tag v-if="metricName(row.linked_metric_id)" size="small" effect="plain">
+                指标：{{ metricName(row.linked_metric_id) }}
+              </el-tag>
+              <el-tag v-if="datasetName(row.linked_dataset_id)" size="small" effect="plain" type="success">
+                数据集：{{ datasetName(row.linked_dataset_id) }}
+              </el-tag>
+              <el-tag v-if="dashboardName(row.linked_dashboard_id)" size="small" effect="plain" type="warning">
+                看板：{{ dashboardName(row.linked_dashboard_id) }}
+              </el-tag>
+              <span v-if="!hasLinks(row)" class="governance-muted">未关联资源</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="负责人 / 截止" width="170">
+          <template #default="{ row }">
+            <div class="governance-table-name">
+              <strong>{{ ownerLabel(row.owner_id) }}</strong>
+              <span :class="dueClass(row)">{{ formatDate(row.due_date) }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态与结果" min-width="220">
+          <template #default="{ row }">
+            <div class="governance-table-name">
+              <el-select
+                :model-value="row.status"
+                size="small"
+                class="status-select"
+                @change="(value: string) => updateStatus(row, value)"
+              >
+                <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+              <span>{{ row.outcome || "尚未填写处理结果" }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="170">
+          <template #default="{ row }">
+            <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button text type="danger" :icon="Delete" @click="deleteItem(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑行动项' : '新建行动项'"
+      width="min(820px, calc(100vw - 32px))"
+      destroy-on-close
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+        <section class="governance-dialog-section">
+          <div class="governance-section-head">
+            <h3>行动定义</h3>
+            <p>说明要处理的问题、来源、优先级和责任人。</p>
+          </div>
+          <el-row :gutter="16">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="标题" prop="title">
+                <el-input v-model="form.title" placeholder="例：跟进华东销售额下滑" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="12">
+              <el-form-item label="来源">
+                <el-select v-model="form.source_type" style="width: 100%">
+                  <el-option v-for="item in sourceOptions" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="说明">
+            <el-input v-model="form.description" type="textarea" :rows="3" placeholder="补充背景、异常表现或分析结论" />
+          </el-form-item>
+          <el-row :gutter="16">
+            <el-col :xs="24" :md="8">
+              <el-form-item label="优先级">
+                <el-select v-model="form.priority" style="width: 100%">
+                  <el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="8">
+              <el-form-item label="状态">
+                <el-select v-model="form.status" style="width: 100%">
+                  <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="8">
+              <el-form-item label="截止日期">
+                <el-date-picker v-model="form.due_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="负责人 ID">
+            <el-input-number v-model="form.owner_id" :min="1" style="width: 180px" />
+          </el-form-item>
+        </section>
+
+        <section class="governance-dialog-section">
+          <div class="governance-section-head">
+            <h3>关联上下文</h3>
+            <p>把行动项挂到可信指标、数据集或看板，后续回看时能追溯这个动作来源。</p>
+          </div>
+          <el-row :gutter="16">
+            <el-col :xs="24" :md="8">
+              <el-form-item label="关联指标">
+                <el-select v-model="form.linked_metric_id" clearable filterable style="width: 100%">
+                  <el-option v-for="metric in metrics" :key="metric.id" :label="metric.name" :value="metric.id" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="8">
+              <el-form-item label="关联数据集">
+                <el-select v-model="form.linked_dataset_id" clearable filterable style="width: 100%">
+                  <el-option v-for="dataset in datasets" :key="dataset.id" :label="dataset.name" :value="dataset.id" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="8">
+              <el-form-item label="关联看板">
+                <el-select v-model="form.linked_dashboard_id" clearable filterable style="width: 100%">
+                  <el-option v-for="dashboard in dashboards" :key="dashboard.id" :label="dashboard.title" :value="dashboard.id" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="处理结果">
+            <el-input v-model="form.outcome" type="textarea" :rows="3" placeholder="完成后填写处理结果、影响和后续跟踪事项" />
+          </el-form-item>
+        </section>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveItem">保存行动项</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from "vue"
+import axios from "axios"
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
+import { Delete, Edit, Plus, Refresh, Search } from "@element-plus/icons-vue"
+import { useAuthStore } from "@/store/auth"
+
+interface ActionItem {
+  id: number
+  title: string
+  description: string | null
+  source_type: string
+  source_id: string | null
+  source_payload: Record<string, any> | null
+  linked_metric_id: number | null
+  linked_dataset_id: number | null
+  linked_dashboard_id: number | null
+  owner_id: number | null
+  priority: string
+  due_date: string | null
+  status: string
+  outcome: string | null
+  created_by: number | null
+}
+
+interface MetricOption { id: number; name: string }
+interface DatasetOption { id: number; name: string }
+interface DashboardOption { id: number; title: string }
+
+const authStore = useAuthStore()
+const loading = ref(false)
+const saving = ref(false)
+const dialogVisible = ref(false)
+const editingId = ref<number | null>(null)
+const keyword = ref("")
+const statusFilter = ref("")
+const priorityFilter = ref("")
+const sourceFilter = ref("")
+const items = ref<ActionItem[]>([])
+const metrics = ref<MetricOption[]>([])
+const datasets = ref<DatasetOption[]>([])
+const dashboards = ref<DashboardOption[]>([])
+const formRef = ref<FormInstance>()
+
+const statusOptions = [
+  { label: "待处理", value: "open" },
+  { label: "处理中", value: "in_progress" },
+  { label: "已完成", value: "done" },
+  { label: "已取消", value: "cancelled" },
+]
+
+const priorityOptions = [
+  { label: "低", value: "low" },
+  { label: "中", value: "medium" },
+  { label: "高", value: "high" },
+  { label: "紧急", value: "urgent" },
+]
+
+const sourceOptions = [
+  { label: "手动", value: "manual" },
+  { label: "问数结果", value: "query" },
+  { label: "预警异常", value: "alert" },
+  { label: "自动洞察", value: "insight" },
+  { label: "看板", value: "dashboard" },
+  { label: "数据集", value: "dataset" },
+  { label: "指标", value: "metric" },
+]
+
+const emptyForm = () => ({
+  title: "",
+  description: "",
+  source_type: "manual",
+  source_id: "",
+  source_payload: null as Record<string, any> | null,
+  linked_metric_id: null as number | null,
+  linked_dataset_id: null as number | null,
+  linked_dashboard_id: null as number | null,
+  owner_id: authStore.profile?.id || null,
+  priority: "medium",
+  due_date: "",
+  status: "open",
+  outcome: "",
+})
+
+const form = reactive(emptyForm())
+
+const rules: FormRules = {
+  title: [{ required: true, message: "请输入行动项标题", trigger: "blur" }],
+}
+
+const resetForm = (value = emptyForm()) => {
+  Object.assign(form, value)
+}
+
+const sourceLabel = (value: string) => sourceOptions.find(item => item.value === value)?.label || value
+const priorityLabel = (value: string) => priorityOptions.find(item => item.value === value)?.label || value
+const statusLabel = (value: string) => statusOptions.find(item => item.value === value)?.label || value
+
+const priorityTagType = (value: string) => {
+  const types: Record<string, "info" | "success" | "warning" | "danger"> = {
+    low: "info",
+    medium: "success",
+    high: "warning",
+    urgent: "danger",
+  }
+  return types[value] || "info"
+}
+
+const metricName = (id?: number | null) => id ? metrics.value.find(item => item.id === id)?.name : ""
+const datasetName = (id?: number | null) => id ? datasets.value.find(item => item.id === id)?.name : ""
+const dashboardName = (id?: number | null) => id ? dashboards.value.find(item => item.id === id)?.title : ""
+const ownerLabel = (id?: number | null) => id === authStore.profile?.id ? `${authStore.profile?.username || "我"}` : id ? `用户 #${id}` : "未指派"
+
+const hasLinks = (row: ActionItem) => Boolean(row.linked_metric_id || row.linked_dataset_id || row.linked_dashboard_id)
+
+const sourceSummary = (row: ActionItem) => {
+  const payload = row.source_payload || {}
+  return payload.summary || payload.question || row.source_id || "暂无来源摘要"
+}
+
+const formatDate = (value?: string | null) => value || "未设置"
+
+const dueClass = (row: ActionItem) => {
+  if (!row.due_date || ["done", "cancelled"].includes(row.status)) return ""
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const due = new Date(row.due_date)
+  if (due < today) return "is-overdue"
+  const diffDays = (due.getTime() - today.getTime()) / 86400000
+  return diffDays <= 3 ? "is-due-soon" : ""
+}
+
+const actionStats = computed(() => {
+  const total = items.value.length
+  const open = items.value.filter(item => ["open", "in_progress"].includes(item.status)).length
+  const done = items.value.filter(item => item.status === "done").length
+  const dueSoon = items.value.filter(item => dueClass(item) === "is-due-soon" || dueClass(item) === "is-overdue").length
+  return { total, open, done, dueSoon }
+})
+
+const filteredItems = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return items.value.filter(item => {
+    if (statusFilter.value && item.status !== statusFilter.value) return false
+    if (priorityFilter.value && item.priority !== priorityFilter.value) return false
+    if (sourceFilter.value && item.source_type !== sourceFilter.value) return false
+    if (!kw) return true
+    return [item.title, item.description, sourceSummary(item), item.outcome]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(kw))
+  })
+})
+
+const fetchItems = async () => {
+  loading.value = true
+  try {
+    const response = await axios.get("/api/action-items")
+    items.value = response.data.items || []
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "行动项加载失败")
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchReferences = async () => {
+  const [metricRes, datasetRes, dashboardRes] = await Promise.allSettled([
+    axios.get("/api/metrics"),
+    axios.get("/api/datasets"),
+    axios.get("/api/dashboards"),
+  ])
+  if (metricRes.status === "fulfilled") metrics.value = metricRes.value.data.items || []
+  if (datasetRes.status === "fulfilled") datasets.value = datasetRes.value.data.items || []
+  if (dashboardRes.status === "fulfilled") dashboards.value = dashboardRes.value.data.items || []
+}
+
+const fetchAll = async () => {
+  await Promise.all([fetchItems(), fetchReferences()])
+}
+
+const openCreate = () => {
+  editingId.value = null
+  resetForm()
+  dialogVisible.value = true
+}
+
+const openEdit = (row: ActionItem) => {
+  editingId.value = row.id
+  resetForm({
+    title: row.title,
+    description: row.description || "",
+    source_type: row.source_type || "manual",
+    source_id: row.source_id || "",
+    source_payload: row.source_payload || null,
+    linked_metric_id: row.linked_metric_id,
+    linked_dataset_id: row.linked_dataset_id,
+    linked_dashboard_id: row.linked_dashboard_id,
+    owner_id: row.owner_id,
+    priority: row.priority || "medium",
+    due_date: row.due_date || "",
+    status: row.status || "open",
+    outcome: row.outcome || "",
+  })
+  dialogVisible.value = true
+}
+
+const payloadFromForm = () => ({
+  ...form,
+  source_id: form.source_id || null,
+  due_date: form.due_date || null,
+  description: form.description || null,
+  outcome: form.outcome || null,
+})
+
+const saveItem = async () => {
+  await formRef.value?.validate()
+  saving.value = true
+  try {
+    if (editingId.value) {
+      await axios.put(`/api/action-items/${editingId.value}`, payloadFromForm())
+    } else {
+      await axios.post("/api/action-items", payloadFromForm())
+    }
+    ElMessage.success("行动项已保存")
+    dialogVisible.value = false
+    await fetchItems()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "行动项保存失败")
+  } finally {
+    saving.value = false
+  }
+}
+
+const updateStatus = async (row: ActionItem, status: string) => {
+  if (row.status === status) return
+  const oldStatus = row.status
+  row.status = status
+  try {
+    const response = await axios.put(`/api/action-items/${row.id}`, { status })
+    Object.assign(row, response.data)
+    ElMessage.success(`状态已更新为${statusLabel(status)}`)
+  } catch (error: any) {
+    row.status = oldStatus
+    ElMessage.error(error.response?.data?.detail || "状态更新失败")
+  }
+}
+
+const deleteItem = async (row: ActionItem) => {
+  try {
+    await ElMessageBox.confirm(`确定删除行动项“${row.title}”？`, "提示", { type: "warning" })
+    await axios.delete(`/api/action-items/${row.id}`)
+    ElMessage.success("行动项已删除")
+    await fetchItems()
+  } catch (error: any) {
+    if (error !== "cancel") {
+      ElMessage.error(error.response?.data?.detail || "删除失败")
+    }
+  }
+}
+
+onMounted(() => {
+  fetchAll()
+})
+</script>
+
+<style scoped>
+.action-items-page :deep(.el-table .cell) {
+  line-height: 1.5;
+}
+
+.link-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.status-select {
+  width: 118px;
+}
+
+.is-overdue {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+
+.is-due-soon {
+  color: var(--el-color-warning);
+  font-weight: 600;
+}
+</style>

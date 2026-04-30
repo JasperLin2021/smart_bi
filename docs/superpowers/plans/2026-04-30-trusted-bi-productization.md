@@ -51,9 +51,9 @@
 - Create: `frontend/src/views/ActionItems.vue`
 - Modify: `frontend/src/layouts/MainLayout.vue`
 
-- [ ] Add action item model and API.
-- [ ] Allow anomalies/insights/query results to create action items.
-- [ ] Add owner, due date, status, linked metric/dataset/dashboard, and outcome tracking.
+- [x] Add action item model and API.
+- [x] Allow anomalies/insights/query results to create action items.
+- [x] Add owner, due date, status, linked metric/dataset/dashboard, and outcome tracking.
 
 ### P3: Scenario Workspaces
 

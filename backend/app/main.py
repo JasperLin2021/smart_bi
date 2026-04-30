@@ -24,6 +24,7 @@ from app.models.scheduled_report import ScheduledReport  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.dataset import Dataset, DatasetRefreshLog  # noqa: F401
 from app.models.big_screen import BigScreen  # noqa: F401
+from app.models.action_item import ActionItem  # noqa: F401
 
 
 @asynccontextmanager

@@ -97,6 +97,16 @@
             </div>
             <div class="summary-text markdown-body" v-html="renderedSummary"></div>
           </div>
+
+          <div v-if="canCreateAction" class="decision-action-bar">
+            <div>
+              <strong>生成行动项</strong>
+              <span>把这次分析结论交给责任人跟踪处理</span>
+            </div>
+            <el-button size="small" type="primary" plain :icon="Tickets" @click="openActionDialog">
+              创建
+            </el-button>
+          </div>
           
           <!-- 查询结果图表 -->
           <div v-if="hasResult" class="chart-container">
@@ -128,14 +138,58 @@
         {{ formatTime(message.timestamp) }}
       </div>
     </div>
+
+    <el-dialog
+      v-model="actionDialogVisible"
+      title="从问数结果创建行动项"
+      width="min(560px, calc(100vw - 32px))"
+      destroy-on-close
+    >
+      <el-form label-position="top">
+        <el-form-item label="行动项标题" required>
+          <el-input v-model="actionForm.title" maxlength="160" placeholder="例：跟进本周销售额下滑" />
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input v-model="actionForm.description" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="优先级">
+              <el-select v-model="actionForm.priority" style="width: 100%">
+                <el-option label="低" value="low" />
+                <el-option label="中" value="medium" />
+                <el-option label="高" value="high" />
+                <el-option label="紧急" value="urgent" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="截止日期">
+              <el-date-picker v-model="actionForm.due_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="负责人 ID">
+          <el-input-number v-model="actionForm.owner_id" :min="1" style="width: 180px" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="actionDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="actionSaving" @click="createActionItem">创建行动项</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue"
-import { Loading, WarningFilled, DataAnalysis } from "@element-plus/icons-vue"
+import { computed, reactive, ref } from "vue"
+import axios from "axios"
+import { useRouter } from "vue-router"
+import { ElMessage } from "element-plus"
+import { Loading, WarningFilled, DataAnalysis, Tickets } from "@element-plus/icons-vue"
 import { marked } from "marked"
 import { useQueryStore, type ChatMessage, type DrillContext } from "@/store/query"
+import { useAuthStore } from "@/store/auth"
 import MessageChart from "./MessageChart.vue"
 import MessageTable from "./MessageTable.vue"
 
@@ -144,6 +198,18 @@ const props = defineProps<{
 }>()
 
 const queryStore = useQueryStore()
+const authStore = useAuthStore()
+const router = useRouter()
+const actionDialogVisible = ref(false)
+const actionSaving = ref(false)
+const actionForm = reactive({
+  title: "",
+  description: "",
+  priority: "medium",
+  due_date: "",
+  owner_id: null as number | null,
+  linked_metric_id: null as number | null,
+})
 
 const hasResult = computed(() => {
   return props.message.result && 
@@ -156,6 +222,12 @@ const renderedSummary = computed(() => {
   if (!props.message.summary) return ""
   return marked(props.message.summary, { breaks: true })
 })
+
+const canCreateAction = computed(() =>
+  props.message.role === "assistant" &&
+  props.message.status === "success" &&
+  Boolean(props.message.historyId || props.message.summary || props.message.result?.rows?.length)
+)
 
 const buildBreadcrumb = (context?: DrillContext): string[] => {
   if (!context) return []
@@ -173,6 +245,50 @@ const goBackOneLevel = async () => {
   const drillContext = props.message.drillContext
   if (!drillContext?.parentQuestion) return
   await queryStore.ask(drillContext.parentQuestion, "text2sql", drillContext.parentContext)
+}
+
+const openActionDialog = () => {
+  const question = props.message.sourceQuestion || "跟进分析结论"
+  actionForm.title = question.length > 36 ? `${question.slice(0, 36)}...` : question
+  actionForm.description = props.message.summary || props.message.content || "请根据本次问数结果安排后续跟进。"
+  actionForm.priority = props.message.trustSignals?.some(signal => signal.quality_status === "error") ? "high" : "medium"
+  actionForm.due_date = ""
+  actionForm.owner_id = authStore.profile?.id || null
+  actionForm.linked_metric_id = props.message.trustSignals?.[0]?.metric_id || null
+  actionDialogVisible.value = true
+}
+
+const createActionItem = async () => {
+  if (!actionForm.title.trim()) {
+    ElMessage.warning("请输入行动项标题")
+    return
+  }
+  actionSaving.value = true
+  try {
+    await axios.post("/api/action-items", {
+      title: actionForm.title.trim(),
+      description: actionForm.description || null,
+      source_type: "query",
+      source_id: props.message.historyId ? String(props.message.historyId) : props.message.id,
+      source_payload: {
+        question: props.message.sourceQuestion,
+        summary: props.message.summary || props.message.content,
+        sql_query: props.message.sqlQuery,
+        row_count: props.message.result?.rows?.length || 0,
+      },
+      owner_id: actionForm.owner_id,
+      priority: actionForm.priority,
+      due_date: actionForm.due_date || null,
+      linked_metric_id: actionForm.linked_metric_id,
+    })
+    ElMessage.success("行动项已创建")
+    actionDialogVisible.value = false
+    router.push("/action-items")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "行动项创建失败")
+  } finally {
+    actionSaving.value = false
+  }
 }
 
 const certificationLabel = (status: string) => {
@@ -596,6 +712,34 @@ const formatTime = (date: Date) => {
   color: var(--app-text);
 }
 
+.decision-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 10px;
+  background: var(--app-surface-muted);
+}
+
+.decision-action-bar div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.decision-action-bar strong {
+  color: var(--app-text);
+  font-size: 14px;
+}
+
+.decision-action-bar span {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
 .chart-container,
 .table-container {
   background: var(--app-surface);
@@ -621,5 +765,12 @@ const formatTime = (date: Date) => {
 .recommendations :deep(.el-tag) {
   border-radius: 20px;
   padding: 4px 12px;
+}
+
+@media (max-width: 640px) {
+  .decision-action-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

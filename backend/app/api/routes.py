@@ -22,6 +22,7 @@ from app.api.big_screens import router as big_screens_router
 from app.api.data_services import router as data_services_router
 from app.api.insights import router as insights_router
 from app.api.goview import router as goview_router
+from app.api.action_items import router as action_items_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -47,3 +48,4 @@ api_router.include_router(big_screens_router)
 api_router.include_router(data_services_router)
 api_router.include_router(insights_router)
 api_router.include_router(goview_router)
+api_router.include_router(action_items_router)
