@@ -26,35 +26,6 @@
         />
       </div>
 
-      <!-- Datasource Selector -->
-      <div
-        v-if="datasourceStore.datasources.length > 0 && !isSidebarCollapsed"
-        class="datasource-selector"
-      >
-        <label class="selector-label">当前数据源</label>
-        <el-select
-          v-model="selectedDatasource"
-          size="default"
-          placeholder="选择数据源"
-          @change="onDatasourceChange"
-        >
-          <el-option
-            v-for="ds in datasourceStore.datasources"
-            :key="ds.id"
-            :label="ds.name"
-            :value="ds.id"
-          >
-            <div class="ds-option">
-              <el-icon class="ds-icon">
-                <Document v-if="ds.source_type === 'excel'" />
-                <Coin v-else />
-              </el-icon>
-              <span>{{ ds.name }}</span>
-            </div>
-          </el-option>
-        </el-select>
-      </div>
-
       <!-- Navigation Menu -->
       <nav class="sidebar-nav">
         <el-menu
@@ -115,6 +86,30 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <div v-if="datasourceStore.datasources.length > 0" class="header-datasource">
+            <span class="header-datasource-label">当前数据源</span>
+            <el-select
+              v-model="selectedDatasource"
+              size="default"
+              placeholder="选择数据源"
+              @change="onDatasourceChange"
+            >
+              <el-option
+                v-for="ds in datasourceStore.datasources"
+                :key="ds.id"
+                :label="ds.name"
+                :value="ds.id"
+              >
+                <div class="ds-option">
+                  <el-icon class="ds-icon">
+                    <Document v-if="ds.source_type === 'excel'" />
+                    <Coin v-else />
+                  </el-icon>
+                  <span>{{ ds.name }}</span>
+                </div>
+              </el-option>
+            </el-select>
+          </div>
           <el-button :icon="Refresh" circle @click="refresh" />
           <el-dropdown trigger="click">
             <el-button :icon="User" circle />
@@ -359,39 +354,6 @@ onMounted(async () => {
   margin-left: 0;
 }
 
-.datasource-selector {
-  padding: 14px 14px 8px;
-}
-
-.selector-label {
-  display: block;
-  font-size: 11px;
-  color: var(--app-text-light);
-  text-transform: uppercase;
-  letter-spacing: 0;
-  margin-bottom: 8px;
-  padding-left: 4px;
-}
-
-.datasource-selector :deep(.el-select) {
-  width: 100%;
-}
-
-.datasource-selector :deep(.el-input__wrapper) {
-  background: var(--app-surface-muted);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  box-shadow: none;
-}
-
-.datasource-selector :deep(.el-input__inner) {
-  color: var(--app-text);
-}
-
-.datasource-selector :deep(.el-input__inner::placeholder) {
-  color: var(--app-text-light);
-}
-
 .ds-option {
   display: flex;
   align-items: center;
@@ -579,6 +541,38 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.header-datasource {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+}
+
+.header-datasource-label {
+  flex-shrink: 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.header-datasource :deep(.el-select) {
+  width: 220px;
+}
+
+.header-datasource :deep(.el-input__wrapper) {
+  background: #ffffff;
+  border: 1px solid transparent;
+  border-radius: var(--app-radius-sm);
+  box-shadow: none;
+}
+
+.header-datasource :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--app-primary);
+}
+
 .dropdown-user {
   display: flex;
   flex-direction: column;
@@ -594,5 +588,15 @@ onMounted(async () => {
 .layout-content {
   padding: 18px;
   overflow-y: auto;
+}
+
+@media (max-width: 960px) {
+  .header-datasource-label {
+    display: none;
+  }
+
+  .header-datasource :deep(.el-select) {
+    width: 180px;
+  }
 }
 </style>
