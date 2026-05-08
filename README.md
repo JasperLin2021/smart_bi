@@ -15,6 +15,10 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org)
 
+<img src="docs/assets/readme-banner.png" alt="Smart BI 中文产品 Banner，展示真实系统界面截图" width="100%" />
+
+<sub>中文 Banner 使用真实系统截图和本地渲染文字合成，展示 Smart BI 当前的智能问数、可信指标和权限管理界面。</sub>
+
 </div>
 
 ---
@@ -103,6 +107,10 @@ the README reflects the real product surface.
 
 ### Architecture
 
+![Smart BI architecture diagram with Chinese labels for frontend, backend, AI semantic layer, data acceleration, and enterprise integrations](docs/assets/readme-architecture.png)
+
+<sub>The architecture image uses Chinese labels to match the terminology used in the current product UI and documentation.</sub>
+
 ```text
 Browser / Embedded View
         |
@@ -189,6 +197,25 @@ DORIS_HOST=doris-fe
 DORIS_QUERY_PORT=9030
 DORIS_HTTP_PORT=8030
 ```
+
+### Demo Data
+
+The remote repository already includes `mock_data.sql`, `demo_setup.py`, and
+`feature_demo_setup.py`. `mock_data.sql` is the recommended out-of-the-box dataset for
+Docker Compose because it can be imported directly into PostgreSQL after the backend
+has created the application tables.
+
+To start the application and import the full demo dataset in one flow:
+
+```bash
+docker compose --profile demo up -d --build
+docker compose logs demo-seed
+```
+
+The `demo-seed` service is a one-shot container. It waits for PostgreSQL and the backend
+health check, imports `mock_data.sql`, prints `Smart BI demo data imported.`, and exits.
+Most inserts are idempotent through `ON CONFLICT`, so rerunning it is safe for the demo
+records it manages.
 
 ### Configuration
 
@@ -439,6 +466,10 @@ Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它�
 
 ### 技术架构
 
+![Smart BI 中文技术架构图，展示前端体验层、后端服务层、AI 与语义层、数据与加速层、企业集成层](docs/assets/readme-architecture.png)
+
+<sub>架构图使用中文标签，并按当前真实系统能力绘制：Vue 3 前端、FastAPI 后端、AI Planner、语义数据集、可信指标、PostgreSQL、可选 Doris、企业微信和 GoView。</sub>
+
 ```text
 浏览器 / 嵌入视图
         |
@@ -525,6 +556,20 @@ DORIS_HOST=doris-fe
 DORIS_QUERY_PORT=9030
 DORIS_HTTP_PORT=8030
 ```
+
+### 示例数据
+
+远端仓库已经包含 `mock_data.sql`、`demo_setup.py` 和 `feature_demo_setup.py`。
+其中 `mock_data.sql` 是推荐的 Docker Compose 开箱即用示例数据，因为它可以在后端完成建表后直接导入 PostgreSQL。
+
+一条命令启动系统并导入完整演示数据：
+
+```bash
+docker compose --profile demo up -d --build
+docker compose logs demo-seed
+```
+
+`demo-seed` 是一次性容器。它会等待 PostgreSQL 和后端健康检查通过，再导入 `mock_data.sql`，输出 `Smart BI demo data imported.` 后退出。多数插入语句使用 `ON CONFLICT` 做幂等处理，因此可安全重复执行它管理的演示数据。
 
 ### 配置
 

@@ -65,6 +65,30 @@ services:
     ports:
       - "${FRONTEND_PORT:-16006}:80"
 
+  demo-seed:
+    image: postgres:16-alpine
+    restart: "no"
+    profiles: ["demo"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-smart_bi}
+      PGUSER: ${POSTGRES_USER:-smart_bi}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - ./mock_data.sql:/mock_data.sql:ro
+    command:
+      [
+        "sh",
+        "-c",
+        "psql -v ON_ERROR_STOP=1 -f /mock_data.sql && echo 'Smart BI demo data imported.'",
+      ]
+
   doris-fe:
     image: apache/doris:fe-2.1.11
     restart: unless-stopped
