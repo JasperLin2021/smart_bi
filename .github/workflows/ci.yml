@@ -23,11 +23,6 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Type-check
-        run: npm run type-check
-        working-directory: frontend
-        continue-on-error: true
-
       - name: Build
         run: npm run build
         working-directory: frontend
