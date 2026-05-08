@@ -24,20 +24,13 @@ const router = createRouter({
       meta: { requiredRole: ['org_admin', 'super_admin'] }
     },
     {
-      path: "/user-management",
-      component: () => import("@/views/UserManagement.vue"),
+      path: "/access-control",
+      component: () => import("@/views/AccessControl.vue"),
       meta: { requiredRole: ['org_admin', 'super_admin'] }
     },
-    {
-      path: "/role-management",
-      component: () => import("@/views/RoleManagement.vue"),
-      meta: { requiredRole: ['org_admin', 'super_admin'] }
-    },
-    { 
-      path: "/org-management", 
-      component: () => import("@/views/OrgManagement.vue"),
-      meta: { requiredRole: ['super_admin'] }
-    },
+    { path: "/user-management", redirect: "/access-control" },
+    { path: "/role-management", redirect: "/access-control" },
+    { path: "/org-management", redirect: "/access-control" },
     { path: "/metric-settings", component: () => import("@/views/MetricSettings.vue") },
     { path: "/alert-settings", component: () => import("@/views/AlertSettings.vue") },
     { path: "/scheduled-reports", component: () => import("@/views/ScheduledReports.vue") },
