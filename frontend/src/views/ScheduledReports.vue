@@ -57,7 +57,10 @@
         <span class="governance-muted">共 {{ filteredReports.length }} 个结果</span>
       </div>
 
-      <el-table class="governance-table" :data="filteredReports" v-loading="loading" row-key="id" empty-text="暂无定时报告">
+      <el-table class="governance-table" :data="filteredReports" v-loading="loading" row-key="id" empty-text="暂无定时报告"
+        highlight-current-row style="cursor:pointer"
+        @row-click="(row: any, _c: any, e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.el-button,.el-switch,.el-dropdown')) openDetail(row) }"
+      >
         <template #empty>
           <div class="governance-empty">
             <strong>还没有匹配的定时报告</strong>
@@ -124,6 +127,41 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- Detail Modal -->
+    <el-dialog v-model="detailVisible" width="540px" destroy-on-close class="governance-modal">
+      <template #header>
+        <div class="detail-modal-header" v-if="detailRow">
+          <span class="detail-modal-title">{{ detailRow.name }}</span>
+          <el-tag :type="detailRow.is_active ? 'success' : 'info'" effect="plain" size="small">
+            {{ detailRow.is_active ? '启用中' : '已停用' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-descriptions v-if="detailRow" :column="2" border size="small">
+        <el-descriptions-item label="查询问题" :span="2">{{ detailRow.question }}</el-descriptions-item>
+        <el-descriptions-item label="定时规则">
+          <el-tag size="small" type="info" effect="plain">{{ detailRow.cron_expression }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="规则说明">{{ describeCron(detailRow.cron_expression) }}</el-descriptions-item>
+        <el-descriptions-item label="通知方式" :span="2">
+          <div class="governance-tag-row">
+            <el-tag v-if="detailRow.notify_email" size="small" type="success" effect="plain">邮件</el-tag>
+            <el-tag v-if="detailRow.notify_wechat" size="small" type="warning" effect="plain">企微</el-tag>
+            <el-tag v-if="detailRow.notify_dingtalk" size="small" type="danger" effect="plain">钉钉</el-tag>
+            <span v-if="!hasNotification(detailRow)" class="muted-text">未设置</span>
+          </div>
+        </el-descriptions-item>
+        <el-descriptions-item label="最近执行" :span="2">
+          {{ detailRow.last_run_at ? formatDate(detailRow.last_run_at) : '从未执行' }}
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button type="success" :loading="runningId === detailRow?.id" @click="runNow(detailRow!)">立即执行</el-button>
+        <el-button type="primary" @click="openEdit(detailRow!); detailVisible = false">编辑</el-button>
+      </template>
+    </el-dialog>
 
     <!-- Dialog -->
     <el-dialog
@@ -229,6 +267,9 @@ import { Plus, Edit, Delete, CaretRight, Search, MoreFilled, Refresh, Message, C
 import axios from "axios"
 const loading = ref(false)
 const saving = ref(false)
+const detailVisible = ref(false)
+const detailRow = ref<any>(null)
+const openDetail = (row: any) => { detailRow.value = row; detailVisible.value = true }
 const reports = ref<any[]>([])
 const datasets = ref<any[]>([])
 const keyword = ref("")
@@ -466,6 +507,9 @@ onMounted(async () => {
 
 <style scoped>
 .scheduled-reports { padding: 0; }
+.detail-modal-header { display: flex; align-items: center; gap: 10px; }
+.detail-modal-title { font-size: 15px; font-weight: 600; }
+.muted-text { color: var(--app-text-muted); font-size: 13px; }
 
 
 .notify-group {

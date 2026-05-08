@@ -57,7 +57,10 @@
         <span class="governance-muted">共 {{ filteredAlerts.length }} 个结果</span>
       </div>
 
-      <el-table class="governance-table" :data="filteredAlerts" v-loading="loading" row-key="id" empty-text="暂无预警">
+      <el-table class="governance-table" :data="filteredAlerts" v-loading="loading" row-key="id" empty-text="暂无预警"
+        highlight-current-row style="cursor:pointer"
+        @row-click="(row: any, _c: any, e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.el-button,.el-switch,.el-dropdown,.el-checkbox')) openDetail(row) }"
+      >
         <template #empty>
           <div class="governance-empty">
             <strong>还没有匹配的预警规则</strong>
@@ -124,6 +127,42 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- Detail Modal -->
+    <el-dialog v-model="detailVisible" width="560px" destroy-on-close class="governance-modal">
+      <template #header>
+        <div class="detail-modal-header" v-if="detailRow">
+          <span class="detail-modal-title">{{ detailRow.name }}</span>
+          <el-tag :type="detailRow.is_active ? 'success' : 'info'" effect="plain" size="small">
+            {{ detailRow.is_active ? '启用中' : '已停用' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-descriptions v-if="detailRow" :column="2" border size="small">
+        <el-descriptions-item label="数据集">{{ datasets.find(d => d.id === detailRow!.dataset_id)?.name || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="关联指标">
+          <el-tag v-if="detailRow.metric_name" effect="plain" size="small">{{ detailRow.metric_name }}</el-tag>
+          <span v-else class="muted-text">未绑定</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="检测窗口">{{ detailRow.time_range }} {{ timeRangeUnitLabel(detailRow.time_range_unit) }}</el-descriptions-item>
+        <el-descriptions-item label="检测周期">每 {{ detailRow.check_period }} {{ checkPeriodUnitLabel(detailRow.check_period_unit) }}</el-descriptions-item>
+        <el-descriptions-item label="通知方式" :span="2">
+          <div class="governance-tag-row">
+            <el-tag v-if="detailRow.notify_system" size="small" type="info" effect="plain">系统</el-tag>
+            <el-tag v-if="detailRow.notify_email" size="small" type="success" effect="plain">邮件</el-tag>
+            <el-tag v-if="detailRow.notify_wechat" size="small" type="warning" effect="plain">企微</el-tag>
+            <el-tag v-if="detailRow.notify_dingtalk" size="small" type="danger" effect="plain">钉钉</el-tag>
+            <span v-if="!hasNotification(detailRow)" class="muted-text">未设置</span>
+          </div>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="detailRow.content" label="通知内容" :span="2">{{ detailRow.content }}</el-descriptions-item>
+        <el-descriptions-item label="触发创建行动项" :span="2">{{ detailRow.auto_create_action_item ? '是' : '否' }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button type="primary" @click="openEdit(detailRow!); detailVisible = false">编辑</el-button>
+      </template>
+    </el-dialog>
 
     <!-- Create / Edit Dialog -->
     <el-dialog
@@ -296,6 +335,9 @@ import axios from "axios"
 // ---- State ----
 const loading = ref(false)
 const saving = ref(false)
+const detailVisible = ref(false)
+const detailRow = ref<any>(null)
+const openDetail = (row: any) => { detailRow.value = row; detailVisible.value = true }
 const runningId = ref<number | null>(null)
 const alerts = ref<any[]>([])
 const metrics = ref<any[]>([])
@@ -589,9 +631,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.alert-settings {
-  padding: 0;
-}
+.alert-settings { padding: 0; }
+.detail-modal-header { display: flex; align-items: center; gap: 10px; }
+.detail-modal-title { font-size: 15px; font-weight: 600; }
+.muted-text { color: var(--app-text-muted); font-size: 13px; }
 
 .inline-group {
   display: flex;

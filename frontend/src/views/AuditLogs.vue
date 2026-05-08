@@ -27,7 +27,10 @@
         </el-select>
       </div>
 
-      <el-table v-loading="loading" :data="logs" stripe>
+      <el-table v-loading="loading" :data="logs" stripe
+        highlight-current-row style="cursor:pointer"
+        @row-click="openDetail"
+      >
         <el-table-column label="时间" width="170">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
@@ -74,6 +77,34 @@
       </div>
     </el-card>
   </div>
+
+  <!-- Detail Modal -->
+  <el-dialog v-model="detailVisible" title="审计日志详情" width="640px" destroy-on-close>
+    <el-descriptions v-if="detailRow" :column="2" border size="small">
+      <el-descriptions-item label="时间" :span="2">{{ formatDate(detailRow.created_at) }}</el-descriptions-item>
+      <el-descriptions-item label="操作者">{{ detailRow.actor_username || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="角色">
+        <el-tag size="small" effect="plain">{{ roleLabel(detailRow.actor_role) }}</el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item label="操作名称">{{ actionLabel(detailRow.action) }}</el-descriptions-item>
+      <el-descriptions-item label="操作代码"><code class="mono">{{ detailRow.action }}</code></el-descriptions-item>
+      <el-descriptions-item label="资源类型">{{ resourceLabel(detailRow.resource_type) }}</el-descriptions-item>
+      <el-descriptions-item label="资源">{{ detailRow.resource_name || detailRow.resource_id || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="状态">
+        <el-tag :type="detailRow.status === 'error' ? 'danger' : 'success'" size="small" effect="plain">
+          {{ detailRow.status === 'error' ? '失败' : '成功' }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item label="说明">{{ detailRow.message || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="附加详情" :span="2">
+        <pre v-if="detailRow.detail" class="detail-json">{{ JSON.stringify(detailRow.detail, null, 2) }}</pre>
+        <span v-else class="muted-text">—</span>
+      </el-descriptions-item>
+    </el-descriptions>
+    <template #footer>
+      <el-button @click="detailVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -101,6 +132,13 @@ interface AuditLogItem {
 const logs = ref<AuditLogItem[]>([])
 const total = ref(0)
 const loading = ref(false)
+const detailVisible = ref(false)
+const detailRow = ref<AuditLogItem | null>(null)
+
+const openDetail = (row: AuditLogItem) => {
+  detailRow.value = row
+  detailVisible.value = true
+}
 
 const filters = reactive({
   action: "",
@@ -239,6 +277,10 @@ onMounted(fetchLogs)
   color: var(--app-text-muted);
   font-size: 12px;
 }
+
+.mono { font-family: monospace; font-size: 12px; }
+.detail-json { margin: 0; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow-y: auto; }
+.muted-text { color: var(--app-text-muted); }
 
 .pagination-row {
   display: flex;

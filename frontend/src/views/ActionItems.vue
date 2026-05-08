@@ -40,7 +40,10 @@
         <span class="governance-muted">共 {{ filteredItems.length }} 个结果</span>
       </div>
 
-      <el-table :data="filteredItems" v-loading="loading" row-key="id" empty-text="暂无行动项">
+      <el-table :data="filteredItems" v-loading="loading" row-key="id" empty-text="暂无行动项"
+        highlight-current-row style="cursor:pointer"
+        @row-click="(row: any, _c: any, e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.el-button,.el-switch,.el-select,.el-dropdown')) openDetail(row) }"
+      >
         <el-table-column label="行动项" min-width="280">
           <template #default="{ row }">
             <div class="governance-table-name">
@@ -204,6 +207,44 @@
         <el-button type="primary" :loading="saving" @click="saveItem">保存行动项</el-button>
       </template>
     </el-dialog>
+
+    <!-- Detail Modal -->
+    <el-dialog v-model="detailVisible" width="580px" destroy-on-close class="governance-modal">
+      <template #header>
+        <div class="detail-modal-header" v-if="detailRow">
+          <div>
+            <div class="detail-modal-title">{{ detailRow.title }}</div>
+            <div class="detail-modal-meta">
+              <el-tag :type="priorityTagType(detailRow.priority)" effect="plain" size="small">{{ priorityLabel(detailRow.priority) }}</el-tag>
+              <el-tag :type="statusTagType(detailRow.status)" size="small" effect="light" style="margin-left:6px">{{ statusLabel(detailRow.status) }}</el-tag>
+            </div>
+          </div>
+        </div>
+      </template>
+      <el-descriptions v-if="detailRow" :column="2" border size="small">
+        <el-descriptions-item label="负责人">{{ ownerLabel(detailRow.owner_id) }}</el-descriptions-item>
+        <el-descriptions-item label="截止日期">
+          <span :class="dueClass(detailRow)">{{ formatDate(detailRow.due_date) || '—' }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="来源" :span="2">
+          <el-tag type="info" effect="plain" size="small">{{ sourceLabel(detailRow.source_type) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="detailRow.description" label="说明" :span="2">{{ detailRow.description }}</el-descriptions-item>
+        <el-descriptions-item label="关联资源" :span="2">
+          <div class="link-tags">
+            <el-tag v-if="metricName(detailRow.linked_metric_id)" effect="plain" size="small">指标：{{ metricName(detailRow.linked_metric_id) }}</el-tag>
+            <el-tag v-if="datasetName(detailRow.linked_dataset_id)" type="success" effect="plain" size="small">数据集：{{ datasetName(detailRow.linked_dataset_id) }}</el-tag>
+            <el-tag v-if="dashboardName(detailRow.linked_dashboard_id)" type="warning" effect="plain" size="small">看板：{{ dashboardName(detailRow.linked_dashboard_id) }}</el-tag>
+            <span v-if="!hasLinks(detailRow)" class="muted-text">未关联资源</span>
+          </div>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="detailRow.outcome" label="处理结果" :span="2">{{ detailRow.outcome }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button type="primary" @click="openEdit(detailRow!); detailVisible = false">编辑</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -242,6 +283,9 @@ interface AssignableDept { department: string; users: AssignableUser[] }
 const authStore = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
+const detailVisible = ref(false)
+const detailRow = ref<ActionItem | null>(null)
+const openDetail = (row: ActionItem) => { detailRow.value = row; detailVisible.value = true }
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const dialogActiveTab = ref("action")
@@ -332,6 +376,14 @@ const priorityTagType = (value: string) => {
     medium: "success",
     high: "warning",
     urgent: "danger",
+  }
+  return types[value] || "info"
+}
+
+const statusTagType = (value: string): "info" | "success" | "warning" | "danger" | "primary" => {
+  const types: Record<string, "info" | "success" | "warning" | "danger" | "primary"> = {
+    open: "info", in_progress: "primary", pending_review: "warning",
+    resolved: "success", closed: "success", cancelled: "info",
   }
   return types[value] || "info"
 }
@@ -543,6 +595,11 @@ onMounted(() => {
 .action-items-page :deep(.el-table .cell) {
   line-height: 1.5;
 }
+
+.detail-modal-header { display: flex; flex-direction: column; gap: 6px; }
+.detail-modal-title { font-size: 15px; font-weight: 600; color: var(--app-text); }
+.detail-modal-meta { display: flex; align-items: center; }
+.muted-text { color: var(--app-text-muted); font-size: 13px; }
 
 .link-tags {
   display: flex;

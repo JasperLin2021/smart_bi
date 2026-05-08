@@ -55,7 +55,10 @@
         <span class="governance-muted">共 {{ filteredDatasources.length }} 个结果</span>
       </div>
 
-      <el-table class="governance-table" :data="filteredDatasources" v-loading="loading" row-key="id" empty-text="暂无数据源">
+      <el-table class="governance-table" :data="filteredDatasources" v-loading="loading" row-key="id" empty-text="暂无数据源"
+        highlight-current-row style="cursor:pointer"
+        @row-click="(row: any, _c: any, e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.el-button,.el-switch,.el-dropdown')) openDetail(row) }"
+      >
         <template #empty>
           <div class="governance-empty">
             <strong>还没有匹配的数据源</strong>
@@ -124,6 +127,50 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- Detail Modal -->
+    <el-dialog v-model="detailVisible" width="580px" destroy-on-close class="governance-modal">
+      <template #header>
+        <div class="detail-modal-header" v-if="detailRow">
+          <div class="detail-modal-icon" :class="`ds-icon--${detailRow.source_type}`">
+            {{ detailRow.source_type?.toUpperCase().slice(0,2) }}
+          </div>
+          <div>
+            <div class="detail-modal-title">{{ detailRow.name }}</div>
+            <div class="detail-modal-sub">{{ detailRow.slug }}</div>
+          </div>
+          <el-tag :type="detailRow.is_active ? 'success' : 'info'" effect="plain" size="small" style="margin-left:auto">
+            {{ detailRow.is_active ? '启用' : '禁用' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-descriptions v-if="detailRow" :column="2" border size="small">
+        <el-descriptions-item label="类型">
+          <el-tag :type="detailRow.source_type === 'excel' ? 'warning' : 'primary'" effect="plain" size="small">
+            {{ sourceTypeLabel(detailRow.source_type) }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="表结构">
+          {{ schemaTablesCount(detailRow) }} 张表 · {{ schemaFieldsCount(detailRow) }} 个字段
+        </el-descriptions-item>
+        <el-descriptions-item label="配置完成度" :span="2">
+          <div style="display:flex;align-items:center;gap:10px">
+            <el-progress :percentage="datasourceCompletion(detailRow)" :stroke-width="8" style="flex:1" />
+            <span style="font-size:12px;color:var(--app-text-muted)">{{ datasourceCompletion(detailRow) }}%</span>
+          </div>
+        </el-descriptions-item>
+        <el-descriptions-item label="钻取规则">{{ detailRow.drill_config ? '已配置' : '未配置' }}</el-descriptions-item>
+        <el-descriptions-item label="推荐问题">{{ recommendationCount(detailRow) }} 个</el-descriptions-item>
+        <el-descriptions-item v-if="detailRow.metrics_prompt" label="业务口径" :span="2">
+          <span class="detail-text-clamp">{{ detailRow.metrics_prompt }}</span>
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button @click="testConnection(detailRow!.id); detailVisible = false">测试连接</el-button>
+        <el-button type="primary" @click="openEdit(detailRow!); detailVisible = false">编辑</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 创建/编辑对话框 -->
     <el-dialog
@@ -496,6 +543,9 @@ const datasourceStore = useDatasourceStore()
 
 const datasources = ref<DataSourceDetail[]>([])
 const loading = ref(false)
+const detailVisible = ref(false)
+const detailRow = ref<any>(null)
+const openDetail = (row: any) => { detailRow.value = row; detailVisible.value = true }
 const keyword = ref("")
 const typeFilter = ref("")
 const statusFilter = ref<number | null>(null)
@@ -1064,6 +1114,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.detail-modal-header { display: flex; align-items: center; gap: 12px; width: 100%; }
+.detail-modal-icon { width: 40px; height: 40px; border-radius: 8px; background: var(--el-color-primary-light-8); color: var(--el-color-primary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.ds-icon--excel { background: #d1fae5; color: #065f46; }
+.ds-icon--mysql, .ds-icon--postgresql { background: #dbeafe; color: #1e40af; }
+.detail-modal-title { font-size: 15px; font-weight: 600; }
+.detail-modal-sub { font-size: 12px; color: var(--app-text-muted); }
+.detail-text-clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.6; }
+
 .datasource-page :deep(.el-table .cell) {
   line-height: 1.5;
 }
