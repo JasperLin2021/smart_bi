@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend-build:
+    name: Frontend — build & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Type-check
+        run: npm run type-check
+        working-directory: frontend
+        continue-on-error: true
+
+      - name: Build
+        run: npm run build
+        working-directory: frontend
+
+  backend-lint:
+    name: Backend — lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync
+        working-directory: backend
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+        working-directory: backend
+        continue-on-error: true
+
+      - name: Run tests
+        run: |
+          DATABASE_URL=sqlite:///./test_ci.db \
+          uv run pytest tests/ -v --tb=short
+        working-directory: backend
+        env:
+          JWT_SECRET: ci-test-secret-placeholder
+          LLM_API_KEY: ci-placeholder
+          LLM_API_BASE: http://localhost:9999/v1
+          LLM_MODEL: gpt-4o-mini
