@@ -151,8 +151,17 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-              <el-form-item label="负责人 ID">
-                <el-input-number v-model="form.owner_id" :min="1" style="width: 180px" />
+              <el-form-item label="负责人">
+                <el-tree-select
+                  v-model="form.owner_id"
+                  :data="assignableTree"
+                  :props="{ label: 'label', children: 'children', value: 'value', disabled: 'disabled' }"
+                  placeholder="按部门选择负责人"
+                  filterable
+                  clearable
+                  check-strictly
+                  style="width: 100%"
+                />
               </el-form-item>
             </div>
           </el-tab-pane>
@@ -227,6 +236,8 @@ interface ActionItem {
 interface MetricOption { id: number; name: string }
 interface DatasetOption { id: number; name: string }
 interface DashboardOption { id: number; title: string }
+interface AssignableUser { id: number; username: string; role: string; role_label: string; department: string }
+interface AssignableDept { department: string; users: AssignableUser[] }
 
 const authStore = useAuthStore()
 const loading = ref(false)
@@ -242,7 +253,24 @@ const items = ref<ActionItem[]>([])
 const metrics = ref<MetricOption[]>([])
 const datasets = ref<DatasetOption[]>([])
 const dashboards = ref<DashboardOption[]>([])
+const assignableUsers = ref<AssignableDept[]>([])
 const formRef = ref<FormInstance>()
+
+const assignableTree = computed(() => {
+  const allUsers: AssignableUser[] = []
+  assignableUsers.value.forEach(dept => allUsers.push(...dept.users))
+
+  return assignableUsers.value.map(dept => ({
+    value: `dept:${dept.department}`,
+    label: dept.department,
+    disabled: true,
+    children: dept.users.map(u => ({
+      value: u.id,
+      label: `${u.username}（${u.role_label}）`,
+      disabled: false,
+    })),
+  }))
+})
 
 const statusOptions = [
   { label: "待处理", value: "open" },
@@ -311,7 +339,14 @@ const priorityTagType = (value: string) => {
 const metricName = (id?: number | null) => id ? metrics.value.find(item => item.id === id)?.name : ""
 const datasetName = (id?: number | null) => id ? datasets.value.find(item => item.id === id)?.name : ""
 const dashboardName = (id?: number | null) => id ? dashboards.value.find(item => item.id === id)?.title : ""
-const ownerLabel = (id?: number | null) => id === authStore.profile?.id ? `${authStore.profile?.username || "我"}` : id ? `用户 #${id}` : "未指派"
+const ownerLabel = (id?: number | null) => {
+  if (!id) return "未指派"
+  for (const dept of assignableUsers.value) {
+    const u = dept.users.find(u => u.id === id)
+    if (u) return `${u.username}（${u.department}）`
+  }
+  return id === authStore.profile?.id ? authStore.profile?.username || "我" : `用户 #${id}`
+}
 
 const hasLinks = (row: ActionItem) => Boolean(row.linked_metric_id || row.linked_dataset_id || row.linked_dashboard_id)
 
@@ -366,14 +401,16 @@ const fetchItems = async () => {
 }
 
 const fetchReferences = async () => {
-  const [metricRes, datasetRes, dashboardRes] = await Promise.allSettled([
+  const [metricRes, datasetRes, dashboardRes, assignableRes] = await Promise.allSettled([
     axios.get("/api/metrics"),
     axios.get("/api/datasets"),
     axios.get("/api/dashboards"),
+    axios.get("/api/users/assignable"),
   ])
   if (metricRes.status === "fulfilled") metrics.value = metricRes.value.data.items || []
   if (datasetRes.status === "fulfilled") datasets.value = datasetRes.value.data.items || []
   if (dashboardRes.status === "fulfilled") dashboards.value = dashboardRes.value.data.items || []
+  if (assignableRes.status === "fulfilled") assignableUsers.value = assignableRes.value.data || []
 }
 
 const fetchAll = async () => {

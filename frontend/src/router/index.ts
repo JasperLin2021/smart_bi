@@ -23,9 +23,14 @@ const router = createRouter({
       component: () => import("@/views/OlapStatus.vue"),
       meta: { requiredRole: ['org_admin', 'super_admin'] }
     },
-    { 
-      path: "/user-management", 
+    {
+      path: "/user-management",
       component: () => import("@/views/UserManagement.vue"),
+      meta: { requiredRole: ['org_admin', 'super_admin'] }
+    },
+    {
+      path: "/role-management",
+      component: () => import("@/views/RoleManagement.vue"),
       meta: { requiredRole: ['org_admin', 'super_admin'] }
     },
     { 

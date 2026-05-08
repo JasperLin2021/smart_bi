@@ -307,6 +307,7 @@ const menuEntries: MenuEntry[] = [
     icon: Setting,
     items: [
       { path: "/user-management", label: "用户管理", icon: User, roles: ["org_admin", "super_admin"] },
+      { path: "/role-management", label: "权限管理", icon: Setting, roles: ["org_admin", "super_admin"] },
       { path: "/org-management", label: "企业管理", icon: OfficeBuilding, roles: ["super_admin"] },
       { path: "/audit-logs", label: "审计日志", icon: Document, roles: ["org_admin", "super_admin"] },
       { path: "/operations", label: "运营后台", icon: DataLine, roles: ["org_admin", "super_admin"] },

@@ -49,7 +49,7 @@ def _scope(query, user: User):
     if user.role == "super_admin":
         return query
     query = query.filter(ActionItem.org_id == user.org_id)
-    if user.role == "org_admin":
+    if user.role in ("org_admin", "dept_admin"):
         return query
     return query.filter(or_(ActionItem.owner_id == user.id, ActionItem.created_by == user.id))
 
@@ -59,7 +59,7 @@ def _can_manage(user: User, item: ActionItem) -> bool:
         return True
     if item.org_id != user.org_id:
         return False
-    if user.role == "org_admin":
+    if user.role in ("org_admin", "dept_admin"):
         return True
     return item.owner_id == user.id or item.created_by == user.id
 

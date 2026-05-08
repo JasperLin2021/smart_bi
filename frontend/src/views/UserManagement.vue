@@ -62,6 +62,11 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="department" label="部门" width="130">
+          <template #default="{ row }">
+            <span class="dept-text">{{ row.department || '—' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="org_name" label="所属企业" min-width="150">
           <template #default="{ row }">
             <span v-if="row.org_name" class="org-name">
@@ -98,22 +103,31 @@
             <el-option label="普通用户" value="user">
               <div class="role-option">
                 <el-tag type="info" size="small">普通用户</el-tag>
-                <span class="role-desc">可查询数据、管理本企业数据源</span>
+                <span class="role-desc">可查询数据、浏览 BI 资产</span>
+              </div>
+            </el-option>
+            <el-option label="部门管理员" value="dept_admin">
+              <div class="role-option">
+                <el-tag type="success" size="small">部门管理员</el-tag>
+                <span class="role-desc">可管理本部门行动项和 BI 资产，查看全企业数据</span>
               </div>
             </el-option>
             <el-option label="企业管理员" value="org_admin">
               <div class="role-option">
                 <el-tag type="warning" size="small">企业管理员</el-tag>
-                <span class="role-desc">可管理本企业用户和数据源</span>
+                <span class="role-desc">可管理本企业用户、数据源和全部 BI 资产</span>
               </div>
             </el-option>
             <el-option v-if="isSuperAdmin" label="超级管理员" value="super_admin">
               <div class="role-option">
                 <el-tag type="danger" size="small">超级管理员</el-tag>
-                <span class="role-desc">拥有所有权限</span>
+                <span class="role-desc">拥有所有权限，跨企业管理</span>
               </div>
             </el-option>
           </el-select>
+        </el-form-item>
+        <el-form-item label="所属部门">
+          <el-input v-model="form.department" placeholder="如：数据分析部、销售部" />
         </el-form-item>
         <el-form-item v-if="isSuperAdmin" label="所属企业">
           <el-select v-model="form.org_id" style="width: 100%" clearable placeholder="选择企业（超管可留空）">
@@ -140,6 +154,8 @@ interface UserItem {
   id: number
   username: string
   role: string
+  role_label: string | null
+  department: string | null
   org_id: number | null
   org_name: string | null
 }
@@ -162,6 +178,7 @@ const form = reactive({
   username: "",
   password: "",
   role: "user",
+  department: "",
   org_id: null as number | null,
 })
 
@@ -171,6 +188,7 @@ const adminCount = computed(() => users.value.filter(u => u.role !== "user").len
 const roleLabel = (role: string) => {
   const map: Record<string, string> = {
     user: "普通用户",
+    dept_admin: "部门管理员",
     org_admin: "企业管理员",
     super_admin: "超级管理员",
   }
@@ -180,6 +198,7 @@ const roleLabel = (role: string) => {
 const roleTagType = (role: string) => {
   const map: Record<string, string> = {
     user: "info",
+    dept_admin: "success",
     org_admin: "warning",
     super_admin: "danger",
   }
@@ -204,6 +223,7 @@ const openCreate = () => {
   form.username = ""
   form.password = ""
   form.role = "user"
+  form.department = ""
   form.org_id = authStore.profile?.org_id || null
   dialogVisible.value = true
 }
@@ -214,6 +234,7 @@ const openEdit = (row: UserItem) => {
   form.username = row.username
   form.password = ""
   form.role = row.role
+  form.department = row.department || ""
   form.org_id = row.org_id
   dialogVisible.value = true
 }
@@ -228,6 +249,7 @@ const handleSave = async () => {
     const payload: any = {
       username: form.username,
       role: form.role,
+      department: form.department || null,
       org_id: form.org_id,
     }
     if (form.password) {

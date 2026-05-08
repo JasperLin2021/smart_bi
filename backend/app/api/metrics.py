@@ -201,6 +201,7 @@ def list_metric_certifiers(
                 "id": user.id,
                 "username": user.username,
                 "role": user.role,
+                "department": getattr(user, "department", None),
                 "org_id": user.org_id,
                 "org_name": org_names.get(user.org_id),
                 "can_certify_metric": True,
