@@ -1,188 +1,231 @@
 <div align="center">
 
-<img src="docs/assets/hero.png" alt="Smart BI — Enterprise AI-Powered Business Intelligence" width="100%" />
+<img src="docs/assets/hero.png" alt="Smart BI enterprise analytics workspace" width="100%" />
 
 # Smart BI
 
+**Enterprise-grade, AI-powered business intelligence platform**<br>
 **企业级 AI 驱动商业智能平台**
 
-一站式覆盖数据接入、语义建模、可视化分析、智能预警与行动闭环，开箱即用。
+Smart BI brings data access, semantic datasets, trusted metrics, AI-assisted analysis,
+dashboards, alerts, actions, permissions, and auditability into one open-source product.
+
+Smart BI 将数据接入、语义数据集、可信指标、AI 问数、看板、大屏、预警、行动闭环、权限与审计整合为一个开源产品。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com)
 [![Vue](https://img.shields.io/badge/Vue-3.x-4FC08D.svg)](https://vuejs.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-009688.svg)](https://fastapi.tiangolo.com)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg)](https://www.typescriptlang.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org)
 
-[快速开始](#-快速开始) · [功能特性](#-功能特性) · [技术架构](#-技术架构) · [配置说明](#-配置说明) · [参与贡献](#-参与贡献)
+[Overview](#overview--项目概览) ·
+[Features](#features--核心能力) ·
+[Architecture](#architecture--技术架构) ·
+[Quick Start](#quick-start--快速开始) ·
+[Development](#development--本地开发) ·
+[Security](#security-and-governance--安全与治理)
 
 </div>
 
 ---
 
-## ✨ 功能特性
+## Overview / 项目概览
 
-<img src="docs/assets/features.png" alt="Smart BI Feature Overview" width="100%" />
+Smart BI is designed for teams that need more than a charting demo. It focuses on the
+operational path from raw enterprise data to governed insight and follow-up action:
 
-| 模块 | 能力描述 |
-|------|----------|
-| 🤖 **智能问数** | 自然语言转 SQL，多轮对话，AI Agent 自动规划查询步骤，结果以图表直接呈现 |
-| 📊 **看板中心** | 拖拽式多维看板，支持图表固钉、跨看板复用、评论协作与嵌入分享 |
-| 🖥️ **大屏中心** | 集成 GoView 大屏设计器，支持全屏展示与自动轮播 |
-| 📈 **可信指标** | 指标认证体系（草稿→待认证→已认证），血缘追踪至数据集语义层 |
-| 🔔 **智能预警** | 规则引擎 + 定时调度，支持站内通知与企业微信推送 |
-| 📋 **行动闭环** | 问题发现→行动派单→跟进→关闭全链路，支持部门级指派 |
-| 🗂️ **数据目录** | 统一资产登记，字段级目录，数据血缘 DAG，浏览热度统计，订阅通知 |
-| 🗄️ **数据接入** | MySQL / PostgreSQL / Excel 多源接入，数据集语义建模，Apache Doris OLAP 加速 |
-| 🔐 **企业级权限** | 多租户 RBAC（普通用户 / 部门管理员 / 企业管理员 / 超管），菜单+操作双维度权限，支持用户级个性化覆盖 |
-| 🔗 **企业微信集成** | 扫码登录，部门权限映射，消息推送（预警 / 报告 / 行动项 / 审批提醒） |
-| 📅 **定时报告** | 配置报告模板，定时触发，自动投递至邮件 / 企业微信 |
-| 📝 **审计日志** | 全操作链路审计，管理员可按用户/时间/动作过滤查询 |
+Smart BI 面向需要真实落地的企业 BI 场景，而不是简单图表 Demo。它覆盖从企业数据接入到治理分析、指标认证、业务预警和行动闭环的完整路径：
 
----
+- Connect to databases and files, then model them as reusable semantic datasets.
+- Ask business questions in natural language and let the AI planner produce explainable SQL and charts.
+- Govern metric definitions through certification, lineage, ownership, and dataset binding.
+- Publish dashboards and big-screen views for operational teams.
+- Trigger alerts, scheduled reports, Enterprise WeChat notifications, and action items.
+- Protect administrative and business workflows with multi-tenant RBAC, action permissions, safe-delete checks, and audit logs.
 
-## 🏗️ 技术架构
+- 接入数据库和文件，并沉淀为可复用的语义数据集。
+- 使用自然语言问数，由 AI Planner 生成可解释 SQL 与图表。
+- 通过认证、血缘、负责人和数据集绑定治理可信指标。
+- 发布业务看板和大屏，支撑运营团队实时决策。
+- 触发智能预警、定时报告、企业微信消息和行动项派单。
+- 通过多租户 RBAC、操作权限、安全删除检查和审计日志保护关键流程。
 
-<img src="docs/assets/architecture.png" alt="Smart BI Technical Architecture" width="100%" />
+## Features / 核心能力
 
+<img src="docs/assets/features.png" alt="Smart BI feature map" width="100%" />
+
+| Area | English | 中文 |
+| --- | --- | --- |
+| AI analysis | Natural-language questions, SQL generation, multi-turn context, chart suggestions, and query history. | 自然语言问数、SQL 生成、多轮上下文、图表建议和查询历史。 |
+| Semantic datasets | Dataset modeling, field mapping, joins, preview, publishing, refresh logs, and optional OLAP materialization. | 数据集建模、字段映射、关联关系、预览、发布、刷新日志和可选 OLAP 物化。 |
+| Trusted metrics | Certification workflow, dataset-only binding, lineage, trust signals, and prompt synchronization. | 指标认证流程、仅绑定数据集、血缘、可信信号和提示词同步。 |
+| Dashboards | Dashboard center, pinned charts, comments, templates, sharing, and embedded views. | 看板中心、图表固钉、评论、模板、分享和嵌入视图。 |
+| Big screens | GoView integration plus an internal big-screen center for operational visualization. | 集成 GoView，同时提供内置大屏中心。 |
+| Alerts and reports | Dataset-scoped alert rules, scheduler, notification delivery, and scheduled reports. | 基于数据集的预警规则、调度器、消息投递和定时报告。 |
+| Data catalog | Asset registry, category tree, field-level metadata, lineage graph, subscriptions, and usage statistics. | 数据资产登记、目录树、字段级元数据、血缘图、订阅和使用统计。 |
+| Data access | MySQL, PostgreSQL, Excel, SQL Server, ClickHouse-style connectors, and connector sync foundations. | MySQL、PostgreSQL、Excel、SQL Server、ClickHouse 类连接器和同步框架。 |
+| Governance | Multi-tenant RBAC, menu permissions, action permissions, user overrides, RLS foundation, and audit logs. | 多租户 RBAC、菜单权限、操作权限、用户级覆盖、RLS 基础和审计日志。 |
+| Safe deletion | Deletion is blocked when referenced by dependent entities, with actionable error details. | 删除被其他实体引用的资源时会阻止删除，并返回可操作的提示。 |
+| Enterprise WeChat | QR-code login, organization binding, department permission mapping, and message delivery records. | 企业微信扫码登录、组织绑定、部门权限映射和消息投递记录。 |
+| Operations | Access requests, action items, operations view, and closed-loop follow-up tracking. | 访问申请、行动项、运营视图和问题闭环跟踪。 |
+
+## Architecture / 技术架构
+
+<img src="docs/assets/architecture.png" alt="Smart BI system architecture" width="100%" />
+
+```text
+Browser / Embedded View
+        |
+        v
+Vue 3 + TypeScript + Vite + Element Plus + ECharts + Vue Flow
+        |
+        v
+Nginx SPA proxy -> FastAPI backend -> SQLAlchemy / Alembic
+                         |
+                         +-- AI planner and OpenAI-compatible LLM adapter
+                         +-- Semantic layer and SQL guardrails
+                         +-- Alert scheduler and message dispatcher
+                         +-- Permission resolver, safe-delete guard, audit writer
+                         |
+                         +-- PostgreSQL 16 primary store
+                         +-- Apache Doris optional OLAP materialization
+                         +-- Enterprise WeChat / GoView / external connectors
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Frontend (Vue 3 + Element Plus + ECharts + Vue Flow)       │
-│  Nginx · SPA · /api proxy                                   │
-├─────────────────────────────────────────────────────────────┤
-│  Backend API (FastAPI + Python 3.11)                        │
-│  JWT Auth · AI Agent Planner · Alert Scheduler              │
-│  Alembic Migrations · Pydantic v2                           │
-├──────────────────────────┬──────────────────────────────────┤
-│  PostgreSQL 16           │  Apache Doris (Optional OLAP)    │
-│  Primary store           │  Materialized acceleration       │
-├──────────────────────────┴──────────────────────────────────┤
-│  Integrations                                               │
-│  LLM (OpenAI / Compatible) · Enterprise WeChat · GoView    │
-└─────────────────────────────────────────────────────────────┘
-```
 
-**技术栈一览**
+| Layer | Stack | Notes |
+| --- | --- | --- |
+| Frontend | Vue 3, TypeScript, Vite, Element Plus | SPA, operational UI, dashboard builder, admin console. |
+| Visualization | ECharts, Vue Flow | Charts, metric lineage, catalog lineage, DAG-style interactions. |
+| Backend | Python 3.12, FastAPI 0.115, Pydantic Settings | API service, authentication, governance, AI orchestration. |
+| Persistence | PostgreSQL 16, SQLAlchemy 2, Alembic | Main transactional store and reproducible migrations. |
+| OLAP | Apache Doris 2.1, optional Docker Compose profile | Dataset materialization and accelerated analytical queries. |
+| AI | OpenAI-compatible API | Works with OpenAI, Azure OpenAI, local gateways, and compatible models. |
+| Integrations | Enterprise WeChat, GoView, connector framework | Login, messaging, big-screen launch, external data sync foundation. |
 
-| 层级 | 技术选型 |
-|------|----------|
-| 前端框架 | Vue 3 · TypeScript · Vite |
-| UI 组件库 | Element Plus |
-| 图表引擎 | ECharts 5 · Vue Flow (DAG) |
-| 后端框架 | FastAPI · Python 3.11 |
-| ORM / 迁移 | SQLAlchemy 2 · Alembic |
-| 数据库 | PostgreSQL 16 |
-| OLAP 加速 | Apache Doris 2.1（可选） |
-| 容器化 | Docker Compose |
-| AI 集成 | OpenAI 兼容 API（支持本地模型） |
+## Quick Start / 快速开始
 
----
+### Prerequisites / 前置要求
 
-## 🚀 快速开始
+- Docker Engine 24+ and Docker Compose v2.
+- Git and a shell environment.
+- Host port `16006` available for the frontend container.
+- An OpenAI-compatible LLM endpoint if AI query generation is enabled.
 
-### 前置要求
+- Docker Engine 24+ 与 Docker Compose v2。
+- Git 与基础 Shell 环境。
+- 主机端口 `16006` 可用于前端容器。
+- 如需启用 AI 问数，需要 OpenAI 兼容的 LLM 服务。
 
-- Docker Engine ≥ 24 与 Docker Compose v2
-- 开放主机端口（默认 `16006`）
-
-### 一键部署
+### Run with Docker Compose / 使用 Docker Compose 启动
 
 ```bash
-# 1. 克隆仓库
 git clone https://github.com/Yuki1999/smart_bi.git
 cd smart_bi
 
-# 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，至少设置以下必填项：
-#   POSTGRES_PASSWORD   数据库密码
-#   DATABASE_URL        保持与上面密码一致
-#   JWT_SECRET          随机长字符串
-#   LLM_API_KEY         LLM API Key（支持 OpenAI 兼容接口）
+# Edit .env before exposing the service publicly.
+# 对外暴露前请先修改 .env 中的密码、JWT_SECRET 和 LLM 配置。
 
-# 3. 构建并启动
 docker compose up -d --build
 
-# 4. 访问
 open http://localhost:16006
 ```
 
-**默认账号**（首次启动自动初始化，上线前请修改密码）
+Default services:
 
-| 角色 | 用户名 | 密码 |
-|------|--------|------|
-| 超级管理员 | `admin` | `admin123` |
-| 企业管理员（Nexteer） | `nexteer_admin` | `nexteer123` |
-| 部门管理员 | `zhang_dept` | `dept123` |
-| 普通用户 | `nexteer` | `nexteer123` |
+| Service | Default | Description |
+| --- | --- | --- |
+| Frontend | `http://localhost:16006` | Nginx-served SPA and `/api` proxy. |
+| Backend | internal `8001` | FastAPI service exposed to the frontend container. |
+| PostgreSQL | internal `5432` | Primary database. |
+| Doris | optional profile | Start only when OLAP acceleration is needed. |
 
-> ⚠️ **安全提示**：在任何对外暴露的环境中，请在首次登录后立即修改所有默认密码。
+### Default demo accounts / 默认演示账号
 
-### 启用 OLAP 加速（可选）
+These accounts are initialized for local evaluation. Change every default password before
+using the system in a shared or public environment.
+
+以下账号用于本地演示。任何共享或公网环境上线前都必须修改所有默认密码。
+
+| Role | Username | Password |
+| --- | --- | --- |
+| Super administrator / 超级管理员 | `admin` | `admin123` |
+| Organization administrator / 企业管理员 | `nexteer_admin` | `nexteer123` |
+| Department administrator / 部门管理员 | `zhang_dept` | `dept123` |
+| Standard user / 普通用户 | `nexteer` | `nexteer123` |
+
+### Optional OLAP acceleration / 可选 OLAP 加速
 
 ```bash
-# 启动 Apache Doris FE/BE
 docker compose --profile olap up -d --build
-
-# 在 .env 中启用
-DORIS_ENABLED=true
 ```
 
-Doris 启用后，数据集物化查询性能可提升 10–100×，现有直连和 Excel 路径继续作为 fallback。
-
----
-
-## ⚙️ 配置说明
-
-### 必填配置
+Then enable Doris in `.env`:
 
 ```env
-POSTGRES_PASSWORD=<强密码>
-DATABASE_URL=postgresql+psycopg2://smart_bi:<密码>@postgres:5432/smart_bi
-JWT_SECRET=<随机长字符串，建议 64 位>
-
-# LLM（支持 OpenAI、Azure OpenAI、本地 Ollama 等兼容接口）
-LLM_PROVIDER=custom
-LLM_API_BASE=https://api.openai.com/v1
-LLM_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
+DORIS_ENABLED=true
+DORIS_HOST=doris-fe
+DORIS_QUERY_PORT=9030
+DORIS_HTTP_PORT=8030
 ```
 
-### GoView 大屏集成
+## Configuration / 配置
+
+The repository includes `.env.example` as the starting point for deployment.
+
+仓库提供 `.env.example` 作为部署配置模板。
+
+```env
+POSTGRES_DB=smart_bi
+POSTGRES_USER=smart_bi
+POSTGRES_PASSWORD=change_me_strong_database_password
+
+DATABASE_URL=postgresql+psycopg2://smart_bi:change_me_strong_database_password@postgres:5432/smart_bi
+JWT_SECRET=change_me_to_a_long_random_secret
+
+LLM_PROVIDER=custom
+LLM_API_BASE=http://host.docker.internal:8001/v1
+LLM_API_KEY=change_me
+LLM_MODEL=gpt-4o-mini
+
+FRONTEND_PORT=16006
+```
+
+GoView integration:
 
 ```env
 GOVIEW_ENABLED=true
-GOVIEW_BASE_URL=http://your-goview-host:3000
-GOVIEW_EMBED_BASE_URL=http://your-goview-host:3000
-GOVIEW_BRIDGE_SECRET=<与 GoView 约定的共享密钥>
+GOVIEW_BASE_URL=http://host.docker.internal:3000
+GOVIEW_EMBED_BASE_URL=http://host.docker.internal:3000
+GOVIEW_BRIDGE_SECRET=change_me_to_a_long_random_secret
 ```
 
-### 企业微信集成
+Enterprise WeChat is configured inside the application so secrets and department mappings
+can be managed by administrators:
 
-无需写入 `.env`，在 Smart BI 界面中配置：
+企业微信集成在系统内配置，便于管理员管理密钥、组织绑定和部门权限映射：
 
-1. 进入「系统管理 → 企业微信集成」
-2. 填入 `CorpID`、`AgentID`、`Secret`
-3. 配置回调地址：`https://your-domain/api/auth/wechat-work/callback`
-4. 在「组织绑定」中绑定企业，在「部门权限」中映射角色与权限
+1. Open `System Management -> Enterprise WeChat Integration`.
+2. Configure `CorpID`, `AgentID`, `Secret`, and callback URL.
+3. Bind enterprise organizations.
+4. Map departments to roles, menu permissions, action permissions, and data scope.
 
----
+## Development / 本地开发
 
-## 💻 本地开发
-
-### 后端
+### Backend / 后端
 
 ```bash
 cd backend
 uv sync
-# SQLite 快速启动
+
 DATABASE_URL=sqlite:///./smartbi.db uv run alembic upgrade head
 DATABASE_URL=sqlite:///./smartbi.db uv run uvicorn app.main:app \
   --host 0.0.0.0 --port 8002 --reload
 ```
 
-### 前端
+### Frontend / 前端
 
 ```bash
 cd frontend
@@ -191,7 +234,7 @@ VITE_API_PROXY_TARGET=http://localhost:8002 npm run dev -- \
   --host 0.0.0.0 --port 16006
 ```
 
-### 数据库迁移（生产升级）
+### Database migration / 数据库迁移
 
 ```bash
 cd backend
@@ -199,55 +242,151 @@ DATABASE_URL=postgresql+psycopg2://user:password@host:5432/smart_bi \
   uv run alembic upgrade head
 ```
 
-### 常用命令
+## Testing / 测试
+
+Run the checks that match the layer you changed:
+
+按修改范围运行对应检查：
 
 ```bash
-docker compose ps                  # 查看容器状态
-docker compose logs -f backend     # 后端实时日志
-docker compose logs -f frontend    # 前端/Nginx 日志
-docker compose down                # 停止并移除容器
-docker compose down -v             # 同时删除数据卷（谨慎）
+# Backend unit and API tests
+cd backend
+uv run pytest
+
+# Frontend static tests
+cd frontend
+npm run test:static
+
+# Frontend production build
+cd frontend
+npm run build
+
+# UI audit, requires the target app URL to be reachable
+cd frontend
+npm run test:ui
 ```
 
----
+Current test coverage includes permission resolution, safe deletion, metric binding,
+dataset-scoped alerts and reports, semantic layer behavior, GoView integration,
+Enterprise WeChat integration, UI navigation, and product completion checks.
 
-## 🛣️ 路线图
+当前测试覆盖权限解析、安全删除、指标绑定、基于数据集的预警与报告、语义层、GoView、企业微信、UI 导航和产品完整性检查。
 
-- [x] 多租户 RBAC 权限体系（菜单 + 操作 + 用户级覆盖）
-- [x] AI 智能问数（多轮对话，Agent 规划）
-- [x] 数据集语义层（字段映射、JOIN、发布）
-- [x] 可信指标认证体系与数据血缘
-- [x] 数据目录（资产登记、字段级、血缘 DAG、订阅通知）
-- [x] 企业微信扫码登录与消息推送
-- [x] GoView 大屏集成
-- [x] Apache Doris OLAP 加速层
-- [ ] 移动端 H5 自适应
-- [ ] 行列级数据权限（RLS）
-- [ ] 数据集 API 导出（REST / CSV）
-- [ ] 更多数据源连接器（Snowflake、ClickHouse、S3）
-- [ ] Embed SDK（无感嵌入第三方系统）
-- [ ] 多语言国际化（i18n）
+## Security and Governance / 安全与治理
 
----
+Smart BI treats governance as a product capability rather than an afterthought.
 
-## 🤝 参与贡献
+Smart BI 将治理能力作为产品内核，而不是部署后的补丁。
 
-欢迎 Issue、PR 和 Discussion！
+- Multi-tenant RBAC with platform, organization, department, and user roles.
+- Separate menu permissions and action permissions for least-privilege administration.
+- Per-user permission overrides for exceptional access without changing base roles.
+- Data scope controls and RLS foundation for tenant-aware access.
+- Safe-delete guards that block deletion when datasets, metrics, alerts, reports, dashboards, users, or other entities are still referenced.
+- Audit logs for administrative and business actions.
+- Enterprise WeChat mappings for external organization and department permission sync.
 
-1. Fork 本仓库
-2. 创建特性分支：`git checkout -b feature/your-feature`
-3. 提交改动：`git commit -m 'feat: your feature'`
-4. 推送分支：`git push origin feature/your-feature`
-5. 创建 Pull Request
+- 多租户 RBAC，覆盖平台、企业、部门和用户角色。
+- 菜单权限与操作权限分离，支持最小权限管理。
+- 用户级权限覆盖，用于处理临时或特殊授权。
+- 数据范围控制和 RLS 基础能力，服务租户隔离。
+- 安全删除保护：当数据集、指标、预警、报告、看板、用户等仍被引用时阻止删除。
+- 管理动作和业务动作审计日志。
+- 企业微信组织和部门映射，用于外部身份与权限同步。
 
-**代码规范**
+Recommended production hardening:
 
-- 后端：`ruff` 格式化，类型注解，Pydantic v2 Schema
-- 前端：ESLint + `vue/recommended`，TypeScript strict mode
-- 提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org)
+生产环境建议：
 
----
+- Replace all demo passwords and rotate `JWT_SECRET`.
+- Run behind HTTPS and a trusted reverse proxy.
+- Restrict database and Doris ports to the private network.
+- Store real LLM keys and integration secrets outside source control.
+- Back up PostgreSQL and uploaded assets before upgrades.
+- Review audit logs and permission mappings after each role policy change.
 
-## 📄 License
+## Project Structure / 项目结构
 
-[MIT License](LICENSE) · Copyright © 2025 Smart BI Contributors
+```text
+smart_bi/
+├── backend/                 # FastAPI service, SQLAlchemy models, Alembic migrations, tests
+├── frontend/                # Vue 3 SPA, views, components, static tests, UI audit
+├── docs/                    # Product docs, implementation plans, README assets
+├── docker-compose.yml       # Production-style local deployment
+├── .env.example             # Deployment configuration template
+├── mock_data.sql            # Demo data for realistic evaluation
+├── LICENSE                  # MIT license
+└── README.md
+```
+
+## Roadmap / 路线图
+
+Completed:
+
+- Multi-tenant RBAC, action permissions, and user-level overrides.
+- AI-assisted query workflow and dataset-scoped semantic analysis.
+- Dataset semantic layer, publishing workflow, refresh logs, and preview.
+- Trusted metric certification with dataset binding and lineage.
+- Data catalog, asset lineage, subscriptions, and usage statistics.
+- Safe-delete checks across referenced business entities.
+- Dashboard center, pinned charts, comments, templates, and embedded views.
+- GoView big-screen integration.
+- Enterprise WeChat login, mappings, and message delivery.
+- Apache Doris optional OLAP acceleration.
+
+Planned:
+
+- Deeper row-level and column-level security policy authoring.
+- Dataset API export for REST and CSV consumers.
+- More managed connectors such as Snowflake, S3, and additional SaaS systems.
+- Embed SDK for third-party applications.
+- Full product internationalization.
+- More deployment profiles for Kubernetes and cloud-native operations.
+
+已完成：
+
+- 多租户 RBAC、操作权限和用户级权限覆盖。
+- AI 问数流程和基于数据集的语义分析。
+- 数据集语义层、发布流程、刷新日志和预览。
+- 可信指标认证、数据集绑定和血缘。
+- 数据目录、资产血缘、订阅和使用统计。
+- 跨业务实体引用的安全删除检查。
+- 看板中心、图表固钉、评论、模板和嵌入视图。
+- GoView 大屏集成。
+- 企业微信登录、映射和消息投递。
+- Apache Doris 可选 OLAP 加速。
+
+计划中：
+
+- 更完整的行级和列级权限策略配置。
+- 面向 REST 和 CSV 消费方的数据集 API 导出。
+- 更多托管连接器，如 Snowflake、S3 和其他 SaaS 系统。
+- 面向第三方系统的 Embed SDK。
+- 完整产品国际化。
+- Kubernetes 和云原生部署配置。
+
+## Contributing / 参与贡献
+
+Contributions are welcome. Please keep changes focused, reproducible, and covered by
+the relevant tests.
+
+欢迎贡献代码。请保持改动聚焦、可复现，并补充对应测试。
+
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/your-feature`.
+3. Install dependencies with `uv` for backend and `npm` for frontend.
+4. Run the relevant backend, frontend, or UI checks.
+5. Commit using a clear Conventional Commit style message.
+6. Open a Pull Request with context, screenshots for UI changes, and validation notes.
+
+Code expectations:
+
+- Backend: typed Python, FastAPI patterns, SQLAlchemy 2 style, Alembic migrations, focused tests.
+- Frontend: Vue 3 Composition API, TypeScript, Element Plus conventions, responsive UI.
+- Security: no secrets in commits, no permission bypasses, no destructive migrations without a rollback story.
+- Documentation: update README or product docs when behavior, setup, or operator workflows change.
+
+## License / 许可证
+
+[MIT License](LICENSE)<br>
+Copyright (c) 2025 Smart BI Contributors
