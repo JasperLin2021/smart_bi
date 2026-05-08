@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/hero.png" alt="Smart BI enterprise analytics workspace" width="100%" />
-
 # Smart BI
 
 **Enterprise AI-powered business intelligence platform**<br>
@@ -36,9 +34,27 @@ demo: connect enterprise data, model it as reusable datasets, certify business m
 ask questions in natural language, publish dashboards, trigger alerts, and close the
 loop with follow-up actions.
 
-### Feature Map
+### Screenshots
 
-<img src="docs/assets/features.png" alt="Smart BI feature map" width="100%" />
+| AI 问数 · Natural-language query | 可信指标 · Certified metrics |
+|---|---|
+| ![AI query interface showing natural-language question input with SQL preview and bar chart result](docs/assets/ss-smart-query.png) | ![Certified metrics list with trust scores, dataset binding, and owner information](docs/assets/ss-metrics.png) |
+
+| 看板中心 · Dashboard center | 数据目录 · Data catalog |
+|---|---|
+| ![Dashboard center with pinned charts and dashboard cards](docs/assets/ss-dashboards.png) | ![Data catalog with asset registry, category tree, and usage statistics](docs/assets/ss-catalog.png) |
+
+| 数据接入 · Data sources | 预警管理 · Alert rules |
+|---|---|
+| ![Data source management with connection status, completion progress bars, and table counts](docs/assets/ss-datasource.png) | ![Alert rules list with dataset scope, metric thresholds, and notification channels](docs/assets/ss-alerts.png) |
+
+| 用户与权限 · Access control | 看板 · Dashboard |
+|---|---|
+| ![Unified access control page showing 17 users across 2 enterprises with role and status columns](docs/assets/ss-access.png) | ![Interactive dashboard with ECharts visualizations and metric summary cards](docs/assets/ss-dashboard.png) |
+
+---
+
+### Feature Map
 
 | Area | Capability |
 | --- | --- |
@@ -56,8 +72,6 @@ loop with follow-up actions.
 | Operations | Access requests, action items, operations view, and closed-loop follow-up tracking. |
 
 ### Architecture
-
-<img src="docs/assets/architecture.png" alt="Smart BI system architecture" width="100%" />
 
 ```text
 Browser / Embedded View
@@ -328,9 +342,27 @@ Smart BI 是一个企业级开源商业智能平台。它将数据接入、语�
 
 Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它支持连接企业数据、沉淀可复用数据集、认证业务指标、用自然语言问数、发布看板、触发预警，并通过行动项完成业务闭环。
 
-### 核心能力
+### 界面截图
 
-<img src="docs/assets/features.png" alt="Smart BI 核心能力图" width="100%" />
+| AI 问数 | 可信指标 |
+|---|---|
+| ![自然语言提问界面，含 SQL 预览与柱状图结果](docs/assets/ss-smart-query.png) | ![可信指标列表，含信任度评分、数据集绑定和负责人信息](docs/assets/ss-metrics.png) |
+
+| 看板中心 | 数据目录 |
+|---|---|
+| ![看板中心，含固钉图表和看板卡片](docs/assets/ss-dashboards.png) | ![数据目录，含资产登记、目录树和使用统计](docs/assets/ss-catalog.png) |
+
+| 数据接入 | 预警管理 |
+|---|---|
+| ![数据源管理，含连接状态、完整度进度条和表数量](docs/assets/ss-datasource.png) | ![预警规则列表，含数据集范围、指标阈值和通知渠道](docs/assets/ss-alerts.png) |
+
+| 用户与权限 | 看板 |
+|---|---|
+| ![统一权限管理页，含跨 2 个企业的 17 名用户及角色状态列](docs/assets/ss-access.png) | ![含 ECharts 图表和指标卡片的交互式看板](docs/assets/ss-dashboard.png) |
+
+---
+
+### 核心能力
 
 | 模块 | 能力 |
 | --- | --- |
@@ -348,8 +380,6 @@ Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它�
 | 运营闭环 | 访问申请、行动项、运营视图和问题闭环跟踪。 |
 
 ### 技术架构
-
-<img src="docs/assets/architecture.png" alt="Smart BI 技术架构图" width="100%" />
 
 ```text
 浏览器 / 嵌入视图
