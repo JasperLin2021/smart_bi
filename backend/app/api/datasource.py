@@ -30,6 +30,7 @@ from app.core.schema_detector import detect_schema, schema_to_prompt
 from app.core.drill_config import generate_drill_config
 from app.core.schema_enrichment import generate_column_descriptions
 from app.core.audit import try_record_audit_log
+from app.core.safe_delete import assert_datasource_can_delete
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 SAFE_EXCEL_TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -245,6 +246,7 @@ def delete_datasource(
         raise HTTPException(status_code=404, detail="数据源不存在")
     if not check_datasource_access(current_user, ds):
         raise HTTPException(status_code=403, detail="无权删除此数据源")
+    assert_datasource_can_delete(db, ds)
     ds_id = ds.id
     ds_name = ds.name
     ds_org_id = ds.org_id
@@ -521,6 +523,45 @@ async def generate_column_descriptions_for_table(
         detail={"table": table.name, "filled_count": filled_count},
     )
     return {"table": enriched_table.model_dump(), "filled_count": filled_count}
+
+
+@router.get("/{datasource_id}/schema-simple")
+def get_schema_simple(
+    datasource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return {tables: [{name, columns: [str]}]} for SQL autocomplete."""
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+
+    # Prefer cached schema_metadata to avoid a live DB round-trip
+    if ds.schema_metadata:
+        try:
+            schema = SchemaMetadata.model_validate(json.loads(ds.schema_metadata))
+            return {
+                "tables": [
+                    {"name": t.name, "columns": [c.name for c in t.columns]}
+                    for t in schema.tables
+                ]
+            }
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    # Fallback: live detect
+    try:
+        schema = detect_schema(ds.database_url, ds.source_type)
+        return {
+            "tables": [
+                {"name": t.name, "columns": [c.name for c in t.columns]}
+                for t in schema.tables
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"获取表结构失败: {e}")
 
 
 @router.post("/{datasource_id}/generate-drill-config")

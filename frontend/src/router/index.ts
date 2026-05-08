@@ -11,11 +11,18 @@ const router = createRouter({
     { path: "/big-screen-center", component: () => import("@/views/GoViewCenter.vue") },
     { path: "/goview", redirect: "/big-screen-center" },
     { path: "/internal-big-screen-center", component: () => import("@/views/BigScreenCenter.vue") },
+    { path: "/data-access", component: () => import("@/views/DataAccessCenter.vue") },
+    { path: "/data-link", component: () => import("@/views/DataLink.vue") },
     { path: "/data-catalog", component: () => import("@/views/DataCatalog.vue") },
     { path: "/dataset-center", component: () => import("@/views/DatasetCenter.vue") },
     { path: "/smart-query", component: () => import("@/views/SmartQuery.vue") },
     { path: "/action-items", component: () => import("@/views/ActionItems.vue") },
     { path: "/datasource-settings", component: () => import("@/views/DataSourceSettings.vue") },
+    {
+      path: "/olap-status",
+      component: () => import("@/views/OlapStatus.vue"),
+      meta: { requiredRole: ['org_admin', 'super_admin'] }
+    },
     { 
       path: "/user-management", 
       component: () => import("@/views/UserManagement.vue"),
@@ -39,16 +46,31 @@ const router = createRouter({
       component: () => import("@/views/Operations.vue"),
       meta: { requiredRole: ['org_admin', 'super_admin'] }
     },
-    { 
-      path: "/llm-settings", 
+    {
+      path: "/llm-settings",
       component: () => import("@/views/LlmSettings.vue"),
       meta: { requiredRole: ['super_admin'] }
+    },
+    {
+      path: "/notification-settings",
+      component: () => import("@/views/NotificationSettings.vue"),
+      meta: { requiredRole: ['super_admin'] }
+    },
+    {
+      path: "/wechat-work-integration",
+      component: () => import("@/views/WechatWorkIntegration.vue"),
+      meta: { requiredRole: ['super_admin'] }
+    },
+    {
+      path: "/embed/:token",
+      component: () => import("@/views/EmbedView.vue"),
+      meta: { public: true },
     },
   ]
 })
 
 router.beforeEach(async (to) => {
-  if (to.path === "/login") return true
+  if (to.path === "/login" || to.meta.public) return true
   
   const token = localStorage.getItem("smart-bi-token")
   if (!token) return "/login"

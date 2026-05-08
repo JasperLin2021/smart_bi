@@ -10,6 +10,22 @@ export interface QueryResult {
   rows: Array<Record<string, string | number>>
 }
 
+export interface SemanticQueryRequest {
+  dataset_id: number
+  dimensions: string[]
+  metrics: string[]
+  filters?: Array<Record<string, unknown>>
+  limit?: number
+}
+
+export interface SemanticQueryResponse {
+  dataset_id: number
+  columns: string[]
+  labels: Record<string, string>
+  rows: Array<Record<string, unknown>>
+  sql_query: string
+}
+
 export interface MetricTrustSignal {
   metric_id: number
   metric_name: string
@@ -301,6 +317,11 @@ export const useQueryStore = defineStore("query", {
         actions: (response.data.actions || []) as DrillAction[],
         detail_action: (response.data.detail_action || null) as DrillAction | null,
       }
+    },
+
+    async runSemanticQuery(payload: SemanticQueryRequest): Promise<SemanticQueryResponse> {
+      const response = await axios.post("/api/query/semantic", payload)
+      return response.data as SemanticQueryResponse
     }
   }
 })

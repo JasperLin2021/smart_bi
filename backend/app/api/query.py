@@ -1,5 +1,6 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 from fastapi_cache.decorator import cache
@@ -11,6 +12,7 @@ from app.core.metric_binding import match_metric_from_question, sql_uses_metric_
 from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
 from app.core.sql_guard import detect_excel_join_risk
+from app.core.semantic_layer import build_semantic_query_plan, execute_semantic_sql
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.dataset import Dataset
@@ -19,11 +21,73 @@ from app.models.metric import Metric
 from app.models.query import QueryHistory
 from app.models.user import User
 from app.schemas.query import QueryAskRequest, QueryAskResponse, HistoryListResponse
+from app.schemas.query import SemanticQueryRequest, SemanticQueryResponse
 from app.schemas.query import DrillPreviewRequest, DrillPreviewResponse
 from app.core.drill_runtime import build_drill_actions
 from app.core.drill_suggester import suggest_drill_actions
+from app.core.rls_enforcer import get_rls_clauses, apply_rls_to_sql
 
 router = APIRouter(prefix="/query", tags=["query"])
+
+
+@router.post("/semantic", response_model=SemanticQueryResponse)
+def semantic_query(
+    payload: SemanticQueryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
+    datasource = _get_datasource(db, dataset.datasource_id, current_user)
+    if not datasource:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    try:
+        plan = build_semantic_query_plan(dataset, payload)
+        sql_query = plan.sql
+        rls_clauses = get_rls_clauses(db, datasource.id, current_user)
+        if rls_clauses:
+            sql_query = apply_rls_to_sql(sql_query, rls_clauses)
+        result = execute_semantic_sql(datasource, sql_query, plan.params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="query.semantic",
+            resource_type="dataset",
+            resource_id=dataset.id,
+            resource_name=dataset.name,
+            org_id=dataset.org_id,
+            status="error",
+            message=f"语义查询失败: {exc}",
+        )
+        raise HTTPException(status_code=502, detail=f"语义查询失败: {exc}")
+
+    response = {
+        "dataset_id": dataset.id,
+        "columns": plan.columns,
+        "labels": plan.labels,
+        "rows": result.get("rows", []),
+        "sql_query": sql_query,
+    }
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="query.semantic",
+        resource_type="dataset",
+        resource_id=dataset.id,
+        resource_name=dataset.name,
+        org_id=dataset.org_id,
+        message="语义查询已完成",
+        detail={
+            "dimensions": payload.dimensions,
+            "metrics": payload.metrics,
+            "row_count": len(response["rows"]),
+        },
+    )
+    return response
 
 
 def _get_persisted_llm_model(db: Session) -> str | None:
@@ -372,6 +436,11 @@ async def ask(
         raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
 
     # Execute SQL based on source type
+    # Apply Row-Level Security rules before execution
+    rls_clauses = get_rls_clauses(db, datasource.id, current_user)
+    if rls_clauses:
+        sql_query = apply_rls_to_sql(sql_query, rls_clauses)
+
     result = {"columns": [], "rows": []}
     rows = []
     try:
@@ -598,3 +667,67 @@ async def drill_preview(
     except Exception:
         preview = {"actions": [], "detail_action": None}
     return preview
+
+
+class SaveInsightRequest(BaseModel):
+    history_id: int
+    title: str
+
+
+@router.post("/save-insight")
+def save_insight(
+    payload: SaveInsightRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    record = db.query(QueryHistory).filter(QueryHistory.id == payload.history_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="历史记录不存在")
+    if record.user_id != current_user.id and current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="无权操作")
+    record.is_insight = True
+    record.insight_title = payload.title
+    record.org_id = current_user.org_id
+    db.commit()
+    return {"status": "ok", "history_id": record.id}
+
+
+@router.delete("/save-insight/{history_id}")
+def remove_insight(
+    history_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    record = db.query(QueryHistory).filter(QueryHistory.id == history_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="历史记录不存在")
+    if record.user_id != current_user.id and current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="无权操作")
+    record.is_insight = False
+    record.insight_title = None
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/insights")
+def list_insights(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    q = db.query(QueryHistory).filter(QueryHistory.is_insight == True)  # noqa: E712
+    if current_user.role != "super_admin":
+        q = q.filter(QueryHistory.org_id == current_user.org_id)
+    items = q.order_by(QueryHistory.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "title": r.insight_title or r.question,
+            "question": r.question,
+            "sql_query": r.sql_query,
+            "summary": r.summary,
+            "created_at": r.created_at,
+            "user_id": r.user_id,
+        }
+        for r in items
+    ]

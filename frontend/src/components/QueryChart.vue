@@ -9,6 +9,8 @@
             <el-option label="柱状图" value="bar" />
             <el-option label="面积图" value="area" />
             <el-option label="饼图" value="pie" />
+            <el-option label="漏斗图" value="funnel" />
+            <el-option label="仪表盘" value="gauge" />
           </el-select>
           <el-select v-model="xAxisField" size="small" placeholder="X轴" style="width: 120px; margin-right: 8px;">
             <el-option v-for="col in columns" :key="col" :label="col" :value="col" />
@@ -30,6 +32,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, nextTick } from "vue"
 import * as echarts from "echarts"
+import {
+  CHART_COLOR_PALETTE,
+  PRIMARY_CHART_COLOR,
+  chartColorAt,
+  colorizeCategoryData,
+  makeAreaGradient,
+} from "@/utils/chartColors"
 
 const props = defineProps<{
   columns: string[]
@@ -37,7 +46,7 @@ const props = defineProps<{
 }>()
 
 const chartRef = ref<HTMLDivElement | null>(null)
-const chartType = ref<"line" | "bar" | "area" | "pie">("line")
+const chartType = ref<"line" | "bar" | "area" | "pie" | "funnel" | "gauge">("line")
 const xAxisField = ref("")
 const yAxisField = ref("")
 const seriesField = ref("")
@@ -93,12 +102,64 @@ const buildOption = () => {
       value: Number(row[yAxisField.value]) || 0
     }))
     return {
+      color: CHART_COLOR_PALETTE,
       tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
       legend: { orient: "vertical", left: "left", top: "center" },
       series: [{
         type: "pie",
         radius: ["40%", "70%"],
-        data: data.slice(0, 20) // 限制饼图数量
+        data: data.slice(0, 20), // 限制饼图数量
+        itemStyle: { borderRadius: 4, borderWidth: 1, borderColor: "#fff" },
+      }]
+    }
+  }
+
+  if (chartType.value === "funnel") {
+    const data = props.rows.map(row => ({
+      name: String(row[xAxisField.value]),
+      value: Number(row[yAxisField.value]) || 0
+    })).sort((a, b) => b.value - a.value)
+    return {
+      color: CHART_COLOR_PALETTE,
+      tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+      series: [{
+        type: "funnel",
+        left: "10%", width: "80%",
+        sort: "descending", gap: 2,
+        label: { show: true, position: "inside", formatter: "{b}\n{d}%" },
+        itemStyle: { borderWidth: 1, borderColor: "#fff" },
+        data,
+      }]
+    }
+  }
+
+  if (chartType.value === "gauge") {
+    const rows = props.rows
+    const displayVal = rows.length === 1
+      ? Number(rows[0][yAxisField.value]) || 0
+      : rows.reduce((s, r) => s + (Number(r[yAxisField.value]) || 0), 0)
+    const maxVal = Math.max(...rows.map(r => Number(r[yAxisField.value]) || 0))
+    const gaugeMax = Math.ceil((rows.length === 1 ? maxVal * 1.5 : maxVal * rows.length * 1.2) || 100)
+    return {
+      series: [{
+        type: "gauge",
+        startAngle: 200, endAngle: -20,
+        min: 0, max: gaugeMax,
+        radius: "85%", splitNumber: 5,
+        axisLine: {
+          lineStyle: { width: 18, color: [[0.3, "#67C23A"], [0.7, "#E6A23C"], [1, "#F56C6C"]] }
+        },
+        pointer: { itemStyle: { color: "auto" } },
+        axisTick: { show: false },
+        splitLine: { length: 12, lineStyle: { width: 2, color: "#999" } },
+        axisLabel: { distance: 25, fontSize: 11 },
+        detail: {
+          valueAnimation: true, fontSize: 22, fontWeight: "bold", color: "auto",
+          formatter: (val: number) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(val),
+          offsetCenter: [0, "65%"]
+        },
+        title: { offsetCenter: [0, "88%"], fontSize: 12, color: "#999" },
+        data: [{ value: displayVal, name: yAxisField.value }]
       }]
     }
   }
@@ -109,7 +170,8 @@ const buildOption = () => {
     const seriesValues = [...new Set(props.rows.map(r => r[seriesField.value]))]
     const xValues = [...new Set(props.rows.map(r => String(r[xAxisField.value])))]
     
-    const series = seriesValues.map(sv => {
+    const series = seriesValues.map((sv, index) => {
+      const color = chartColorAt(index)
       const seriesData = xValues.map(xv => {
         const row = props.rows.find(r => 
           String(r[xAxisField.value]) === xv && r[seriesField.value] === sv
@@ -121,11 +183,14 @@ const buildOption = () => {
         type: chartType.value === "area" ? "line" : chartType.value,
         data: seriesData,
         smooth: true,
-        areaStyle: chartType.value === "area" ? {} : undefined
+        itemStyle: { color },
+        lineStyle: chartType.value !== "bar" ? { color, width: 2 } : undefined,
+        areaStyle: chartType.value === "area" ? { color: makeAreaGradient(color) } : undefined
       }
     })
 
     return {
+      color: CHART_COLOR_PALETTE,
       tooltip: { trigger: "axis" },
       legend: { 
         data: seriesValues.map(String),
@@ -145,8 +210,10 @@ const buildOption = () => {
     // 单系列模式
     const xData = props.rows.map(r => String(r[xAxisField.value]))
     const yData = props.rows.map(r => Number(r[yAxisField.value]) || 0)
+    const isBar = chartType.value === "bar"
     
     return {
+      color: CHART_COLOR_PALETTE,
       tooltip: { trigger: "axis" },
       grid: { top: 30, bottom: 60, left: 60, right: 30 },
       xAxis: { 
@@ -157,9 +224,10 @@ const buildOption = () => {
       yAxis: { type: "value" },
       series: [{
         type: chartType.value === "area" ? "line" : chartType.value,
-        data: yData,
+        data: colorizeCategoryData(yData, isBar ? [3, 3, 0, 0] : undefined),
         smooth: true,
-        areaStyle: chartType.value === "area" ? {} : undefined
+        lineStyle: !isBar ? { color: PRIMARY_CHART_COLOR, width: 2 } : undefined,
+        areaStyle: chartType.value === "area" ? { color: makeAreaGradient(PRIMARY_CHART_COLOR) } : undefined
       }]
     }
   }

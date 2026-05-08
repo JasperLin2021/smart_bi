@@ -103,7 +103,7 @@
         <el-table-column label="可见范围" width="110">
           <template #default="{ row }">{{ row.visibility === "org" ? "组织内" : "仅自己" }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="380" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" :icon="ViewIcon" @click.stop="previewDataset(row)">预览</el-button>
             <el-button
@@ -116,6 +116,7 @@
               刷新
             </el-button>
             <el-button text type="primary" @click.stop="openEdit(row)">编辑</el-button>
+            <el-button text type="primary" :icon="EditPen" @click.stop="openSemanticModel(row)">语义层</el-button>
             <el-button
               v-if="row.status !== 'published'"
               text
@@ -647,6 +648,54 @@
         />
       </el-table>
     </el-dialog>
+
+    <el-dialog
+      v-model="semanticModelVisible"
+      :title="semanticModelTitle"
+      width="72%"
+      class="semantic-dialog"
+      destroy-on-close
+    >
+      <div class="semantic-dialog-body">
+        <div class="semantic-stat-row">
+          <div>
+            <span>维度</span>
+            <strong>{{ semanticModelCounts.dimensions }}</strong>
+          </div>
+          <div>
+            <span>指标</span>
+            <strong>{{ semanticModelCounts.metrics }}</strong>
+          </div>
+          <div>
+            <span>时间维度</span>
+            <strong>{{ semanticModelCounts.timeDimensions }}</strong>
+          </div>
+          <div>
+            <span>同义词</span>
+            <strong>{{ semanticModelCounts.synonyms }}</strong>
+          </div>
+        </div>
+        <el-input
+          v-model="semanticModelText"
+          v-loading="semanticModelLoading"
+          class="semantic-json-editor"
+          type="textarea"
+          :rows="20"
+          spellcheck="false"
+        />
+      </div>
+      <template #footer>
+        <div class="semantic-footer">
+          <el-button @click="semanticModelVisible = false">取消</el-button>
+          <div>
+            <el-button :loading="semanticModelValidating" @click="validateSemanticModel">校验</el-button>
+            <el-button type="primary" :loading="semanticModelSaving" @click="saveSemanticModel">
+              保存语义层
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -654,7 +703,7 @@
 import { computed, onMounted, reactive, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
-import { Plus, Refresh, Search, View as ViewIcon } from "@element-plus/icons-vue"
+import { EditPen, Plus, Refresh, Search, View as ViewIcon } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
 
 interface SchemaColumn {
@@ -693,6 +742,7 @@ interface DatasetItem {
   derived_columns_json: Record<string, unknown> | null
   joins_json: Record<string, unknown> | null
   aggregations_json: Record<string, unknown> | null
+  semantic_model_json: Record<string, unknown> | null
   last_refresh_status: string | null
   last_refresh_row_count: number
   last_refresh_at: string | null
@@ -743,6 +793,15 @@ const datasetPreviewTitle = ref("数据集预览")
 const datasetPreviewRows = ref<Record<string, unknown>[]>([])
 const datasetPreviewColumns = ref<string[]>([])
 const datasetRefreshLoading = ref<Record<number, boolean>>({})
+const semanticModelVisible = ref(false)
+const semanticModelLoading = ref(false)
+const semanticModelSaving = ref(false)
+const semanticModelValidating = ref(false)
+const semanticModelText = ref("")
+const semanticDataset = reactive<{ id: number | null; name: string }>({
+  id: null,
+  name: "",
+})
 
 const steps: { key: StepKey; title: string; subtitle: string }[] = [
   { key: "source", title: "数据范围", subtitle: "数据源与主表" },
@@ -862,6 +921,20 @@ const derivedPreviewText = computed(() => {
 const joinLeftColumnOptions = computed(() => columnsForTable(joinLeftTable.value))
 const joinRightColumnOptions = computed(() => columnsForTable(joinRightTable.value))
 
+const semanticModelTitle = computed(() =>
+  semanticDataset.name ? `${semanticDataset.name} - 语义层` : "语义层"
+)
+
+const semanticModelCounts = computed(() => {
+  const model = parseSemanticModelText(false)
+  return {
+    dimensions: Array.isArray(model?.dimensions) ? model.dimensions.length : 0,
+    metrics: Array.isArray(model?.metrics) ? model.metrics.length : 0,
+    timeDimensions: Array.isArray(model?.time_dimensions) ? model.time_dimensions.length : 0,
+    synonyms: Array.isArray(model?.synonyms) ? model.synonyms.length : 0,
+  }
+})
+
 const joinPreviewText = computed(() => {
   const left = joinFieldLabel(joinLeftTable.value, joinLeftColumn.value)
   const right = joinFieldLabel(joinRightTable.value, joinRightColumn.value)
@@ -912,6 +985,28 @@ const uniquePush = (list: string[], value: string) => {
   const normalized = value.trim()
   if (normalized && !list.includes(normalized)) {
     list.push(normalized)
+  }
+}
+
+const formatSemanticModel = (value: unknown) =>
+  JSON.stringify(
+    value || { dimensions: [], metrics: [], time_dimensions: [], synonyms: [] },
+    null,
+    2
+  )
+
+const parseSemanticModelText = (showMessage = true): Record<string, any> | null => {
+  try {
+    const value = JSON.parse(semanticModelText.value || "{}")
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("语义模型必须是 JSON 对象")
+    }
+    return value as Record<string, any>
+  } catch (error: any) {
+    if (showMessage) {
+      ElMessage.error(error.message || "语义模型 JSON 不合法")
+    }
+    return null
   }
 }
 
@@ -1217,6 +1312,60 @@ const previewDataset = async (dataset: DatasetItem) => {
     ElMessage.error(error.response?.data?.detail || "数据集预览失败")
   } finally {
     datasetPreviewLoading.value = false
+  }
+}
+
+const openSemanticModel = async (dataset: DatasetItem) => {
+  semanticDataset.id = dataset.id
+  semanticDataset.name = dataset.name
+  semanticModelVisible.value = true
+  semanticModelLoading.value = true
+  semanticModelText.value = formatSemanticModel(dataset.semantic_model_json)
+  try {
+    const response = await axios.get(`/api/datasets/${semanticDataset.id}/semantic-model`)
+    semanticModelText.value = formatSemanticModel(response.data.semantic_model)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "语义层加载失败")
+  } finally {
+    semanticModelLoading.value = false
+  }
+}
+
+const validateSemanticModel = async () => {
+  if (!semanticDataset.id) return
+  const semanticModel = parseSemanticModelText()
+  if (!semanticModel) return
+  semanticModelValidating.value = true
+  try {
+    const response = await axios.post(`/api/datasets/${semanticDataset.id}/validate-semantic-model`, {
+      semantic_model: semanticModel,
+    })
+    semanticModelText.value = formatSemanticModel(response.data.semantic_model)
+    ElMessage.success("语义层校验通过")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "语义层校验失败")
+  } finally {
+    semanticModelValidating.value = false
+  }
+}
+
+const saveSemanticModel = async () => {
+  if (!semanticDataset.id) return
+  const semanticModel = parseSemanticModelText()
+  if (!semanticModel) return
+  semanticModelSaving.value = true
+  try {
+    const response = await axios.put(`/api/datasets/${semanticDataset.id}/semantic-model`, {
+      semantic_model: semanticModel,
+    })
+    semanticModelText.value = formatSemanticModel(response.data.semantic_model)
+    ElMessage.success("语义层已保存")
+    semanticModelVisible.value = false
+    await fetchDatasets()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "语义层保存失败")
+  } finally {
+    semanticModelSaving.value = false
   }
 }
 
@@ -1947,6 +2096,56 @@ onMounted(async () => {
 
 .preview-panel {
   min-height: 340px;
+}
+
+.semantic-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.semantic-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.semantic-stat-row div {
+  min-height: 70px;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+}
+
+.semantic-stat-row span,
+.semantic-stat-row strong {
+  display: block;
+}
+
+.semantic-stat-row span {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.semantic-stat-row strong {
+  margin-top: 8px;
+  color: var(--app-text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.semantic-json-editor :deep(.el-textarea__inner) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.semantic-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .visibility-group {

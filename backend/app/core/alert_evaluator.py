@@ -16,7 +16,9 @@ from app.core.alert_notifier import (
     send_email_sync,
     send_wechat_sync,
 )
+from app.core.message_dispatcher import MessageEvent, dispatch_message_event
 from app.db.session import SessionLocal, get_datasource_engine
+from app.models.action_item import ActionItem
 from app.models.alert import Alert
 from app.models.alert_history import AlertHistory
 from app.models.metric import Metric
@@ -67,21 +69,50 @@ def _render(template: str, ctx: dict) -> str:
     return template
 
 
+def _json_user_ids(raw_value: str | None) -> list[int]:
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    result: list[int] = []
+    for item in parsed:
+        try:
+            user_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if user_id not in result:
+            result.append(user_id)
+    return result
+
+
 def _get_metric_value(
     alert: Alert, metric: Metric, db: Session
 ) -> Optional[float]:
     """Execute the metric formula against the alert's datasource and return the scalar value."""
+    from app.models.dataset import Dataset
     from app.models.datasource import DataSource
 
-    ds = db.query(DataSource).filter(DataSource.id == alert.datasource_id).first()
+    datasource_id = alert.datasource_id
+    if alert.dataset_id:
+        dataset = db.query(Dataset).filter(Dataset.id == alert.dataset_id).first()
+        if dataset:
+            datasource_id = dataset.datasource_id
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not ds:
-        logger.warning("Alert %d: datasource %d not found", alert.id, alert.datasource_id)
+        logger.warning("Alert %d: datasource %d not found", alert.id, datasource_id)
         return None
 
     formula = (metric.formula or "").strip()
-    table = (metric.table_name or "").strip()
+    # Derive main table from the linked dataset (single source of truth)
+    metric_dataset = db.query(Dataset).filter(Dataset.id == metric.dataset_id).first() if metric.dataset_id else None
+    fields_json = (metric_dataset.fields_json or {}) if metric_dataset else {}
+    table = str(fields_json.get("table") or "").strip()
     if not formula or not table:
-        logger.warning("Alert %d: metric %d has no formula/table", alert.id, metric.id)
+        logger.warning("Alert %d: metric %d has no formula or dataset main table", alert.id, metric.id)
         return None
 
     dim_conditions = json.loads(alert.dimension_conditions or "[]")
@@ -108,6 +139,7 @@ def _dispatch_notifications(
     markdown_body: str,
     html_body: str,
     subject: str,
+    db: Session | None = None,
 ) -> dict:
     result: dict = {}
 
@@ -161,6 +193,26 @@ def _dispatch_notifications(
                 except Exception as exc:
                     result["email"] = f"error: {exc}"
                     logger.error("Alert %d email error: %s", alert.id, exc)
+
+    recipients = _json_user_ids(alert.assignees) + _json_user_ids(alert.cc_users)
+    recipients = list(dict.fromkeys(recipients))
+    if db and recipients:
+        try:
+            dispatch_message_event(
+                db,
+                MessageEvent(
+                    event_type="alert.triggered",
+                    org_id=getattr(alert, "org_id", None),
+                    recipient_user_ids=recipients,
+                    title=subject,
+                    content=markdown_body,
+                    link_url="/alert-settings",
+                ),
+            )
+            result["wechat_app"] = "queued"
+        except Exception as exc:
+            result["wechat_app"] = f"error: {exc}"
+            logger.error("Alert %d app message error: %s", alert.id, exc)
 
     return result
 
@@ -241,8 +293,34 @@ def evaluate_alert(alert_id: int) -> None:
 
         ns = db.query(NotificationSetting).first()
         notify_result = _dispatch_notifications(
-            alert, ns, markdown_body, html_body, subject
+            alert, ns, markdown_body, html_body, subject, db
         )
+
+        # Auto-create action item if configured
+        if alert.auto_create_action_item:
+            try:
+                from app.models.user import User
+                assignee_id = alert.action_item_assignee_id
+                if not assignee_id and alert.assignees:
+                    ids = json.loads(alert.assignees or "[]")
+                    assignee_id = ids[0] if ids else None
+                action_item = ActionItem(
+                    title=f"[预警] {alert.name} 已触发",
+                    description=f"触发条件：{condition_str}\n触发时间：{time_str}",
+                    source_type="alert",
+                    source_id=str(alert.id),
+                    source_payload={"alert_name": alert.name, "condition": condition_str, "value": f"{val:.4g}"},
+                    linked_metric_id=alert.metric_id,
+                    owner_id=assignee_id,
+                    priority="high",
+                    status="open",
+                    org_id=getattr(alert, "org_id", None),
+                    created_by=alert.created_by,
+                )
+                db.add(action_item)
+                logger.info("Auto-created action item for alert %d", alert_id)
+            except Exception as exc:
+                logger.warning("Failed to auto-create action item for alert %d: %s", alert_id, exc)
 
         # Persist history
         history = AlertHistory(

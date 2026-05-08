@@ -2,8 +2,19 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 
 class PinnedChartsTests(unittest.TestCase):
+    def _db(self, tables):
+        from app.db.base_class import Base
+        from app.models.organization import Organization  # noqa: F401
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine, tables=tables)
+        return sessionmaker(bind=engine)()
+
     def test_create_pinned_chart_defaults_to_active_datasource_when_missing(self):
         from app.models.organization import Organization  # noqa: F401
         from app.api.pinned_charts import PinnedChartCreate, create_pinned_chart
@@ -172,6 +183,61 @@ class PinnedChartsTests(unittest.TestCase):
         self.assertEqual(result.rows, [{"LINE": "A", "total_output": 10}])
         self.assertEqual(db.added, [])
         mocked_execute.assert_called_once_with("/tmp/fake.xlsx", "select * from Sheet1")
+
+    def test_add_pinned_chart_to_dashboard_appends_component_to_selected_dashboard(self):
+        from app.api.pinned_charts import PinnedChartAddToDashboard, add_pinned_chart_to_dashboard
+        from app.models.dashboard_config import Dashboard
+        from app.models.datasource import DataSource
+        from app.models.pinned_chart import PinnedChart
+
+        db = self._db([DataSource.__table__, PinnedChart.__table__, Dashboard.__table__])
+        datasource = DataSource(
+            name="Sales",
+            slug="sales",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        dashboard = Dashboard(
+            title="经营看板",
+            layout_json={"components": []},
+            filters_json={},
+            status="draft",
+            visibility="private",
+            org_id=2,
+            owner_id=10,
+        )
+        db.add_all([datasource, dashboard])
+        db.commit()
+        db.refresh(datasource)
+        db.refresh(dashboard)
+
+        response = add_pinned_chart_to_dashboard(
+            PinnedChartAddToDashboard(
+                dashboard_id=dashboard.id,
+                title="区域销售额",
+                description="来自智能问数",
+                sql_query="select region, sum(amount) as total_amount from sales group by region",
+                chart_type="bar",
+                sort_order="desc",
+                datasource_id=datasource.id,
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=10, role="user", org_id=2),
+        )
+
+        db.refresh(dashboard)
+        chart = db.query(PinnedChart).one()
+        components = dashboard.layout_json["components"]
+        self.assertEqual(response.dashboard_id, dashboard.id)
+        self.assertEqual(response.chart.id, chart.id)
+        self.assertEqual(len(components), 1)
+        self.assertEqual(components[0]["pinned_chart_id"], chart.id)
+        self.assertEqual(components[0]["title"], "区域销售额")
+        self.assertEqual(components[0]["chart_type"], "bar")
+        self.assertEqual(components[0]["w"], 6)
+        self.assertEqual(components[0]["h"], 3)
+        self.assertEqual(dashboard.version, 2)
 
 
 if __name__ == "__main__":

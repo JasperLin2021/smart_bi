@@ -25,6 +25,14 @@ from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.dataset import Dataset, DatasetRefreshLog  # noqa: F401
 from app.models.big_screen import BigScreen  # noqa: F401
 from app.models.action_item import ActionItem  # noqa: F401
+from app.models.embed_token import EmbedToken  # noqa: F401
+from app.models.integration import (  # noqa: F401
+    ExternalIdentity,
+    ExternalOrgBinding,
+    ExternalPermissionMapping,
+    IntegrationConfig,
+    MessageDelivery,
+)
 
 
 @asynccontextmanager
@@ -207,9 +215,17 @@ def _startup():
 
     for column_definition in [
         "pipeline_json JSON",
+        "semantic_model_json JSON",
         "last_refresh_status VARCHAR(32)",
         "last_refresh_at TIMESTAMP",
         "last_refresh_row_count INTEGER DEFAULT 0",
+        "materialization_status VARCHAR(32)",
+        "materialization_mode VARCHAR(32)",
+        "materialized_table_name VARCHAR(128)",
+        "materialized_at TIMESTAMP",
+        "incremental_key VARCHAR(128)",
+        "incremental_watermark VARCHAR(256)",
+        "materialization_message TEXT",
     ]:
         try:
             _ensure_column(engine, "datasets", column_definition)
@@ -271,8 +287,10 @@ def _startup():
     # Create org users
     seed_users = [
         ("nexteer_admin", "nexteer123", "org_admin", org_nexteer.id),
+        ("nexteer_certifier", "certifier123", "org_admin", org_nexteer.id),
         ("nexteer", "nexteer123", "user", org_nexteer.id),
         ("carsem_admin", "carsem123", "org_admin", org_carsem.id),
+        ("carsem_certifier", "certifier123", "org_admin", org_carsem.id),
         ("carsem", "carsem123", "user", org_carsem.id),
     ]
     for uname, pwd, role, oid in seed_users:

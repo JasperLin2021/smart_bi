@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg2://user:password@localhost:5432/smart_bi"
     cube_api_url: str = "http://localhost:4000/cubejs-api/v1"
     cube_api_token: str = "change_me"
+    doris_enabled: bool = False
+    doris_host: str = "doris-fe"
+    doris_query_port: int = 9030
+    doris_http_port: int = 8030
+    doris_user: str = "root"
+    doris_password: str = ""
+    doris_database: str = "smart_bi_olap"
+    doris_materialization_limit: int = 100000
     goview_enabled: bool = True
     goview_base_url: str = "http://localhost:3000"
     goview_embed_base_url: str | None = None

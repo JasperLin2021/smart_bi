@@ -20,9 +20,19 @@ from app.api.dashboard_templates import router as dashboard_templates_router
 from app.api.operations import router as operations_router
 from app.api.big_screens import router as big_screens_router
 from app.api.data_services import router as data_services_router
+from app.api.data_access import router as data_access_router
 from app.api.insights import router as insights_router
 from app.api.goview import router as goview_router
 from app.api.action_items import router as action_items_router
+from app.api.comments import router as comments_router
+from app.api.rls import router as rls_router
+from app.api.forecast import router as forecast_router
+from app.api.report_gen import router as report_gen_router
+from app.api.embed import router as embed_router
+from app.api.olap import router as olap_router
+from app.api.integrations import router as integrations_router
+from app.api.access_requests import router as access_requests_router
+from app.api.data_links import router as data_links_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -46,6 +56,16 @@ api_router.include_router(dashboard_templates_router)
 api_router.include_router(operations_router)
 api_router.include_router(big_screens_router)
 api_router.include_router(data_services_router)
+api_router.include_router(data_access_router)
 api_router.include_router(insights_router)
 api_router.include_router(goview_router)
 api_router.include_router(action_items_router)
+api_router.include_router(comments_router)
+api_router.include_router(rls_router)
+api_router.include_router(forecast_router)
+api_router.include_router(report_gen_router)
+api_router.include_router(embed_router)
+api_router.include_router(olap_router)
+api_router.include_router(integrations_router)
+api_router.include_router(access_requests_router)
+api_router.include_router(data_links_router)

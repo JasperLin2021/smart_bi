@@ -120,6 +120,9 @@
               <el-button size="small" plain :loading="attributionLoading" :icon="Tickets" @click="runAttribution">
                 异常归因
               </el-button>
+              <el-button v-if="props.message.historyId" size="small" plain :icon="CollectionTag" @click="saveInsightDialogVisible = true">
+                保存为洞察
+              </el-button>
             </div>
           </div>
 
@@ -229,6 +232,19 @@
         <el-button type="primary" :loading="actionSaving" @click="createActionItem">创建行动项</el-button>
       </template>
     </el-dialog>
+
+    <!-- Save as insight dialog -->
+    <el-dialog v-model="saveInsightDialogVisible" title="保存为洞察" width="440px">
+      <el-form @submit.prevent>
+        <el-form-item label="洞察标题">
+          <el-input v-model="insightTitle" placeholder="为这条查询结果起个有意义的名字" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="saveInsightDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingInsight" @click="doSaveInsight">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -237,7 +253,7 @@ import { computed, reactive, ref } from "vue"
 import axios from "axios"
 import { useRouter } from "vue-router"
 import { ElMessage } from "element-plus"
-import { Loading, WarningFilled, DataAnalysis, Tickets } from "@element-plus/icons-vue"
+import { Loading, WarningFilled, DataAnalysis, Tickets, CollectionTag } from "@element-plus/icons-vue"
 import { marked } from "marked"
 import { useQueryStore, type ChatMessage, type DrillContext } from "@/store/query"
 import { useAuthStore } from "@/store/auth"
@@ -253,6 +269,27 @@ const authStore = useAuthStore()
 const router = useRouter()
 const actionDialogVisible = ref(false)
 const actionSaving = ref(false)
+const saveInsightDialogVisible = ref(false)
+const insightTitle = ref("")
+const savingInsight = ref(false)
+
+const doSaveInsight = async () => {
+  if (!props.message.historyId) return
+  savingInsight.value = true
+  try {
+    await axios.post("/api/query/save-insight", {
+      history_id: props.message.historyId,
+      title: insightTitle.value || props.message.content.slice(0, 100),
+    })
+    ElMessage.success("已保存为洞察")
+    saveInsightDialogVisible.value = false
+    insightTitle.value = ""
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || "保存失败")
+  } finally {
+    savingInsight.value = false
+  }
+}
 const actionForm = reactive({
   title: "",
   description: "",

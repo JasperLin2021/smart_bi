@@ -7,7 +7,8 @@ class Alert(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(128), nullable=False)
-    datasource_id = Column(Integer, nullable=False, index=True)
+    dataset_id = Column(Integer, nullable=True, index=True)
+    datasource_id = Column(Integer, nullable=True, index=True)
     metric_id = Column(Integer, nullable=True)
     metric_name = Column(String(128), nullable=True)
 
@@ -40,6 +41,9 @@ class Alert(Base):
 
     # 预警内容
     content = Column(Text, nullable=True)
+
+    auto_create_action_item = Column(Boolean, default=False)
+    action_item_assignee_id = Column(Integer, nullable=True)
 
     is_active = Column(Boolean, default=True)
     created_by = Column(Integer, nullable=True)

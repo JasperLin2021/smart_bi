@@ -1,37 +1,21 @@
 <template>
   <div class="governance-page action-items-page">
-    <section class="governance-hero">
-      <div class="governance-hero-copy">
-        <p class="governance-kicker">DECISION LOOP</p>
-        <h2 class="governance-title">行动闭环</h2>
-        <p class="governance-desc">
-          把问数结论、异常预警和业务洞察转成明确的责任人、截止日期和处理结果，让 BI 不只停留在“看到问题”，而是推动后续动作。
-        </p>
+    <div class="page-header">
+      <div class="page-header__chart-area">
+        <div ref="donutRef" class="page-donut" />
+        <div class="page-legend">
+          <div class="page-legend__item" v-for="item in legendItems" :key="item.label">
+            <span class="page-legend__dot" :style="{ background: item.color }" />
+            <span class="page-legend__label">{{ item.label }}</span>
+            <strong class="page-legend__value" :style="{ color: item.color }">{{ item.value }}</strong>
+          </div>
+        </div>
       </div>
-      <div class="governance-actions">
+      <div class="page-header__actions">
         <el-button :icon="Refresh" @click="fetchAll" :loading="loading">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建行动项</el-button>
       </div>
-    </section>
-
-    <section class="governance-summary-grid">
-      <div class="governance-summary-card">
-        <span>全部行动</span>
-        <strong>{{ actionStats.total }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>待处理</span>
-        <strong>{{ actionStats.open }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>临近截止</span>
-        <strong>{{ actionStats.dueSoon }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>已闭环</span>
-        <strong>{{ actionStats.done }}</strong>
-      </div>
-    </section>
+    </div>
 
     <el-card class="governance-workbench" shadow="never">
       <div class="governance-toolbar">
@@ -123,89 +107,87 @@
       v-model="dialogVisible"
       :title="editingId ? '编辑行动项' : '新建行动项'"
       width="min(820px, calc(100vw - 32px))"
-      destroy-on-close
+      destroy-on-close 
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-        <section class="governance-dialog-section">
-          <div class="governance-section-head">
-            <h3>行动定义</h3>
-            <p>说明要处理的问题、来源、优先级和责任人。</p>
-          </div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="标题" prop="title">
-                <el-input v-model="form.title" placeholder="例：跟进华东销售额下滑" />
+        <el-tabs v-model="dialogActiveTab" class="modal-tabs">
+          <el-tab-pane label="行动定义" name="action">
+            <div class="modal-tab-content">
+              <el-row :gutter="16">
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="标题" prop="title">
+                    <el-input v-model="form.title" placeholder="例：跟进华东销售额下滑" />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="来源">
+                    <el-select v-model="form.source_type" style="width: 100%">
+                      <el-option v-for="item in sourceOptions" :key="item.value" :label="item.label" :value="item.value" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="说明">
+                <el-input v-model="form.description" type="textarea" :rows="3" placeholder="补充背景、异常表现或分析结论" />
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="来源">
-                <el-select v-model="form.source_type" style="width: 100%">
-                  <el-option v-for="item in sourceOptions" :key="item.value" :label="item.label" :value="item.value" />
-                </el-select>
+              <el-row :gutter="16">
+                <el-col :xs="24" :md="8">
+                  <el-form-item label="优先级">
+                    <el-select v-model="form.priority" style="width: 100%">
+                      <el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="8">
+                  <el-form-item label="状态">
+                    <el-select v-model="form.status" style="width: 100%">
+                      <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="8">
+                  <el-form-item label="截止日期">
+                    <el-date-picker v-model="form.due_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="负责人 ID">
+                <el-input-number v-model="form.owner_id" :min="1" style="width: 180px" />
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-form-item label="说明">
-            <el-input v-model="form.description" type="textarea" :rows="3" placeholder="补充背景、异常表现或分析结论" />
-          </el-form-item>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="8">
-              <el-form-item label="优先级">
-                <el-select v-model="form.priority" style="width: 100%">
-                  <el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="8">
-              <el-form-item label="状态">
-                <el-select v-model="form.status" style="width: 100%">
-                  <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="8">
-              <el-form-item label="截止日期">
-                <el-date-picker v-model="form.due_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-form-item label="负责人 ID">
-            <el-input-number v-model="form.owner_id" :min="1" style="width: 180px" />
-          </el-form-item>
-        </section>
+            </div>
+          </el-tab-pane>
 
-        <section class="governance-dialog-section">
-          <div class="governance-section-head">
-            <h3>关联上下文</h3>
-            <p>把行动项挂到可信指标、数据集或看板，后续回看时能追溯这个动作来源。</p>
-          </div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="8">
-              <el-form-item label="关联指标">
-                <el-select v-model="form.linked_metric_id" clearable filterable style="width: 100%">
-                  <el-option v-for="metric in metrics" :key="metric.id" :label="metric.name" :value="metric.id" />
-                </el-select>
+          <el-tab-pane label="关联上下文" name="context">
+            <div class="modal-tab-content">
+              <el-row :gutter="16">
+                <el-col :xs="24" :md="8">
+                  <el-form-item label="关联指标">
+                    <el-select v-model="form.linked_metric_id" clearable filterable style="width: 100%">
+                      <el-option v-for="metric in metrics" :key="metric.id" :label="metric.name" :value="metric.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="8">
+                  <el-form-item label="关联数据集">
+                    <el-select v-model="form.linked_dataset_id" clearable filterable style="width: 100%">
+                      <el-option v-for="dataset in datasets" :key="dataset.id" :label="dataset.name" :value="dataset.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="8">
+                  <el-form-item label="关联看板">
+                    <el-select v-model="form.linked_dashboard_id" clearable filterable style="width: 100%">
+                      <el-option v-for="dashboard in dashboards" :key="dashboard.id" :label="dashboard.title" :value="dashboard.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="处理结果">
+                <el-input v-model="form.outcome" type="textarea" :rows="3" placeholder="完成后填写处理结果、影响和后续跟踪事项" />
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="8">
-              <el-form-item label="关联数据集">
-                <el-select v-model="form.linked_dataset_id" clearable filterable style="width: 100%">
-                  <el-option v-for="dataset in datasets" :key="dataset.id" :label="dataset.name" :value="dataset.id" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="8">
-              <el-form-item label="关联看板">
-                <el-select v-model="form.linked_dashboard_id" clearable filterable style="width: 100%">
-                  <el-option v-for="dashboard in dashboards" :key="dashboard.id" :label="dashboard.title" :value="dashboard.id" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-form-item label="处理结果">
-            <el-input v-model="form.outcome" type="textarea" :rows="3" placeholder="完成后填写处理结果、影响和后续跟踪事项" />
-          </el-form-item>
-        </section>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-form>
 
       <template #footer>
@@ -217,7 +199,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import * as echarts from "echarts"
 import axios from "axios"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
 import { Delete, Edit, Plus, Refresh, Search } from "@element-plus/icons-vue"
@@ -250,6 +233,7 @@ const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
+const dialogActiveTab = ref("action")
 const keyword = ref("")
 const statusFilter = ref("")
 const priorityFilter = ref("")
@@ -398,12 +382,14 @@ const fetchAll = async () => {
 
 const openCreate = () => {
   editingId.value = null
+  dialogActiveTab.value = "action"
   resetForm()
   dialogVisible.value = true
 }
 
 const openEdit = (row: ActionItem) => {
   editingId.value = row.id
+  dialogActiveTab.value = "action"
   resetForm({
     title: row.title,
     description: row.description || "",
@@ -465,7 +451,7 @@ const updateStatus = async (row: ActionItem, status: string) => {
 
 const deleteItem = async (row: ActionItem) => {
   try {
-    await ElMessageBox.confirm(`确定删除行动项“${row.title}”？`, "提示", { type: "warning" })
+    await ElMessageBox.confirm(`确定删除行动项"${row.title}"？`, "提示", { type: "warning" })
     await axios.delete(`/api/action-items/${row.id}`)
     ElMessage.success("行动项已删除")
     await fetchItems()
@@ -476,8 +462,43 @@ const deleteItem = async (row: ActionItem) => {
   }
 }
 
+const donutRef = ref<HTMLElement | null>(null)
+let donutChart: echarts.ECharts | null = null
+
+const legendItems = computed(() => [
+  { label: "全部行动", value: actionStats.value.total,   color: "#3b82f6" },
+  { label: "待处理",   value: actionStats.value.open,    color: "#d97706" },
+  { label: "临近截止", value: actionStats.value.dueSoon, color: "#dc2626" },
+  { label: "已闭环",   value: actionStats.value.done,    color: "#16a34a" },
+])
+
+const updateDonut = () => {
+  if (!donutRef.value) return
+  if (!donutChart) donutChart = echarts.init(donutRef.value)
+  const s = actionStats.value
+  const data = [
+    { value: s.done,    name: "已闭环",   itemStyle: { color: "#16a34a" } },
+    { value: s.open,    name: "待处理",   itemStyle: { color: "#d97706" } },
+    { value: s.dueSoon, name: "临近截止", itemStyle: { color: "#dc2626" } },
+    { value: Math.max(0, s.total - s.done - s.open), name: "其他", itemStyle: { color: "#94a3b8" } },
+  ].filter(d => d.value > 0)
+  if (!data.length) data.push({ value: 1, name: "暂无数据", itemStyle: { color: "#e2e8f0" } })
+  donutChart.setOption({
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    series: [{ type: "pie", radius: ["52%", "80%"], center: ["50%", "50%"], avoidLabelOverlap: false,
+      label: { show: true, position: "center",
+        formatter: () => `{total|${s.total}}\n{label|行动总数}`,
+        rich: { total: { fontSize: 22, fontWeight: 700, color: "#1e293b", lineHeight: 28 }, label: { fontSize: 11, color: "#94a3b8", lineHeight: 18 } } },
+      emphasis: { label: { show: true } }, labelLine: { show: false }, data }],
+  }, true)
+}
+
+watch(actionStats, () => nextTick(updateDonut), { deep: true })
+onBeforeUnmount(() => { donutChart?.dispose(); donutChart = null })
+
 onMounted(() => {
   fetchAll()
+  nextTick(updateDonut)
 })
 </script>
 

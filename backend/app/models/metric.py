@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, DateTime, Integer, String, Text, func
+from sqlalchemy import JSON, Column, DateTime, Float, Integer, String, Text, func
 from app.db.base_class import Base
 
 
@@ -6,11 +6,11 @@ class Metric(Base):
     __tablename__ = "metrics"
 
     id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, index=True, nullable=True)
     datasource_id = Column(Integer, index=True, nullable=True)
     name = Column(String(128), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     definition = Column(Text, nullable=False)
-    table_name = Column(String(64), nullable=True)
     column_name = Column(String(64), nullable=True)
     formula = Column(Text, nullable=True)
     owner_name = Column(String(128), nullable=True)
@@ -23,10 +23,11 @@ class Metric(Base):
     certified_by = Column(String(128), nullable=True)
     certified_at = Column(DateTime, nullable=True)
     caliber_version = Column(String(64), default="v1", nullable=False)
+    last_value = Column(Float, nullable=True)
+    last_computed_at = Column(DateTime, nullable=True)
     data_updated_at = Column(DateTime, nullable=True)
     quality_status = Column(String(32), default="unknown", nullable=False, index=True)
     quality_message = Column(Text, nullable=True)
-    lineage_json = Column(JSON, nullable=True)
     is_active = Column(Integer, default=1)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

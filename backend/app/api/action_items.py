@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.message_dispatcher import MessageEvent, dispatch_message_event
 from app.db.session import get_db
 from app.models.action_item import ActionItem
 from app.models.dashboard_config import Dashboard
@@ -16,6 +18,7 @@ from app.models.user import User
 from app.schemas.action_item import ActionItemCreate, ActionItemListResponse, ActionItemOut, ActionItemUpdate
 
 router = APIRouter(prefix="/action-items", tags=["action-items"])
+logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"open", "in_progress", "done", "cancelled"}
 VALID_PRIORITIES = {"low", "medium", "high", "urgent"}
@@ -122,6 +125,24 @@ def _get_item_for_user(db: Session, item_id: int, user: User) -> ActionItem:
     return item
 
 
+def _unique_user_ids(values: list[int | None]) -> list[int]:
+    result: list[int] = []
+    for value in values:
+        if value is None or value in result:
+            continue
+        result.append(value)
+    return result
+
+
+def _safe_dispatch_action_item_event(db: Session, event: MessageEvent) -> None:
+    if not event.recipient_user_ids:
+        return
+    try:
+        dispatch_message_event(db, event)
+    except Exception as exc:
+        logger.error("Action item message dispatch failed: %s", exc)
+
+
 @router.get("", response_model=ActionItemListResponse)
 def list_action_items(
     status: str | None = None,
@@ -181,6 +202,17 @@ def create_action_item(
         message="行动项已创建",
         detail={"source_type": item.source_type, "source_id": item.source_id},
     )
+    _safe_dispatch_action_item_event(
+        db,
+        MessageEvent(
+            event_type="action_item.assigned",
+            org_id=item.org_id,
+            recipient_user_ids=_unique_user_ids([item.owner_id]),
+            title=f"行动项：{item.title}",
+            content=item.description or "你有一个新的行动项需要处理。",
+            link_url="/action-items",
+        ),
+    )
     return item
 
 
@@ -203,6 +235,7 @@ def update_action_item(
     item = _get_item_for_user(db, item_id, current_user)
     if not _can_manage(current_user, item):
         raise HTTPException(status_code=403, detail="无权限")
+    previous_status = item.status
     values = payload.model_dump(exclude_unset=True)
     _ensure_values(
         status=values.get("status"),
@@ -235,6 +268,18 @@ def update_action_item(
         message="行动项已更新",
         detail={"fields": list(values.keys())},
     )
+    if "status" in values and values["status"] != previous_status:
+        _safe_dispatch_action_item_event(
+            db,
+            MessageEvent(
+                event_type="action_item.status_changed",
+                org_id=item.org_id,
+                recipient_user_ids=_unique_user_ids([item.owner_id, item.created_by]),
+                title=f"行动项状态变更：{item.title}",
+                content=f"行动项状态已从 {previous_status} 变更为 {item.status}。",
+                link_url="/action-items",
+            ),
+        )
     return item
 
 

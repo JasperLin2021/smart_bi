@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
 from app.db.session import get_db
+from app.models.dataset import Dataset
 from app.models.datasource import DataSource
 from app.models.scheduled_report import ScheduledReport
 from app.models.user import User
@@ -22,18 +23,20 @@ router = APIRouter(prefix="/scheduled-reports", tags=["scheduled_reports"])
 def _report_scope(query, current_user: User):
     if current_user.role == "super_admin":
         return query
-    return query.join(DataSource, ScheduledReport.datasource_id == DataSource.id).filter(
-        DataSource.org_id == current_user.org_id
+    return (
+        query
+        .join(Dataset, ScheduledReport.dataset_id == Dataset.id)
+        .filter(Dataset.org_id == current_user.org_id)
     )
 
 
-def _get_datasource_for_user(db: Session, datasource_id: int, current_user: User) -> DataSource:
-    datasource = db.query(DataSource).filter(DataSource.id == datasource_id).first()
-    if not datasource:
-        raise HTTPException(status_code=404, detail="数据源不存在")
-    if current_user.role != "super_admin" and datasource.org_id != current_user.org_id:
-        raise HTTPException(status_code=403, detail="无权访问此数据源")
-    return datasource
+def _get_dataset_for_user(db: Session, dataset_id: int, current_user: User) -> Dataset:
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if current_user.role != "super_admin" and dataset.org_id != current_user.org_id:
+        raise HTTPException(status_code=403, detail="无权访问此数据集")
+    return dataset
 
 
 def _get_report_for_user(db: Session, report_id: int, current_user: User) -> ScheduledReport:
@@ -47,13 +50,13 @@ def _get_report_for_user(db: Session, report_id: int, current_user: User) -> Sch
 
 @router.get("", response_model=ScheduledReportListResponse)
 def list_reports(
-    datasource_id: int | None = None,
+    dataset_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     q = _report_scope(db.query(ScheduledReport), current_user)
-    if datasource_id:
-        q = q.filter(ScheduledReport.datasource_id == datasource_id)
+    if dataset_id:
+        q = q.filter(ScheduledReport.dataset_id == dataset_id)
     items = q.order_by(ScheduledReport.updated_at.desc()).all()
     return {"items": items, "total": len(items)}
 
@@ -64,8 +67,10 @@ def create_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    datasource = _get_datasource_for_user(db, payload.datasource_id, current_user)
-    report = ScheduledReport(**payload.model_dump(), created_by=current_user.id)
+    dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
+    data = payload.model_dump()
+    data["datasource_id"] = dataset.datasource_id
+    report = ScheduledReport(**data, created_by=current_user.id)
     db.add(report)
     db.commit()
     db.refresh(report)
@@ -79,9 +84,9 @@ def create_report(
         resource_type="scheduled_report",
         resource_id=report.id,
         resource_name=report.name,
-        org_id=datasource.org_id,
+        org_id=dataset.org_id,
         message="定时报告已创建",
-        detail={"datasource_id": report.datasource_id, "cron_expression": report.cron_expression},
+        detail={"dataset_id": report.dataset_id, "cron_expression": report.cron_expression},
     )
     return report
 
@@ -92,8 +97,7 @@ def get_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    report = _get_report_for_user(db, report_id, current_user)
-    return report
+    return _get_report_for_user(db, report_id, current_user)
 
 
 @router.put("/{report_id}", response_model=ScheduledReportOut)
@@ -104,16 +108,18 @@ def update_report(
     current_user: User = Depends(get_current_user),
 ):
     report = _get_report_for_user(db, report_id, current_user)
-    if payload.datasource_id is not None:
-        _get_datasource_for_user(db, payload.datasource_id, current_user)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "dataset_id" in updates:
+        dataset = _get_dataset_for_user(db, updates["dataset_id"], current_user)
+        updates["datasource_id"] = dataset.datasource_id
+    for key, value in updates.items():
         setattr(report, key, value)
     db.commit()
     db.refresh(report)
 
     from app.core.alert_scheduler import upsert_report_job
     upsert_report_job(report_id)
-    datasource = db.query(DataSource).filter(DataSource.id == report.datasource_id).first()
+    dataset = db.query(Dataset).filter(Dataset.id == report.dataset_id).first()
     try_record_audit_log(
         db,
         actor=current_user,
@@ -121,9 +127,9 @@ def update_report(
         resource_type="scheduled_report",
         resource_id=report.id,
         resource_name=report.name,
-        org_id=datasource.org_id if datasource else None,
+        org_id=dataset.org_id if dataset else None,
         message="定时报告已更新",
-        detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
+        detail={"fields": list(updates.keys())},
     )
     return report
 
@@ -135,7 +141,7 @@ def delete_report(
     current_user: User = Depends(get_current_user),
 ):
     report = _get_report_for_user(db, report_id, current_user)
-    datasource = db.query(DataSource).filter(DataSource.id == report.datasource_id).first()
+    dataset = db.query(Dataset).filter(Dataset.id == report.dataset_id).first()
     report_name = report.name
     db.delete(report)
     db.commit()
@@ -149,7 +155,7 @@ def delete_report(
         resource_type="scheduled_report",
         resource_id=report_id,
         resource_name=report_name,
-        org_id=datasource.org_id if datasource else None,
+        org_id=dataset.org_id if dataset else None,
         message="定时报告已删除",
     )
     return {"status": "ok"}
@@ -161,7 +167,6 @@ def run_report_now(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Manually trigger a report immediately."""
     report = _get_report_for_user(db, report_id, current_user)
 
     from app.core.alert_scheduler import run_scheduled_report
@@ -175,6 +180,37 @@ def run_report_now(
         resource_id=report.id,
         resource_name=report.name,
         message="定时报告已手动触发",
-        detail={"datasource_id": report.datasource_id},
+        detail={"dataset_id": report.dataset_id},
     )
     return {"status": "ok", "message": "报告已开始生成，稍后将发送到配置的通知渠道"}
+
+
+@router.get("/{report_id}/logs")
+def get_report_logs(
+    report_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_report_for_user(db, report_id, current_user)
+    from app.models.report_execution_log import ReportExecutionLog
+    logs = (
+        db.query(ReportExecutionLog)
+        .filter(ReportExecutionLog.report_id == report_id)
+        .order_by(ReportExecutionLog.run_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": log.id,
+            "report_id": log.report_id,
+            "report_name": log.report_name,
+            "status": log.status,
+            "content_preview": log.content_preview,
+            "notify_result": log.notify_result,
+            "error_message": log.error_message,
+            "run_at": log.run_at,
+        }
+        for log in logs
+    ]

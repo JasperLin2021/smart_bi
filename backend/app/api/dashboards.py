@@ -1,4 +1,5 @@
 import secrets
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.message_dispatcher import MessageEvent, dispatch_message_event
+from app.core.safe_delete import assert_dashboard_can_delete, delete_catalog_asset
 from app.db.session import get_db
 from app.models.catalog import DataAsset
 from app.models.dashboard_config import Dashboard
@@ -19,6 +22,7 @@ from app.schemas.dashboard_center import (
 )
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])
+logger = logging.getLogger(__name__)
 
 VALID_DASHBOARD_STATUSES = {"draft", "published", "archived"}
 VALID_VISIBILITIES = {"private", "org"}
@@ -69,6 +73,29 @@ def _sync_dashboard_asset(db: Session, dashboard: Dashboard) -> None:
         "is_public": bool(dashboard.is_public),
         "version": dashboard.version,
     }
+
+
+def _shared_recipients(shared_user_ids, actor_id: int | None) -> list[int]:
+    result: list[int] = []
+    if not isinstance(shared_user_ids, list):
+        return result
+    for value in shared_user_ids:
+        if value is None:
+            continue
+        user_id = int(value)
+        if user_id == actor_id or user_id in result:
+            continue
+        result.append(user_id)
+    return result
+
+
+def _safe_dispatch_dashboard_event(db: Session, event: MessageEvent) -> None:
+    if not event.recipient_user_ids:
+        return
+    try:
+        dispatch_message_event(db, event)
+    except Exception as exc:
+        logger.error("Dashboard message dispatch failed: %s", exc)
 
 
 @router.get("", response_model=DashboardListResponse)
@@ -214,6 +241,17 @@ def share_dashboard(
             "shared_user_ids": dashboard.shared_user_ids,
         },
     )
+    _safe_dispatch_dashboard_event(
+        db,
+        MessageEvent(
+            event_type="dashboard.shared",
+            org_id=dashboard.org_id,
+            recipient_user_ids=_shared_recipients(dashboard.shared_user_ids, current_user.id),
+            title=f"看板分享：{dashboard.title}",
+            content=f"{current_user.username} 分享了看板「{dashboard.title}」。",
+            link_url=f"/dashboard-center?dashboard_id={dashboard.id}",
+        ),
+    )
     return dashboard
 
 
@@ -257,10 +295,11 @@ def delete_dashboard(
         raise HTTPException(status_code=404, detail="看板不存在")
     if not _can_manage_dashboard(current_user, dashboard):
         raise HTTPException(status_code=403, detail="无权限")
+    assert_dashboard_can_delete(db, dashboard)
     dashboard_id_value = dashboard.id
     dashboard_title = dashboard.title
     dashboard_org_id = dashboard.org_id
-    db.query(DataAsset).filter(DataAsset.asset_type == "dashboard", DataAsset.asset_id == dashboard.id).delete()
+    delete_catalog_asset(db, "dashboard", dashboard.id)
     db.delete(dashboard)
     db.commit()
     try_record_audit_log(

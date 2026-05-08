@@ -5,7 +5,8 @@ from datetime import datetime
 
 class ScheduledReportBase(BaseModel):
     name: str
-    datasource_id: int
+    dataset_id: int
+    datasource_id: Optional[int] = None
     question: str
     cron_expression: str = "0 9 * * 1-5"
     notify_email: bool = False
@@ -21,6 +22,7 @@ class ScheduledReportCreate(ScheduledReportBase):
 
 class ScheduledReportUpdate(BaseModel):
     name: Optional[str] = None
+    dataset_id: Optional[int] = None
     datasource_id: Optional[int] = None
     question: Optional[str] = None
     cron_expression: Optional[str] = None

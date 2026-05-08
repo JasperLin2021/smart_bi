@@ -16,6 +16,22 @@ class QueryResult(BaseModel):
     rows: List[Dict[str, Any]]
 
 
+class SemanticQueryRequest(BaseModel):
+    dataset_id: int
+    dimensions: List[str] = []
+    metrics: List[str] = []
+    filters: List[Dict[str, Any]] = []
+    limit: int = 100
+
+
+class SemanticQueryResponse(BaseModel):
+    dataset_id: int
+    columns: List[str]
+    labels: Dict[str, str]
+    rows: List[Dict[str, Any]]
+    sql_query: str
+
+
 class MetricTrustSignal(BaseModel):
     metric_id: int
     metric_name: str

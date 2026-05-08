@@ -6,6 +6,7 @@ from unittest.mock import patch
 class MetricSemanticsTests(unittest.TestCase):
     def test_create_metric_preserves_semantic_fields(self):
         from app.api.metrics import create_metric
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.metric import Metric
         from app.models.organization import Organization  # noqa: F401
@@ -13,6 +14,7 @@ class MetricSemanticsTests(unittest.TestCase):
 
         created = {}
         datasource = SimpleNamespace(id=7)
+        dataset = SimpleNamespace(id=42, datasource_id=datasource.id)
 
         class FakeQuery:
             def __init__(self, model):
@@ -22,6 +24,8 @@ class MetricSemanticsTests(unittest.TestCase):
                 return self
 
             def first(self):
+                if self.model is Dataset:
+                    return dataset
                 if self.model is DataSource:
                     return datasource
                 return None
@@ -40,7 +44,7 @@ class MetricSemanticsTests(unittest.TestCase):
                 row.id = 1
 
         payload = MetricCreate(
-            datasource_id=7,
+            dataset_id=42,
             name="良率",
             description="质量指标",
             definition="良品数 / 总产出",
@@ -63,6 +67,8 @@ class MetricSemanticsTests(unittest.TestCase):
             )
 
         self.assertIsInstance(created["row"], Metric)
+        self.assertEqual(created["row"].dataset_id, 42)
+        self.assertEqual(created["row"].datasource_id, 7)
         self.assertEqual(created["row"].owner_name, "质量部")
         self.assertEqual(created["row"].unit, "%")
         self.assertEqual(created["row"].aggregation, "ratio")

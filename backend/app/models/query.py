@@ -19,3 +19,6 @@ class QueryHistory(Base):
     mode = Column(String(32), nullable=True)
     drill_context = Column(Text, nullable=True)  # JSON 字符串
     llm_model = Column(String(128), nullable=True)
+    is_insight = Column(Boolean, default=False, nullable=False)
+    insight_title = Column(String(200), nullable=True)
+    org_id = Column(Integer, nullable=True, index=True)

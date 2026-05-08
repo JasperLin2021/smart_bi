@@ -55,6 +55,16 @@
               登录
             </el-button>
           </el-form-item>
+          <el-form-item>
+            <el-button
+              class="wechat-login-btn"
+              size="large"
+              :loading="wechatLoading"
+              @click="loginWithWechatWork"
+            >
+              企业微信登录
+            </el-button>
+          </el-form-item>
         </el-form>
         
         <div class="login-hint">
@@ -83,11 +93,14 @@
 <script setup lang="ts">
 import { reactive, ref } from "vue"
 import { useRouter } from "vue-router"
+import axios from "axios"
+import { ElMessage } from "element-plus"
 import { useAuthStore } from "@/store/auth"
 
 const router = useRouter()
 const authStore = useAuthStore()
 const loading = ref(false)
+const wechatLoading = ref(false)
 const form = reactive({ username: "", password: "" })
 
 const fillAccount = (username: string, password: string) => {
@@ -103,6 +116,18 @@ const submit = async () => {
     await router.push("/dashboard")
   } finally {
     loading.value = false
+  }
+}
+
+const loginWithWechatWork = async () => {
+  wechatLoading.value = true
+  try {
+    const { data } = await axios.get("/api/auth/wechat-work/login-url")
+    window.location.href = data.login_url
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "企业微信登录未启用")
+  } finally {
+    wechatLoading.value = false
   }
 }
 </script>
@@ -199,6 +224,23 @@ const submit = async () => {
 .login-btn:hover {
   transform: none;
   box-shadow: none;
+}
+
+.wechat-login-btn {
+  width: 100%;
+  border-radius: var(--app-radius-sm);
+  height: 48px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.26);
+  background: #f8fffc;
+}
+
+.wechat-login-btn:hover {
+  color: #0b5f59;
+  border-color: #0f766e;
+  background: #ecfdf5;
 }
 
 .login-hint {

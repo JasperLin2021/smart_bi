@@ -9,21 +9,29 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.config import settings
 from app.core.excel_executor import execute_excel_query, get_excel_tables
+from app.core.olap import execute_materialized_dataset_preview, write_dataset_to_olap
+from app.core.safe_delete import assert_dataset_can_delete, delete_catalog_asset
+from app.core.semantic_layer import infer_semantic_model, normalize_semantic_model
 from app.db.session import get_db
 from app.db.session import get_datasource_engine
-from app.models.catalog import DataAsset
+from app.models.catalog import AssetLineage, DataAsset
 from app.models.dataset import Dataset, DatasetRefreshLog
 from app.models.datasource import DataSource
 from app.models.user import User
 from app.schemas.dataset import (
     DatasetCreate,
     DatasetListResponse,
+    DatasetMaterializeRequest,
     DatasetOut,
     DatasetPreviewRequest,
     DatasetPreviewResponse,
     DatasetRefreshLogListResponse,
     DatasetRefreshLogOut,
+    DatasetSemanticModelResponse,
+    DatasetSemanticModelUpdate,
+    DatasetSemanticModelValidationResponse,
     DatasetUpdate,
 )
 
@@ -100,15 +108,22 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _field_name(field: Any) -> str:
+    """Extract field name from either a string or a dict with a 'name' key."""
+    if isinstance(field, dict):
+        return str(field.get("name") or "").strip()
+    return str(field).strip()
+
+
 def _source_table(dataset: Dataset) -> str:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
     table = str(fields_json.get("table") or "").strip()
     if not table:
         fields = _as_list(fields_json.get("fields"))
         for field in fields:
-            text_value = str(field)
-            if "." in text_value:
-                return text_value.split(".", 1)[0]
+            name = _field_name(field)
+            if "." in name:
+                return name.split(".", 1)[0]
     if not table:
         raise HTTPException(status_code=400, detail="数据集缺少主表配置")
     return table
@@ -163,7 +178,7 @@ def _validate_database_table_and_columns(engine, table: str, fields: list[str]) 
 
 def _selected_fields(dataset: Dataset, table: str) -> list[str]:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
-    fields = [str(field) for field in _as_list(fields_json.get("fields")) if str(field).strip()]
+    fields = [_field_name(f) for f in _as_list(fields_json.get("fields")) if _field_name(f)]
     return fields or [f"{table}.*"]
 
 
@@ -174,7 +189,21 @@ def _derived_expressions(dataset: Dataset) -> list[str]:
 
 def _join_expressions(dataset: Dataset) -> list[str]:
     joins_json = dataset.joins_json if isinstance(dataset.joins_json, dict) else {}
-    return [str(item) for item in _as_list(joins_json.get("joins")) if str(item).strip()]
+    result = []
+    for item in _as_list(joins_json.get("joins")):
+        if isinstance(item, dict):
+            # {"type": "LEFT JOIN", "left": "a.id", "right": "b.id"} → canonical string form
+            join_type = str(item.get("type") or "JOIN").strip()
+            left = str(item.get("left") or "").strip()
+            right = str(item.get("right") or "").strip()
+            op = str(item.get("op") or "=").strip()
+            if left and right:
+                result.append(f"{join_type} {left} {op} {right}")
+        else:
+            s = str(item).strip()
+            if s:
+                result.append(s)
+    return result
 
 
 def _filter_expressions(dataset: Dataset) -> list[Any]:
@@ -282,22 +311,54 @@ def _render_joins(engine, joins: list[str], default_table: str) -> list[str]:
     return rendered
 
 
-def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int) -> tuple[str, dict[str, Any]]:
+def _build_excel_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | None) -> tuple[str, dict[str, Any]]:
+    """Build plain SQL for Excel datasources (no dialect-specific quoting needed)."""
+    table = _source_table(dataset)
+    if table not in get_excel_tables(datasource.database_url):
+        raise HTTPException(status_code=404, detail="数据表不存在")
+
+    fields = _selected_fields(dataset, table)
+    aggregations = _aggregation_expressions(dataset)
+    params: dict[str, Any] = {}
+
+    select_parts: list[str] = []
+    group_by_parts: list[str] = []
+    for field in fields:
+        if field.endswith(".*"):
+            select_parts.append("*")
+            continue
+        col = field.split(".", 1)[1] if "." in field else field
+        select_parts.append(f"{col}")
+        if aggregations:
+            group_by_parts.append(col)
+
+    if not select_parts:
+        select_parts.append("*")
+
+    sql_parts = [f"SELECT {', '.join(select_parts)}", f"FROM {table}"]
+    if limit is not None:
+        sql_parts.append(f"LIMIT {_clamp_preview_limit(limit)}")
+    return "\n".join(sql_parts), params
+
+
+def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | None) -> tuple[str, dict[str, Any]]:
+    if datasource.source_type == "excel":
+        return _build_excel_dataset_sql(dataset, datasource, limit)
+
     table = _source_table(dataset)
     fields = _selected_fields(dataset, table)
     aggregations = _aggregation_expressions(dataset)
-    params: dict[str, Any] = {"limit": _clamp_preview_limit(limit)}
+    params: dict[str, Any] = {}
+    if limit is not None:
+        params["limit"] = _clamp_preview_limit(limit)
     engine = get_datasource_engine(datasource.database_url)
 
-    if datasource.source_type != "excel":
-        validation_fields = [field for field in fields if not field.endswith(".*")]
-        for expression in _derived_expressions(dataset):
-            validation_fields.extend(
-                re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\b", expression)
-            )
-        _validate_database_table_and_columns(engine, table, validation_fields)
-    elif table not in get_excel_tables(datasource.database_url):
-        raise HTTPException(status_code=404, detail="数据表不存在")
+    validation_fields = [field for field in fields if not field.endswith(".*")]
+    for expression in _derived_expressions(dataset):
+        validation_fields.extend(
+            re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\b", expression)
+        )
+    _validate_database_table_and_columns(engine, table, validation_fields)
 
     select_parts: list[str] = []
     group_by_parts: list[str] = []
@@ -334,11 +395,19 @@ def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int) -> 
         sql_parts.append(f"WHERE {' AND '.join(where_parts)}")
     if group_by_parts:
         sql_parts.append(f"GROUP BY {', '.join(group_by_parts)}")
-    sql_parts.append("LIMIT :limit")
+    if limit is not None:
+        sql_parts.append("LIMIT :limit")
     return "\n".join(sql_parts), params
 
 
 def _execute_dataset_preview(dataset: Dataset, datasource: DataSource, limit: int) -> dict[str, Any]:
+    if (
+        settings.doris_enabled
+        and dataset.materialization_status == "ready"
+        and dataset.materialized_table_name
+    ):
+        return execute_materialized_dataset_preview(dataset.materialized_table_name, limit)
+
     sql, params = _build_dataset_sql(dataset, datasource, limit)
     if datasource.source_type == "excel":
         rendered_sql = sql
@@ -357,7 +426,39 @@ def _execute_dataset_preview(dataset: Dataset, datasource: DataSource, limit: in
     return {"columns": columns, "rows": rows}
 
 
+def _execute_dataset_extract(dataset: Dataset, datasource: DataSource) -> dict[str, Any]:
+    limit = settings.doris_materialization_limit if settings.doris_materialization_limit > 0 else None
+    sql, params = _build_dataset_sql(dataset, datasource, limit)
+    if datasource.source_type == "excel":
+        rendered_sql = sql
+        for key, value in params.items():
+            if isinstance(value, int):
+                rendered_sql = rendered_sql.replace(f":{key}", str(value))
+            else:
+                rendered_sql = rendered_sql.replace(f":{key}", f"'{str(value).replace("'", "''")}'")
+        return execute_excel_query(datasource.database_url, rendered_sql)
+
+    engine = get_datasource_engine(datasource.database_url)
+    with engine.connect() as conn:
+        result = conn.execute(text(sql), params)
+        columns = list(result.keys())
+        rows = [dict(row._mapping) for row in result.fetchall()]
+    return {"columns": columns, "rows": rows}
+
+
+def _session_has_table(db: Session, table_name: str) -> bool:
+    bind = db.get_bind() if hasattr(db, "get_bind") else None
+    if bind is None:
+        return True
+    try:
+        return inspect(db.connection()).has_table(table_name)
+    except Exception:
+        return True
+
+
 def _sync_dataset_asset(db: Session, dataset: Dataset) -> None:
+    if not _session_has_table(db, DataAsset.__tablename__):
+        return
     asset = (
         db.query(DataAsset)
         .filter(DataAsset.asset_type == "dataset", DataAsset.asset_id == dataset.id)
@@ -379,7 +480,67 @@ def _sync_dataset_asset(db: Session, dataset: Dataset) -> None:
         "derived_columns": dataset.derived_columns_json,
         "joins": dataset.joins_json,
         "aggregations": dataset.aggregations_json,
+        "semantic_model": dataset.semantic_model_json,
     }
+    db.flush()
+    _sync_dataset_lineage(db, dataset, asset)
+
+
+def _sync_dataset_lineage(db: Session, dataset: Dataset, dataset_asset: DataAsset) -> None:
+    """Auto-create lineage: datasource table asset → dataset asset."""
+    try:
+        if not _session_has_table(db, AssetLineage.__tablename__):
+            return
+        if not dataset.datasource_id:
+            return
+        fields_json = dataset.fields_json or {}
+        table_name = fields_json.get("table") if isinstance(fields_json, dict) else None
+        if not table_name:
+            return
+        table_asset = (
+            db.query(DataAsset)
+            .filter(
+                DataAsset.asset_type == "table",
+                DataAsset.datasource_id == dataset.datasource_id,
+                DataAsset.name == table_name,
+            )
+            .first()
+        )
+        if not table_asset:
+            return
+        existing = (
+            db.query(AssetLineage)
+            .filter(AssetLineage.source_id == table_asset.id, AssetLineage.target_id == dataset_asset.id)
+            .first()
+        )
+        if not existing:
+            db.add(AssetLineage(
+                source_id=table_asset.id,
+                target_id=dataset_asset.id,
+                rel_type="derives_from",
+                org_id=dataset.org_id,
+            ))
+    except Exception:
+        pass  # lineage is best-effort, never block the main flow
+
+
+def _notify_dataset_refresh(db: Session, dataset: Dataset) -> None:
+    """Notify subscribers after a dataset data refresh."""
+    try:
+        if not _session_has_table(db, DataAsset.__tablename__):
+            return
+        asset = (
+            db.query(DataAsset)
+            .filter(DataAsset.asset_type == "dataset", DataAsset.asset_id == dataset.id)
+            .first()
+        )
+        if not asset:
+            return
+        from app.api.catalog import _notify_subscribers
+        _notify_subscribers(db, asset.id, f"数据集「{dataset.name}」数据已更新")
+        db.commit()
+    except Exception:
+        pass
 
 
 @router.get("", response_model=DatasetListResponse)
@@ -440,6 +601,75 @@ def get_dataset(
     return _get_dataset_for_user(db, dataset_id, current_user)
 
 
+@router.get("/{dataset_id}/semantic-model", response_model=DatasetSemanticModelResponse)
+def get_dataset_semantic_model(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = _get_dataset_for_user(db, dataset_id, current_user)
+    try:
+        semantic_model = infer_semantic_model(dataset)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"dataset_id": dataset.id, "semantic_model": semantic_model}
+
+
+@router.post("/{dataset_id}/validate-semantic-model", response_model=DatasetSemanticModelValidationResponse)
+def validate_dataset_semantic_model(
+    dataset_id: int,
+    payload: DatasetSemanticModelUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = _get_dataset_for_user(db, dataset_id, current_user)
+    try:
+        semantic_model = normalize_semantic_model(payload.semantic_model, dataset)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"dataset_id": dataset.id, "semantic_model": semantic_model, "valid": True}
+
+
+@router.put("/{dataset_id}/semantic-model", response_model=DatasetSemanticModelResponse)
+def update_dataset_semantic_model(
+    dataset_id: int,
+    payload: DatasetSemanticModelUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not _can_manage_dataset(current_user, dataset):
+        raise HTTPException(status_code=403, detail="无权限")
+    try:
+        semantic_model = normalize_semantic_model(payload.semantic_model, dataset)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    dataset.semantic_model_json = semantic_model
+    if dataset.status == "published":
+        _sync_dataset_asset(db, dataset)
+    db.commit()
+    db.refresh(dataset)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dataset.semantic_model.update",
+        resource_type="dataset",
+        resource_id=dataset.id,
+        resource_name=dataset.name,
+        org_id=dataset.org_id,
+        message="数据集语义层已更新",
+        detail={
+            "dimensions": len(semantic_model["dimensions"]),
+            "metrics": len(semantic_model["metrics"]),
+            "time_dimensions": len(semantic_model["time_dimensions"]),
+        },
+    )
+    return {"dataset_id": dataset.id, "semantic_model": semantic_model}
+
+
 @router.post("/{dataset_id}/preview", response_model=DatasetPreviewResponse)
 def preview_dataset(
     dataset_id: int,
@@ -486,6 +716,106 @@ def preview_dataset(
         detail={"limit": _clamp_preview_limit(limit), "row_count": response["row_count"]},
     )
     return jsonable_encoder(response)
+
+
+@router.post("/{dataset_id}/materialize", response_model=DatasetOut)
+def materialize_dataset(
+    dataset_id: int,
+    payload: DatasetMaterializeRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not settings.doris_enabled:
+        raise HTTPException(status_code=400, detail="Doris 未启用")
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not _can_manage_dataset(current_user, dataset):
+        raise HTTPException(status_code=403, detail="无权限")
+    datasource = _get_datasource_for_user(db, dataset.datasource_id, current_user)
+    request = payload or DatasetMaterializeRequest()
+    mode = request.mode or "full"
+    if mode not in {"full", "incremental"}:
+        raise HTTPException(status_code=400, detail="物化模式必须为 full 或 incremental")
+
+    now = datetime.utcnow()
+    dataset.materialization_status = "running"
+    dataset.materialization_mode = mode
+    dataset.incremental_key = request.incremental_key or dataset.incremental_key
+    db.flush()
+
+    try:
+        extract = _execute_dataset_extract(dataset, datasource)
+        result = write_dataset_to_olap(
+            dataset,
+            extract.get("columns", []),
+            extract.get("rows", []),
+            mode=mode,
+            incremental_key=dataset.incremental_key,
+        )
+        dataset.materialization_status = "ready"
+        dataset.materialization_mode = result.mode
+        dataset.materialized_table_name = result.table_name
+        dataset.materialized_at = now
+        dataset.incremental_watermark = result.watermark or dataset.incremental_watermark
+        dataset.materialization_message = result.message
+        dataset.last_refresh_status = "success"
+        dataset.last_refresh_at = now
+        dataset.last_refresh_row_count = result.row_count
+        log = DatasetRefreshLog(
+            dataset_id=dataset.id,
+            status="success",
+            row_count=result.row_count,
+            message=result.message,
+            org_id=dataset.org_id,
+            triggered_by_id=current_user.id,
+        )
+        db.add(log)
+        db.commit()
+        db.refresh(dataset)
+        _notify_dataset_refresh(db, dataset)
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="dataset.materialize",
+            resource_type="dataset",
+            resource_id=dataset.id,
+            resource_name=dataset.name,
+            org_id=dataset.org_id,
+            message="数据集已物化到 Doris",
+            detail={"mode": result.mode, "row_count": result.row_count, "table_name": result.table_name},
+        )
+        return dataset
+    except HTTPException:
+        raise
+    except Exception as exc:
+        message = f"Doris 物化失败: {exc}"
+        dataset.materialization_status = "error"
+        dataset.materialization_message = message
+        dataset.last_refresh_status = "error"
+        dataset.last_refresh_at = now
+        log = DatasetRefreshLog(
+            dataset_id=dataset.id,
+            status="error",
+            row_count=0,
+            message=message,
+            org_id=dataset.org_id,
+            triggered_by_id=current_user.id,
+        )
+        db.add(log)
+        db.commit()
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="dataset.materialize",
+            resource_type="dataset",
+            resource_id=dataset.id,
+            resource_name=dataset.name,
+            org_id=dataset.org_id,
+            status="error",
+            message=message,
+        )
+        raise HTTPException(status_code=400, detail=message)
 
 
 @router.post("/{dataset_id}/refresh", response_model=DatasetRefreshLogOut)
@@ -632,9 +962,10 @@ def delete_dataset(
         raise HTTPException(status_code=404, detail="数据集不存在")
     if not _can_manage_dataset(current_user, dataset):
         raise HTTPException(status_code=403, detail="无权限")
+    assert_dataset_can_delete(db, dataset)
     dataset_name = dataset.name
     dataset_org_id = dataset.org_id
-    db.query(DataAsset).filter(DataAsset.asset_type == "dataset", DataAsset.asset_id == dataset.id).delete()
+    delete_catalog_asset(db, "dataset", dataset.id)
     db.delete(dataset)
     db.commit()
     try_record_audit_log(

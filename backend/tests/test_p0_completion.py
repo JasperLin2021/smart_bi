@@ -61,11 +61,12 @@ class P0CompletionTests(unittest.TestCase):
         from app.api.metrics import create_metric
         from app.models.audit_log import AuditLog
         from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.metric import Metric
         from app.schemas.metric import MetricCreate
 
-        db = self._db([DataSource.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
         ds = DataSource(
             name="Mock Sales",
             slug="mock-sales",
@@ -75,12 +76,16 @@ class P0CompletionTests(unittest.TestCase):
             org_id=2,
         )
         db.add(ds)
-        db.commit()
+        db.flush()
         db.refresh(ds)
+        dataset = Dataset(name="销售数据集", datasource_id=ds.id, org_id=2, owner_id=1)
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
 
         metric = create_metric(
             MetricCreate(
-                datasource_id=ds.id,
+                dataset_id=dataset.id,
                 name="销售额",
                 definition="成交金额合计",
                 formula="SUM(net_amount)",

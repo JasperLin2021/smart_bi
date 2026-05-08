@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.safe_delete import delete_catalog_asset
 from app.db.session import get_db
 from app.models.big_screen import BigScreen
 from app.models.catalog import DataAsset
@@ -198,7 +199,7 @@ def delete_big_screen(
         raise HTTPException(status_code=403, detail="无权限")
     screen_title = screen.title
     screen_org_id = screen.org_id
-    db.query(DataAsset).filter(DataAsset.asset_type == "big_screen", DataAsset.asset_id == screen.id).delete()
+    delete_catalog_asset(db, "big_screen", screen.id)
     db.delete(screen)
     db.commit()
     try_record_audit_log(

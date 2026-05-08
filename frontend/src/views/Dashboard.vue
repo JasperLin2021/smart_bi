@@ -1,94 +1,114 @@
 <template>
   <div class="dashboard-page">
-    <!-- Welcome Section -->
-    <div class="welcome-section">
-      <div class="welcome-content">
-        <h2 class="welcome-title">
-          {{ greeting }}, {{ authStore.profile?.username || '用户' }}
-        </h2>
-        <p class="welcome-subtitle">
-          {{ currentDate }}
-        </p>
+    <!-- Header bar -->
+    <div class="dash-header">
+      <div class="dash-header-left">
+        <h2 class="dash-title">{{ currentDashboard?.title || '看板' }}</h2>
+        <el-tag v-if="currentDashboard?.status === 'published'" size="small" type="success" effect="plain">已发布</el-tag>
+        <span v-if="currentDashboard?.description" class="dash-desc">{{ currentDashboard.description }}</span>
       </div>
-      <div class="quick-stats">
-        <div class="stat-item">
-          <div class="stat-value">{{ pinnedCharts.length }}</div>
-          <div class="stat-label">固定图表</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value">{{ datasourceStore.datasources.length }}</div>
-          <div class="stat-label">数据源</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Pinned Charts Section -->
-    <div class="charts-section" v-if="pinnedCharts.length > 0">
-      <div class="section-header">
-        <div class="section-title-group">
-          <h3 class="section-title">
-            <el-icon><Star /></el-icon>
-            我的图表
-          </h3>
-          <el-tag size="small" effect="plain" round>{{ pinnedCharts.length }} 个</el-tag>
-        </div>
-        <el-button size="small" @click="refreshCharts" :loading="loading">
-          <el-icon><Refresh /></el-icon>
-          刷新
-        </el-button>
-      </div>
-      
-      <el-row :gutter="20">
-        <el-col 
-          v-for="chart in pinnedCharts" 
-          :key="chart.id" 
-          :xs="24" 
-          :sm="12" 
-          :lg="8"
-          class="chart-col"
+      <div class="dash-header-right">
+        <el-select
+          v-model="selectedId"
+          placeholder="切换看板"
+          size="small"
+          style="width: 200px"
+          :loading="listLoading"
+          @change="onSwitch"
         >
-          <PinnedChartCard :chart="chart" @delete="deletePinnedChart" />
-        </el-col>
-      </el-row>
+          <el-option
+            v-for="d in dashboards"
+            :key="d.id"
+            :label="d.title"
+            :value="d.id"
+          />
+        </el-select>
+        <el-button size="small" :loading="chartLoading" @click="reload">
+          <el-icon><Refresh /></el-icon>
+        </el-button>
+        <el-button size="small" @click="goEdit">
+          <el-icon><EditPen /></el-icon>
+          编辑
+        </el-button>
+      </div>
     </div>
 
-    <!-- Empty State -->
-    <div v-else class="empty-section">
-      <div class="empty-card">
-        <div class="empty-icon">
-          <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="8" y="20" width="64" height="48" rx="8" stroke="currentColor" stroke-width="2" fill="none"/>
-            <path d="M8 36h64" stroke="currentColor" stroke-width="2"/>
-            <rect x="16" y="44" width="20" height="16" rx="4" stroke="currentColor" stroke-width="2" fill="none"/>
-            <path d="M44 52l8-8 12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h3 class="empty-title">暂无固定图表</h3>
-        <p class="empty-description">
-          在「智能问数」中提问并生成图表后，点击固定按钮将图表添加到此处
-        </p>
-        <el-button type="primary" @click="goToQuery">
-          <el-icon><ChatDotRound /></el-icon>
-          开始问数
-        </el-button>
+    <!-- Cross-filter bar -->
+    <div v-if="activeFilters.length > 0" class="crossfilter-bar">
+      <span class="cf-label">过滤中：</span>
+      <el-tag
+        v-for="f in activeFilters"
+        :key="f.field"
+        closable
+        type="warning"
+        effect="plain"
+        @close="activeFilters = activeFilters.filter(x => x.field !== f.field)"
+      >{{ f.field }} = {{ f.value }}</el-tag>
+      <el-button text type="danger" size="small" @click="activeFilters = []">清除</el-button>
+    </div>
+
+    <!-- Loading skeleton -->
+    <div v-if="chartLoading" class="skeleton-grid">
+      <el-skeleton v-for="i in 6" :key="i" animated style="height:200px" />
+    </div>
+
+    <!-- Empty -->
+    <el-empty
+      v-else-if="!currentDashboard || components.length === 0"
+      :description="currentDashboard ? '该看板暂无图表组件' : '暂无可用看板'"
+      :image-size="100"
+    >
+      <el-button v-if="currentDashboard" type="primary" @click="goEdit">去编辑</el-button>
+      <el-button v-else type="primary" @click="$router.push('/dashboard-center')">前往看板中心</el-button>
+    </el-empty>
+
+    <!-- Dashboard grid -->
+    <div v-else class="dash-grid">
+      <div
+        v-for="item in components"
+        :key="item.id"
+        class="dash-cell"
+        :style="cellStyle(item)"
+      >
+        <PinnedChartCard
+          :chart="chartFor(item)"
+          :active-filters="activeFilters"
+          @delete="() => {}"
+          @filter="handleFilter"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import axios from "axios"
-import { ElMessage, ElMessageBox } from "element-plus"
-import { Star, Refresh, ChatDotRound } from "@element-plus/icons-vue"
+import { ElMessage } from "element-plus"
+import { Refresh, EditPen } from "@element-plus/icons-vue"
 import PinnedChartCard from "@/components/PinnedChartCard.vue"
-import { useDatasourceStore } from "@/store/datasource"
-import { useAuthStore } from "@/store/auth"
 
 const router = useRouter()
-const datasourceStore = useDatasourceStore()
-const authStore = useAuthStore()
+
+interface DashboardSummary {
+  id: number
+  title: string
+  description?: string | null
+  status: string
+  layout_json: { components: DashboardComponent[] } | null
+}
+
+interface DashboardComponent {
+  id: string
+  pinned_chart_id: number
+  title: string
+  description?: string | null
+  chart_type?: string
+  sort_order?: string
+  w?: number
+  h?: number
+}
 
 interface PinnedChartData {
   id: number
@@ -100,74 +120,103 @@ interface PinnedChartData {
   rows: Array<Record<string, any>>
 }
 
+interface CrossFilter { field: string; value: any }
+
+const dashboards = ref<DashboardSummary[]>([])
+const STORAGE_KEY = "dashboard_selected_id"
+const selectedId = ref<number | null>(
+  Number(localStorage.getItem(STORAGE_KEY)) || null
+)
+const listLoading = ref(false)
+const chartLoading = ref(false)
 const pinnedCharts = ref<PinnedChartData[]>([])
-const loading = ref(false)
+const activeFilters = ref<CrossFilter[]>([])
 
-const greeting = computed(() => {
-  const hour = new Date().getHours()
-  if (hour < 6) return '夜深了'
-  if (hour < 12) return '早上好'
-  if (hour < 14) return '中午好'
-  if (hour < 18) return '下午好'
-  return '晚上好'
+const currentDashboard = computed(() =>
+  dashboards.value.find(d => d.id === selectedId.value) ?? null
+)
+
+const components = computed(() =>
+  currentDashboard.value?.layout_json?.components ?? []
+)
+
+const cellStyle = (c: DashboardComponent) => ({
+  gridColumn: `span ${Math.min(Math.max(c.w ?? 6, 3), 12)}`,
+  minHeight: `${Math.min(Math.max(c.h ?? 3, 2), 6) * 96}px`,
 })
 
-const currentDate = computed(() => {
-  const now = new Date()
-  const options: Intl.DateTimeFormatOptions = { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric',
-    weekday: 'long'
-  }
-  return now.toLocaleDateString('zh-CN', options)
-})
-
-const fetchPinnedCharts = async () => {
-  loading.value = true
-  try {
-    const params: Record<string, any> = {}
-    if (datasourceStore.currentId) params.datasource_id = datasourceStore.currentId
-    const response = await axios.get("/api/pinned-charts/with-data", { params })
-    pinnedCharts.value = response.data
-  } catch (error) {
-    console.error("固定图表加载失败", error)
-  } finally {
-    loading.value = false
+const chartFor = (c: DashboardComponent): PinnedChartData => {
+  const found = pinnedCharts.value.find(p => p.id === c.pinned_chart_id)
+  return {
+    id: c.pinned_chart_id,
+    title: c.title,
+    description: c.description ?? found?.description ?? null,
+    chart_type: c.chart_type ?? found?.chart_type ?? "bar",
+    sort_order: c.sort_order ?? found?.sort_order ?? "desc",
+    columns: found?.columns ?? [],
+    rows: found?.rows ?? [],
   }
 }
 
-const refreshCharts = () => {
-  fetchPinnedCharts()
+const handleFilter = (f: CrossFilter) => {
+  const idx = activeFilters.value.findIndex(x => x.field === f.field)
+  if (idx >= 0) {
+    if (activeFilters.value[idx].value === f.value) activeFilters.value.splice(idx, 1)
+    else activeFilters.value[idx] = f
+  } else {
+    activeFilters.value.push(f)
+  }
 }
 
-const deletePinnedChart = async (id: number) => {
+async function loadDashboards() {
+  listLoading.value = true
   try {
-    await ElMessageBox.confirm("确定要删除这个图表吗？", "提示", {
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-      type: "warning"
-    })
-    await axios.delete(`/api/pinned-charts/${id}`)
-    ElMessage.success("已删除")
-    await fetchPinnedCharts()
-  } catch (error: any) {
-    if (error !== "cancel") {
-      ElMessage.error("删除失败")
+    const r = await axios.get("/api/dashboards", { params: { page: 1, page_size: 50 } })
+    dashboards.value = r.data.items ?? []
+    // Default to first published, or first overall
+    const first = dashboards.value.find(d => d.status === "published") ?? dashboards.value[0]
+    // Restore persisted selection if still valid, otherwise default to first
+    const persisted = selectedId.value
+    const valid = persisted && dashboards.value.some(d => d.id === persisted)
+    if (!valid) {
+      selectedId.value = first?.id ?? null
     }
+    if (selectedId.value) localStorage.setItem(STORAGE_KEY, String(selectedId.value))
+  } catch {
+    ElMessage.error("看板列表加载失败")
+  } finally {
+    listLoading.value = false
   }
 }
 
-const goToQuery = () => {
-  router.push("/smart-query")
+async function loadCharts() {
+  chartLoading.value = true
+  try {
+    const r = await axios.get("/api/pinned-charts/with-data")
+    pinnedCharts.value = r.data
+  } catch {
+    ElMessage.error("图表数据加载失败")
+  } finally {
+    chartLoading.value = false
+  }
 }
 
-watch(() => datasourceStore.currentId, () => {
-  fetchPinnedCharts()
-})
+function onSwitch() {
+  activeFilters.value = []
+  if (selectedId.value) localStorage.setItem(STORAGE_KEY, String(selectedId.value))
+}
 
-onMounted(() => {
-  fetchPinnedCharts()
+function reload() {
+  loadCharts()
+}
+
+function goEdit() {
+  router.push("/dashboard-center")
+}
+
+onMounted(async () => {
+  await loadDashboards()
+  await loadCharts()
 })
 </script>
 
@@ -178,154 +227,125 @@ onMounted(() => {
   gap: 16px;
 }
 
-.welcome-section {
+.dash-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 20px 22px;
+  justify-content: space-between;
+  padding: 14px 18px;
   background: var(--app-surface);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
-  color: var(--app-text);
-  position: relative;
-  overflow: hidden;
 }
 
-.welcome-section::before {
-  content: none;
-}
-
-.welcome-content {
-  position: relative;
-  z-index: 1;
-}
-
-.welcome-title {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-}
-
-.welcome-subtitle {
-  font-size: 14px;
-  color: var(--app-text-muted);
-  margin: 0;
-}
-
-.quick-stats {
-  display: flex;
-  gap: 12px;
-  position: relative;
-  z-index: 1;
-}
-
-.stat-item {
-  min-width: 112px;
-  padding: 12px 16px;
-  background: var(--app-surface-muted);
-  border: 1px solid var(--app-border-light);
-  border-radius: var(--app-radius-sm);
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--app-primary-dark);
-}
-
-.stat-label {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin-top: 4px;
-}
-
-.charts-section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.section-title-group {
+.dash-header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.dash-title {
   font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: var(--app-text);
+  white-space: nowrap;
 }
 
-.section-title .el-icon {
-  color: var(--app-warning);
-}
-
-.chart-col {
-  margin-bottom: 20px;
-}
-
-.empty-section {
-  display: flex;
-  justify-content: center;
-  padding: 40px 0;
-}
-
-.empty-card {
-  text-align: center;
-  padding: 48px;
-  background: var(--app-surface);
-  border-radius: var(--app-radius);
-  border: 2px dashed var(--app-border);
-  max-width: 400px;
-}
-
-.empty-icon {
-  width: 80px;
-  height: 80px;
-  margin: 0 auto 24px;
-  color: var(--app-text-light);
-}
-
-.empty-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.empty-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-  color: var(--app-text);
-}
-
-.empty-description {
-  font-size: 14px;
+.dash-desc {
+  font-size: 13px;
   color: var(--app-text-muted);
-  margin: 0 0 24px 0;
-  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
 }
 
-@media (max-width: 768px) {
-  .welcome-section {
+.dash-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.crossfilter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(217, 119, 6, 0.06);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  border-radius: var(--app-radius-sm);
+}
+
+.cf-label {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.dash-cell {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .dash-header {
     flex-direction: column;
-    text-align: center;
-    gap: 24px;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
   }
 
-  .quick-stats {
-    width: 100%;
-    justify-content: center;
+  .dash-header-left {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
+
+  .dash-title {
+    white-space: normal;
+    line-height: 1.35;
+  }
+
+  .dash-header-right {
+    width: 100%;
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .dash-header-right :deep(.el-select) {
+    width: min(100%, 260px) !important;
+    max-width: 100%;
+    flex: 1 1 200px;
+  }
+
+  .dash-header-right :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+
+  .dash-header-right :deep(.el-button) {
+    min-height: 36px;
+  }
+
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+  .dash-cell {
+    grid-column: 1 / -1 !important;
+  }
+  .dash-desc { display: none; }
 }
 </style>

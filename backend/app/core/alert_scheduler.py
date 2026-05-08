@@ -206,6 +206,7 @@ def run_scheduled_report(report_id: int) -> None:
         send_email_sync,
         send_wechat_sync,
     )
+    from app.core.message_dispatcher import MessageEvent, dispatch_message_event
 
     db = SessionLocal()
     try:
@@ -217,9 +218,15 @@ def run_scheduled_report(report_id: int) -> None:
         if not report:
             return
 
-        ds = db.query(DataSource).filter(DataSource.id == report.datasource_id).first()
+        datasource_id = report.datasource_id
+        if report.dataset_id:
+            from app.models.dataset import Dataset
+            dataset = db.query(Dataset).filter(Dataset.id == report.dataset_id).first()
+            if dataset:
+                datasource_id = dataset.datasource_id
+        ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
         if not ds:
-            logger.error("Report %d: datasource %d not found", report_id, report.datasource_id)
+            logger.error("Report %d: datasource %d not found", report_id, datasource_id)
             return
 
         # Run the NL→SQL pipeline in a fresh event loop (scheduler thread has none)
@@ -271,13 +278,62 @@ def run_scheduled_report(report_id: int) -> None:
                     notify_result["email"] = f"error: {exc}"
                     logger.error("Report %d email error: %s", report_id, exc)
 
+        if report.created_by:
+            try:
+                dispatch_message_event(
+                    db,
+                    MessageEvent(
+                        event_type="scheduled_report.generated",
+                        org_id=getattr(ds, "org_id", None),
+                        recipient_user_ids=[report.created_by],
+                        title=subject,
+                        content=markdown_body,
+                        link_url="/scheduled-reports",
+                    ),
+                )
+                notify_result["wechat_app"] = "queued"
+            except Exception as exc:
+                notify_result["wechat_app"] = f"error: {exc}"
+                logger.error("Report %d app message error: %s", report_id, exc)
+
         # Update last_run_at
         report.last_run_at = datetime.now()
+
+        # Write execution log
+        try:
+            from app.models.report_execution_log import ReportExecutionLog
+            log = ReportExecutionLog(
+                report_id=report_id,
+                report_name=report.name,
+                status="success",
+                content_preview=markdown_body[:2000],
+                notify_result=notify_result,
+                org_id=getattr(ds, "org_id", None),
+            )
+            db.add(log)
+        except Exception as log_exc:
+            logger.warning("Report %d: failed to write execution log: %s", report_id, log_exc)
+
         db.commit()
         logger.info("Report %d executed: notify=%s", report_id, notify_result)
 
     except Exception as exc:
         logger.exception("Report %d failed: %s", report_id, exc)
+        # Write error log
+        try:
+            from app.models.report_execution_log import ReportExecutionLog
+            from app.models.scheduled_report import ScheduledReport as _SR
+            _report = db.query(_SR).filter(_SR.id == report_id).first()
+            _log = ReportExecutionLog(
+                report_id=report_id,
+                report_name=_report.name if _report else None,
+                status="error",
+                error_message=str(exc),
+            )
+            db.add(_log)
+            db.commit()
+        except Exception:
+            pass
     finally:
         db.close()
 

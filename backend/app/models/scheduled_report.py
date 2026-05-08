@@ -7,7 +7,8 @@ class ScheduledReport(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(128), nullable=False)
-    datasource_id = Column(Integer, nullable=False, index=True)
+    dataset_id = Column(Integer, nullable=True, index=True)
+    datasource_id = Column(Integer, nullable=True, index=True)
     question = Column(Text, nullable=False)  # Natural-language question to run
 
     # Cron schedule (standard 5-field: minute hour day month weekday)

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
 from app.core.permissions import require_super_admin
+from app.core.safe_delete import assert_organization_can_delete
 from app.db.session import get_db
 from app.models.organization import Organization
 from app.models.user import User
@@ -103,6 +104,7 @@ def delete_organization(
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="企业不存在")
+    assert_organization_can_delete(db, org)
     org_name = org.name
     org_slug = org.slug
     db.delete(org)

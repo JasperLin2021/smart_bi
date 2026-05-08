@@ -1,14 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from datetime import datetime
 
 
 class MetricBase(BaseModel):
-    datasource_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: int
     name: str
     description: Optional[str] = None
     definition: str
-    table_name: Optional[str] = None
     column_name: Optional[str] = None
     formula: Optional[str] = None
     owner_name: Optional[str] = None
@@ -24,7 +25,6 @@ class MetricBase(BaseModel):
     data_updated_at: Optional[datetime] = None
     quality_status: str = "unknown"
     quality_message: Optional[str] = None
-    lineage_json: Optional[dict] = None
     is_active: int = 1
 
 
@@ -33,11 +33,12 @@ class MetricCreate(MetricBase):
 
 
 class MetricUpdate(BaseModel):
-    datasource_id: Optional[int] = None
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: Optional[int] = None
     name: Optional[str] = None
     description: Optional[str] = None
     definition: Optional[str] = None
-    table_name: Optional[str] = None
     column_name: Optional[str] = None
     formula: Optional[str] = None
     owner_name: Optional[str] = None
@@ -53,17 +54,38 @@ class MetricUpdate(BaseModel):
     data_updated_at: Optional[datetime] = None
     quality_status: Optional[str] = None
     quality_message: Optional[str] = None
-    lineage_json: Optional[dict] = None
     is_active: Optional[int] = None
 
 
-class MetricOut(MetricBase):
+class MetricOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
+    dataset_id: Optional[int] = None
+    datasource_id: Optional[int] = None
+    name: str
+    description: Optional[str] = None
+    definition: str
+    column_name: Optional[str] = None
+    formula: Optional[str] = None
+    owner_name: Optional[str] = None
+    unit: Optional[str] = None
+    aggregation: str = "sum"
+    tags: Optional[list[str]] = None
+    status: str = "published"
+    dimensions: Optional[list[str]] = None
+    certification_status: str = "draft"
+    certified_by: Optional[str] = None
+    certified_at: Optional[datetime] = None
+    caliber_version: str = "v1"
+    data_updated_at: Optional[datetime] = None
+    quality_status: str = "unknown"
+    quality_message: Optional[str] = None
+    is_active: int = 1
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+    last_value: Optional[float] = None
+    last_computed_at: Optional[datetime] = None
 
 
 class MetricListResponse(BaseModel):

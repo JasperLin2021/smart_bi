@@ -24,6 +24,11 @@
 import { onMounted, ref, watch } from "vue"
 import * as echarts from "echarts"
 import jsPDF from "jspdf"
+import {
+  CHART_COLOR_PALETTE,
+  PRIMARY_CHART_COLOR,
+  colorizeCategoryData,
+} from "@/utils/chartColors"
 
 const props = defineProps<{
   title: string
@@ -38,6 +43,7 @@ let chartInstance: echarts.ECharts | null = null
 const buildOption = () => {
   if (currentType.value === "pie") {
     return {
+      color: CHART_COLOR_PALETTE,
       tooltip: { trigger: "item" },
       series: [
         {
@@ -46,7 +52,8 @@ const buildOption = () => {
           data: props.categories.map((name, index) => ({
             name,
             value: props.values[index]
-          }))
+          })),
+          itemStyle: { borderRadius: 4, borderWidth: 1, borderColor: "#fff" },
         }
       ]
     }
@@ -69,14 +76,18 @@ const buildOption = () => {
     }
   }
 
+  const isBar = currentType.value === "bar"
+
   return {
+    color: CHART_COLOR_PALETTE,
     tooltip: { trigger: "axis" },
     xAxis: { type: "category", data: props.categories },
     yAxis: { type: "value" },
     series: [
       {
         type: currentType.value,
-        data: props.values
+        data: colorizeCategoryData(props.values, isBar ? [3, 3, 0, 0] : undefined),
+        lineStyle: currentType.value === "line" ? { color: PRIMARY_CHART_COLOR, width: 2 } : undefined,
       }
     ]
   }

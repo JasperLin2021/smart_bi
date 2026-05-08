@@ -545,7 +545,9 @@ onMounted(async () => {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
+  width: 100%;
   max-width: 500px;
+  min-width: 0;
 }
 
 .example-label {
@@ -557,11 +559,22 @@ onMounted(async () => {
 
 .example-tag {
   cursor: pointer;
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
   padding: 7px 12px;
   border-radius: 999px;
   transition: all 0.2s;
   background: var(--app-surface);
   border: 1px solid var(--app-border);
+  white-space: normal;
+}
+
+.example-tag :deep(.el-tag__content) {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
 }
 
 .example-tag:hover {
@@ -723,6 +736,27 @@ onMounted(async () => {
 }
 
 @media (max-width: 1024px) {
+  .smart-query-page {
+    height: auto;
+    min-height: calc(100vh - 120px);
+  }
+
+  .page-row {
+    height: auto;
+  }
+
+  .card-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .header-actions,
+  .history-header-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   .query-scope-panel {
     grid-template-columns: 1fr;
     align-items: stretch;
@@ -730,6 +764,43 @@ onMounted(async () => {
 
   .scope-mode {
     justify-content: space-between;
+  }
+
+  .chat-card,
+  .history-card {
+    height: auto;
+  }
+
+  .history-card {
+    margin-top: 16px;
+  }
+
+  .history-list {
+    max-height: 320px;
+  }
+}
+
+@media (max-width: 640px) {
+  .chat-container {
+    padding: 14px;
+  }
+
+  .welcome-message {
+    min-height: 420px;
+    padding: 28px 12px;
+  }
+
+  .welcome-message p {
+    margin-bottom: 24px;
+    font-size: 14px;
+  }
+
+  .input-area {
+    padding: 12px;
+  }
+
+  .input-area :deep(.el-input-group__append .el-button) {
+    padding: 0 14px;
   }
 }
 </style>

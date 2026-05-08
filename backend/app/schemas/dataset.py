@@ -14,8 +14,15 @@ class DatasetBase(BaseModel):
     joins_json: Optional[dict[str, Any]] = None
     aggregations_json: Optional[dict[str, Any]] = None
     pipeline_json: Optional[dict[str, Any]] = None
+    semantic_model_json: Optional[dict[str, Any]] = None
     status: str = "draft"
     visibility: str = "private"
+    materialization_status: Optional[str] = None
+    materialization_mode: Optional[str] = None
+    materialized_table_name: Optional[str] = None
+    incremental_key: Optional[str] = None
+    incremental_watermark: Optional[str] = None
+    materialization_message: Optional[str] = None
     org_id: Optional[int] = None
     owner_id: Optional[int] = None
 
@@ -34,8 +41,15 @@ class DatasetUpdate(BaseModel):
     joins_json: Optional[dict[str, Any]] = None
     aggregations_json: Optional[dict[str, Any]] = None
     pipeline_json: Optional[dict[str, Any]] = None
+    semantic_model_json: Optional[dict[str, Any]] = None
     status: Optional[str] = None
     visibility: Optional[str] = None
+    materialization_status: Optional[str] = None
+    materialization_mode: Optional[str] = None
+    materialized_table_name: Optional[str] = None
+    incremental_key: Optional[str] = None
+    incremental_watermark: Optional[str] = None
+    materialization_message: Optional[str] = None
 
 
 class DatasetOut(DatasetBase):
@@ -43,6 +57,7 @@ class DatasetOut(DatasetBase):
     last_refresh_status: Optional[str] = None
     last_refresh_at: Optional[datetime] = None
     last_refresh_row_count: int = 0
+    materialized_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -56,6 +71,24 @@ class DatasetListResponse(BaseModel):
 
 class DatasetPreviewRequest(BaseModel):
     limit: int = 100
+
+
+class DatasetMaterializeRequest(BaseModel):
+    mode: str = "full"
+    incremental_key: Optional[str] = None
+
+
+class DatasetSemanticModelUpdate(BaseModel):
+    semantic_model: dict[str, Any]
+
+
+class DatasetSemanticModelResponse(BaseModel):
+    dataset_id: int
+    semantic_model: dict[str, Any]
+
+
+class DatasetSemanticModelValidationResponse(DatasetSemanticModelResponse):
+    valid: bool
 
 
 class DatasetPreviewResponse(BaseModel):

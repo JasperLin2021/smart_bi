@@ -1,37 +1,21 @@
 <template>
   <div class="governance-page alert-settings">
-    <section class="governance-hero">
-      <div class="governance-hero-copy">
-        <p class="governance-kicker">ALERT GOVERNANCE</p>
-        <h2 class="governance-title">预警管理</h2>
-        <p class="governance-desc">
-          把核心指标的异常规则沉淀为可执行的监控任务，明确检测周期、通知方式和待办人，让异常被及时发现并进入处理流程。
-        </p>
+    <div class="page-header">
+      <div class="page-header__chart-area">
+        <div ref="donutRef" class="page-donut" />
+        <div class="page-legend">
+          <div class="page-legend__item" v-for="item in legendItems" :key="item.label">
+            <span class="page-legend__dot" :style="{ background: item.color }" />
+            <span class="page-legend__label">{{ item.label }}</span>
+            <strong class="page-legend__value" :style="{ color: item.color }">{{ item.value }}</strong>
+          </div>
+        </div>
       </div>
-      <div class="governance-actions">
+      <div class="page-header__actions">
         <el-button :icon="Refresh" @click="fetchAlerts" :loading="loading">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建预警</el-button>
       </div>
-    </section>
-
-    <section class="governance-summary-grid">
-      <div class="governance-summary-card">
-        <span>全部预警</span>
-        <strong>{{ alertStats.total }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>启用中</span>
-        <strong>{{ alertStats.active }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>邮件订阅</span>
-        <strong>{{ alertStats.email }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>多渠道通知</span>
-        <strong>{{ alertStats.multiChannel }}</strong>
-      </div>
-    </section>
+    </div>
 
     <el-card class="governance-workbench" shadow="never">
       <div class="governance-toolbar">
@@ -44,14 +28,14 @@
             placeholder="搜索预警 / 指标"
           />
           <el-select
-            v-model="filterDatasourceId"
-            placeholder="全部数据源"
+            v-model="filterDatasetId"
+            placeholder="全部数据集"
             clearable
             class="governance-filter"
             @change="fetchAlerts"
           >
             <el-option
-              v-for="ds in datasourceStore.datasources"
+              v-for="ds in datasets"
               :key="ds.id"
               :label="ds.name"
               :value="ds.id"
@@ -121,7 +105,7 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220">
+        <el-table-column label="操作" width="280">
           <template #default="{ row }">
             <div class="governance-action-group">
               <el-button text type="success" @click="runAlert(row)" :loading="runningId === row.id">触发</el-button>
@@ -130,6 +114,7 @@
                 <el-button text :icon="MoreFilled">更多</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item @click="createActionItem(row)">转为行动项</el-dropdown-item>
                     <el-dropdown-item :icon="Delete" @click="handleDelete(row)">删除预警</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -154,175 +139,139 @@
         :rules="rules"
         label-position="top"
       >
-        <div class="governance-modal-shell is-single">
-          <div class="governance-modal-main">
-        <section class="governance-dialog-section">
-          <div class="governance-section-head">
-            <h3>监控对象</h3>
-            <p>选择指标和数据源。</p>
-          </div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="预警名称" prop="name">
-                <el-input v-model="form.name" placeholder="例：回款率异常预警" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="数据源" prop="datasource_id">
-                <el-select v-model="form.datasource_id" placeholder="选择数据源" style="width: 100%">
-                  <el-option
-                    v-for="ds in datasourceStore.datasources"
-                    :key="ds.id"
-                    :label="ds.name"
-                    :value="ds.id"
-                  />
+        <el-tabs v-model="dialogActiveTab" class="modal-tabs">
+          <el-tab-pane label="监控对象" name="target">
+            <div class="modal-tab-content">
+              <el-row :gutter="16">
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="预警名称" prop="name">
+                    <el-input v-model="form.name" placeholder="例：回款率异常预警" />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="数据集" prop="dataset_id">
+                    <el-select v-model="form.dataset_id" placeholder="选择数据集" style="width: 100%">
+                      <el-option v-for="ds in datasets" :key="ds.id" :label="ds.name" :value="ds.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="选择指标" prop="metric_id">
+                <el-select v-model="form.metric_id" placeholder="请选择指标" filterable clearable style="width: 100%" @change="onMetricChange">
+                  <el-option v-for="m in metrics" :key="m.id" :label="m.name" :value="m.id">
+                    <span>{{ m.name }}</span>
+                    <span style="float:right; color:#999; font-size:12px">{{ m.description }}</span>
+                  </el-option>
                 </el-select>
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-form-item label="选择指标" prop="metric_id">
-            <el-select
-              v-model="form.metric_id"
-              placeholder="请选择指标"
-              filterable
-              clearable
-              style="width: 100%"
-              @change="onMetricChange"
-            >
-              <el-option
-                v-for="m in metrics"
-                :key="m.id"
-                :label="m.name"
-                :value="m.id"
-              >
-                <span>{{ m.name }}</span>
-                <span style="float:right; color:#999; font-size:12px">{{ m.description }}</span>
-              </el-option>
-            </el-select>
-          </el-form-item>
-        </section>
+            </div>
+          </el-tab-pane>
 
-        <section class="governance-dialog-section">
-          <div class="governance-section-head">
-            <h3>触发规则</h3>
-            <p>配置窗口和阈值。</p>
-          </div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="时间范围" prop="time_range">
-                <div class="inline-group">
-                  <el-input-number v-model="form.time_range" :min="1" :max="365" />
-                  <el-select v-model="form.time_range_unit">
-                    <el-option label="天" value="day" />
-                    <el-option label="周" value="week" />
-                    <el-option label="月" value="month" />
-                  </el-select>
+          <el-tab-pane label="触发规则" name="rules">
+            <div class="modal-tab-content">
+              <el-row :gutter="16">
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="时间范围" prop="time_range">
+                    <div class="inline-group">
+                      <el-input-number v-model="form.time_range" :min="1" :max="365" />
+                      <el-select v-model="form.time_range_unit">
+                        <el-option label="天" value="day" />
+                        <el-option label="周" value="week" />
+                        <el-option label="月" value="month" />
+                      </el-select>
+                    </div>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="检测通知周期">
+                    <div class="inline-group">
+                      <span>每</span>
+                      <el-input-number v-model="form.check_period" :min="1" />
+                      <el-select v-model="form.check_period_unit">
+                        <el-option label="分钟" value="minute" />
+                        <el-option label="小时" value="hour" />
+                        <el-option label="天" value="day" />
+                      </el-select>
+                    </div>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="维度条件">
+                <div class="condition-list">
+                  <div v-if="dimensionConditions.length === 0" class="condition-empty">默认不限制维度。需要只监控某个区域、渠道或产线时再添加条件。</div>
+                  <div v-for="(cond, idx) in dimensionConditions" :key="idx" class="condition-row">
+                    <el-input v-model="cond.field" placeholder="字段名" />
+                    <el-select v-model="cond.operator">
+                      <el-option label="等于" value="eq" />
+                      <el-option label="不等于" value="neq" />
+                      <el-option label="包含" value="contains" />
+                      <el-option label="属于" value="in" />
+                    </el-select>
+                    <el-input v-model="cond.value" placeholder="值" />
+                    <el-button :icon="Close" circle plain @click="removeDimCond(idx)" />
+                  </div>
+                  <el-button :icon="Plus" size="small" @click="addDimCond">添加维度条件</el-button>
                 </div>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="检测通知周期">
-                <div class="inline-group">
-                  <span>每</span>
-                  <el-input-number v-model="form.check_period" :min="1" />
-                  <el-select v-model="form.check_period_unit">
-                    <el-option label="分钟" value="minute" />
-                    <el-option label="小时" value="hour" />
-                    <el-option label="天" value="day" />
-                  </el-select>
+              <el-form-item label="指标条件">
+                <div class="condition-list">
+                  <div v-if="metricConditions.length === 0" class="condition-empty">至少添加一个指标阈值，预警才知道什么情况算异常。</div>
+                  <div v-for="(cond, idx) in metricConditions" :key="idx" class="condition-row">
+                    <el-input v-model="cond.metric" placeholder="指标名" />
+                    <el-select v-model="cond.operator">
+                      <el-option label="大于" value="gt" />
+                      <el-option label="大于等于" value="gte" />
+                      <el-option label="小于" value="lt" />
+                      <el-option label="小于等于" value="lte" />
+                      <el-option label="等于" value="eq" />
+                    </el-select>
+                    <el-input-number v-model="cond.value" />
+                    <el-button :icon="Close" circle plain @click="removeMetricCond(idx)" />
+                  </div>
+                  <el-button :icon="Plus" size="small" @click="addMetricCond">添加指标条件</el-button>
                 </div>
               </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-form-item label="维度条件">
-            <div class="condition-list">
-              <div v-if="dimensionConditions.length === 0" class="condition-empty">
-                默认不限制维度。需要只监控某个区域、渠道或产线时再添加条件。
-              </div>
-              <div v-for="(cond, idx) in dimensionConditions" :key="idx" class="condition-row">
-                <el-input v-model="cond.field" placeholder="字段名" />
-                <el-select v-model="cond.operator">
-                  <el-option label="等于" value="eq" />
-                  <el-option label="不等于" value="neq" />
-                  <el-option label="包含" value="contains" />
-                  <el-option label="属于" value="in" />
-                </el-select>
-                <el-input v-model="cond.value" placeholder="值" />
-                <el-button :icon="Close" circle plain @click="removeDimCond(idx)" />
-              </div>
-              <el-button :icon="Plus" size="small" @click="addDimCond">添加维度条件</el-button>
             </div>
-          </el-form-item>
+          </el-tab-pane>
 
-          <el-form-item label="指标条件">
-            <div class="condition-list">
-              <div v-if="metricConditions.length === 0" class="condition-empty">
-                至少添加一个指标阈值，预警才知道什么情况算异常。
-              </div>
-              <div v-for="(cond, idx) in metricConditions" :key="idx" class="condition-row">
-                <el-input v-model="cond.metric" placeholder="指标名" />
-                <el-select v-model="cond.operator">
-                  <el-option label="大于" value="gt" />
-                  <el-option label="大于等于" value="gte" />
-                  <el-option label="小于" value="lt" />
-                  <el-option label="小于等于" value="lte" />
-                  <el-option label="等于" value="eq" />
-                </el-select>
-                <el-input-number v-model="cond.value" />
-                <el-button :icon="Close" circle plain @click="removeMetricCond(idx)" />
-              </div>
-              <el-button :icon="Plus" size="small" @click="addMetricCond">添加指标条件</el-button>
-            </div>
-          </el-form-item>
-        </section>
-
-        <section class="governance-dialog-section">
-          <div class="governance-section-head">
-            <h3>通知与处理人</h3>
-            <p>指定渠道和负责人。</p>
-          </div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="待办人">
-                <el-select v-model="assigneeIds" multiple placeholder="选择待办人" style="width: 100%" filterable>
-                  <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
-                </el-select>
+          <el-tab-pane label="通知与处理人" name="notify">
+            <div class="modal-tab-content">
+              <el-row :gutter="16">
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="待办人">
+                    <el-select v-model="assigneeIds" multiple placeholder="选择待办人" style="width: 100%" filterable>
+                      <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="抄送人">
+                    <el-select v-model="ccIds" multiple placeholder="选择抄送人" style="width: 100%" filterable>
+                      <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="订阅方式">
+                <div class="notify-group">
+                  <el-checkbox v-model="form.notify_system"><div class="notify-item"><el-icon><Bell /></el-icon><span>系统通知</span></div></el-checkbox>
+                  <el-checkbox v-model="form.notify_email"><div class="notify-item"><el-icon><Message /></el-icon><span>邮件通知</span></div></el-checkbox>
+                  <el-checkbox v-model="form.notify_wechat"><div class="notify-item"><el-icon><ChatDotRound /></el-icon><span>企业微信</span></div></el-checkbox>
+                  <el-checkbox v-model="form.notify_dingtalk"><div class="notify-item"><el-icon><Phone /></el-icon><span>钉钉</span></div></el-checkbox>
+                </div>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="抄送人">
-                <el-select v-model="ccIds" multiple placeholder="选择抄送人" style="width: 100%" filterable>
-                  <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
-                </el-select>
+              <el-form-item label="邮件收件人" v-if="form.notify_email">
+                <el-input v-model="form.email_recipients" placeholder="多个地址用英文逗号分隔：a@x.com, b@x.com" />
               </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-form-item label="订阅方式">
-            <div class="notify-group">
-              <el-checkbox v-model="form.notify_system"><div class="notify-item"><el-icon><Bell /></el-icon><span>系统通知</span></div></el-checkbox>
-              <el-checkbox v-model="form.notify_email"><div class="notify-item"><el-icon><Message /></el-icon><span>邮件通知</span></div></el-checkbox>
-              <el-checkbox v-model="form.notify_wechat"><div class="notify-item"><el-icon><ChatDotRound /></el-icon><span>企业微信</span></div></el-checkbox>
-              <el-checkbox v-model="form.notify_dingtalk"><div class="notify-item"><el-icon><Phone /></el-icon><span>钉钉</span></div></el-checkbox>
+              <el-form-item label="预警内容">
+                <el-input v-model="form.content" type="textarea" :rows="4" placeholder="预警触发时发送的内容模板，可使用 {{metric}}、{{value}}、{{time}} 等变量" />
+              </el-form-item>
+              <el-form-item label="触发后自动创建行动项">
+                <el-switch v-model="form.auto_create_action_item" />
+              </el-form-item>
             </div>
-          </el-form-item>
-
-          <el-form-item label="邮件收件人" v-if="form.notify_email">
-            <el-input v-model="form.email_recipients" placeholder="多个地址用英文逗号分隔：a@x.com, b@x.com" />
-          </el-form-item>
-
-          <el-form-item label="预警内容">
-            <el-input
-              v-model="form.content"
-              type="textarea"
-              :rows="4"
-              placeholder="预警触发时发送的内容模板，可使用 {{metric}}、{{value}}、{{time}} 等变量"
-            />
-          </el-form-item>
-        </section>
-          </div>
-        </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-form>
 
       <template #footer>
@@ -339,31 +288,30 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import * as echarts from "echarts"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
 import { Plus, Edit, Delete, Close, Bell, Message, ChatDotRound, Phone, Search, MoreFilled, Refresh } from "@element-plus/icons-vue"
 import axios from "axios"
-import { useDatasourceStore } from "@/store/datasource"
-
-const datasourceStore = useDatasourceStore()
-
 // ---- State ----
 const loading = ref(false)
 const saving = ref(false)
 const runningId = ref<number | null>(null)
 const alerts = ref<any[]>([])
 const metrics = ref<any[]>([])
+const datasets = ref<any[]>([])
 const users = ref<any[]>([])
 const keyword = ref("")
 const quickFilter = ref("all")
-const filterDatasourceId = ref<number | null>(null)
+const filterDatasetId = ref<number | null>(null)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
+const dialogActiveTab = ref("target")
 const formRef = ref<FormInstance>()
 
 const defaultForm = () => ({
   name: "",
-  datasource_id: datasourceStore.currentId ?? null,
+  dataset_id: null as number | null,
   metric_id: null as number | null,
   metric_name: "",
   time_range: 1,
@@ -377,6 +325,7 @@ const defaultForm = () => ({
   email_recipients: "",
   content: "",
   is_active: true,
+  auto_create_action_item: false,
 })
 
 const form = reactive(defaultForm())
@@ -387,7 +336,7 @@ const ccIds = ref<number[]>([])
 
 const rules: FormRules = {
   name: [{ required: true, message: "请输入预警名称", trigger: "blur" }],
-  datasource_id: [{ required: true, message: "请选择数据源", trigger: "change" }],
+  dataset_id: [{ required: true, message: "请选择数据集", trigger: "change" }],
 }
 
 const hasNotification = (row: any) =>
@@ -445,12 +394,19 @@ function checkPeriodUnitLabel(unit: string) {
 async function fetchAlerts() {
   loading.value = true
   try {
-    const params = filterDatasourceId.value ? { datasource_id: filterDatasourceId.value } : {}
+    const params = filterDatasetId.value ? { dataset_id: filterDatasetId.value } : {}
     const { data } = await axios.get("/api/alerts", { params })
     alerts.value = data.items
   } finally {
     loading.value = false
   }
+}
+
+async function fetchDatasets() {
+  try {
+    const { data } = await axios.get("/api/datasets", { params: { page: 1, page_size: 200 } })
+    datasets.value = data.items || []
+  } catch { /* ignore */ }
 }
 
 async function fetchMetrics() {
@@ -489,6 +445,7 @@ function onMetricChange(id: number) {
 // ---- Dialog ----
 function openCreate() {
   editingId.value = null
+  dialogActiveTab.value = "target"
   Object.assign(form, defaultForm())
   dimensionConditions.value = []
   metricConditions.value = []
@@ -499,9 +456,10 @@ function openCreate() {
 
 function openEdit(row: any) {
   editingId.value = row.id
+  dialogActiveTab.value = "target"
   Object.assign(form, {
     name: row.name,
-    datasource_id: row.datasource_id,
+    dataset_id: row.dataset_id,
     metric_id: row.metric_id,
     metric_name: row.metric_name,
     time_range: row.time_range,
@@ -515,6 +473,7 @@ function openEdit(row: any) {
     email_recipients: row.email_recipients || "",
     content: row.content,
     is_active: row.is_active,
+    auto_create_action_item: row.auto_create_action_item || false,
   })
   dimensionConditions.value = row.dimension_conditions
     ? JSON.parse(row.dimension_conditions)
@@ -565,6 +524,15 @@ async function runAlert(row: any) {
   }
 }
 
+async function createActionItem(row: any) {
+  try {
+    const { data } = await axios.post(`/api/alerts/${row.id}/create-action-item`, {})
+    ElMessage.success(`行动项已创建（ID: ${data.action_item_id}）`)
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || "创建失败")
+  }
+}
+
 async function handleDelete(row: any) {
   await ElMessageBox.confirm(`确认删除预警「${row.name}」？`, "删除确认", { type: "warning" })
   await axios.delete(`/api/alerts/${row.id}`)
@@ -578,11 +546,45 @@ async function toggleActive(row: any, val: boolean) {
 }
 
 // ---- Lifecycle ----
+const donutRef = ref<HTMLElement | null>(null)
+let donutChart: echarts.ECharts | null = null
+
+const legendItems = computed(() => [
+  { label: "全部预警",   value: alertStats.value.total,        color: "#3b82f6" },
+  { label: "启用中",     value: alertStats.value.active,       color: "#16a34a" },
+  { label: "邮件订阅",   value: alertStats.value.email,        color: "#d97706" },
+  { label: "多渠道通知", value: alertStats.value.multiChannel, color: "#8b5cf6" },
+])
+
+const updateDonut = () => {
+  if (!donutRef.value) return
+  if (!donutChart) donutChart = echarts.init(donutRef.value)
+  const s = alertStats.value
+  const inactive = Math.max(0, s.total - s.active)
+  const data = [
+    { value: s.active,   name: "启用中", itemStyle: { color: "#16a34a" } },
+    { value: inactive,   name: "已停用", itemStyle: { color: "#94a3b8" } },
+  ].filter(d => d.value > 0)
+  if (!data.length) data.push({ value: 1, name: "暂无数据", itemStyle: { color: "#e2e8f0" } })
+  donutChart.setOption({
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    series: [{ type: "pie", radius: ["52%", "80%"], center: ["50%", "50%"], avoidLabelOverlap: false,
+      label: { show: true, position: "center",
+        formatter: () => `{total|${s.total}}\n{label|预警总数}`,
+        rich: { total: { fontSize: 22, fontWeight: 700, color: "#1e293b", lineHeight: 28 }, label: { fontSize: 11, color: "#94a3b8", lineHeight: 18 } } },
+      emphasis: { label: { show: true } }, labelLine: { show: false }, data }],
+  }, true)
+}
+
+watch(alertStats, () => nextTick(updateDonut), { deep: true })
+onBeforeUnmount(() => { donutChart?.dispose(); donutChart = null })
+
 onMounted(async () => {
-  await datasourceStore.fetchDatasources()
+  fetchDatasets()
   fetchAlerts()
   fetchMetrics()
   fetchUsers()
+  nextTick(updateDonut)
 })
 </script>
 

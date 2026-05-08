@@ -17,7 +17,8 @@ class MetricCondition(BaseModel):
 
 class AlertBase(BaseModel):
     name: str
-    datasource_id: int
+    dataset_id: int
+    datasource_id: Optional[int] = None
     metric_id: Optional[int] = None
     metric_name: Optional[str] = None
     time_range: int = 1
@@ -43,6 +44,7 @@ class AlertCreate(AlertBase):
 
 class AlertUpdate(BaseModel):
     name: Optional[str] = None
+    dataset_id: Optional[int] = None
     datasource_id: Optional[int] = None
     metric_id: Optional[int] = None
     metric_name: Optional[str] = None
@@ -61,10 +63,14 @@ class AlertUpdate(BaseModel):
     email_recipients: Optional[str] = None
     content: Optional[str] = None
     is_active: Optional[bool] = None
+    auto_create_action_item: Optional[bool] = None
+    action_item_assignee_id: Optional[int] = None
 
 
 class AlertOut(AlertBase):
     id: int
+    auto_create_action_item: bool = False
+    action_item_assignee_id: Optional[int] = None
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

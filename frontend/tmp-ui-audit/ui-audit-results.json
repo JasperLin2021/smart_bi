@@ -1,0 +1,667 @@
+{
+  "checked": 66,
+  "failures": [],
+  "consoleErrors": [],
+  "results": [
+    {
+      "viewport": "desktop",
+      "route": "/login",
+      "visibleTextLength": 91,
+      "textSample": "Smart BI 智能商业分析平台 登录 企业微信登录 测试账号 超级管理员 企业管理员 普通用户 © 2026 Smart BI - Powered by Chinatelecom",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/login",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/dashboard",
+      "visibleTextLength": 166,
+      "textSample": "Smart BI 工作台 Dashboard 智能问数 行动闭环 大屏中心 数据接入 BI 分析 系统管理 R root.ops 超级管理员 Dashboard 首页 / Dashboard Nova Executive Operations 已发布 经营驾驶舱 Nova Executive Operations 编辑 准时发货率",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dashboard",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/dashboard-center",
+      "visibleTextLength": 231,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 看板中心 可信指标 预警管理 定时报告 系统管理 R root.ops 超级管理员 看板中心 首页 / 看板中心 全部 已发布 草稿 模板创建 新建看板 看板名称 描述 状态 可见范围 组件数 操作 Nova Executive Operations 经营驾驶舱 已发布 组织内 1 编辑 预览 分享 ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dashboard-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/big-screen-center",
+      "visibleTextLength": 106,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 R root.ops 超级管理员 大屏中心 首页 / 大屏中心 GoView Nova Manufacturing 查看 设计 刷新 新窗口打开",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/big-screen-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/data-access",
+      "visibleTextLength": 467,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 接入总览 数据源管理 数据集开发 数据平台 数据目录 BI 分析 系统管理 R root.ops 超级管理员 接入总览 首页 / 接入总览 DATA INTEGRATION 数据接入中心 面向多源异构接入、数据开发、同步与物化、任务运维，把分析前的数据准备能力集中管理。 刷新 申请访问权限 数据源 2 2 个已配",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/data-access",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/data-catalog",
+      "visibleTextLength": 227,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 接入总览 数据源管理 数据集开发 数据平台 数据目录 BI 分析 系统管理 R root.ops 超级管理员 数据目录 首页 / 数据目录 文件夹 全部资产 2 经营分析 数据目录 2 项 当前文件夹 指标 数据集 数据表 看板 大屏 Nova Sales Fulfillment 已发布销售履约数据集 销售 履约",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/data-catalog",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/dataset-center",
+      "visibleTextLength": 438,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 接入总览 数据源管理 数据集开发 数据平台 数据目录 BI 分析 系统管理 R root.ops 超级管理员 数据集开发 首页 / 数据集开发 DATASET CENTER 数据集中心 2 个数据源，1 个已发布数据集 全部 已发布 草稿 新建数据集 全部数据集 2 已发布 1 草稿 1 可用数据源 2 数据集 ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dataset-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/smart-query",
+      "visibleTextLength": 332,
+      "textSample": "Smart BI 工作台 Dashboard 智能问数 行动闭环 大屏中心 数据接入 BI 分析 系统管理 R root.ops 超级管理员 智能问数 首页 / 智能问数 智能问数助手 智能问数 闲聊模式 清空对话 问数范围 数据源 数据集 Nova ERP Warehouse Nova ERP Warehouse 欢迎使用智能问数助手 您可以用自然语言提问",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/smart-query",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/action-items",
+      "visibleTextLength": 250,
+      "textSample": "Smart BI 工作台 Dashboard 智能问数 行动闭环 大屏中心 数据接入 BI 分析 系统管理 R root.ops 超级管理员 行动闭环 首页 / 行动闭环 全部行动 1 待处理 1 临近截止 0 已闭环 0 刷新 新建行动项 状态 优先级 来源 共 1 个结果 行动项 关联资源 负责人 / 截止 状态与结果 操作 复核 B 线良率异常 B 线",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/action-items",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/datasource-settings",
+      "visibleTextLength": 371,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 接入总览 数据源管理 数据集开发 数据平台 数据目录 BI 分析 系统管理 R root.ops 超级管理员 数据源管理 首页 / 数据源管理 全部数据源 2 已启用 2 已配置表结构 0 Excel 数据源 0 刷新 新增数据源 数据源类型 启用状态 全部 待补表结构 待配钻取 Excel 已禁用 共 2 个结",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/datasource-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/olap-status",
+      "visibleTextLength": 387,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 接入总览 数据源管理 数据集开发 数据平台 数据目录 BI 分析 系统管理 R root.ops 超级管理员 数据平台 首页 / 数据平台 DATA PLATFORM Doris 数据平台 统一承接数据集物化、刷新任务和高并发分析查询。 刷新状态 引擎 Apache Doris 启用状态 已启用 连接健康 正常 ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/olap-status",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/user-management",
+      "visibleTextLength": 270,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 用户管理 首页 / 用户管理 3 总用户数 2 管理员 2 企业数 用户列表 3 个用户 刷新 新增用户 用户名 角色 所属企业 操作 R root.ops 超级管理员 - 编辑 删",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/user-management",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/org-management",
+      "visibleTextLength": 254,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 企业管理 首页 / 企业管理 2 企业总数 企业列表 2 个企业 刷新 新增企业 ID 企业名称 标识 创建时间 操作 1 N Nova Manufacturing nova-mfg",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/org-management",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/metric-settings",
+      "visibleTextLength": 544,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 看板中心 可信指标 预警管理 定时报告 系统管理 R root.ops 超级管理员 可信指标 首页 / 可信指标 全部指标 2 已认证 1 待审核 1 质量风险 1 刷新 新增指标 数据集 认证状态 质量状态 全部 已认证 待审核 质量风险 未绑定字段 共 2 个结果 指标与口径 可信状态 质量 数据",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/metric-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/alert-settings",
+      "visibleTextLength": 249,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 看板中心 可信指标 预警管理 定时报告 系统管理 R root.ops 超级管理员 预警管理 首页 / 预警管理 全部预警 1 启用中 1 邮件订阅 0 多渠道通知 0 刷新 新建预警 全部数据源 全部 启用中 未配置通知 多渠道 已禁用 共 1 个结果 预警 指标 检测窗口 通知方式 状态 操作 S",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/alert-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/scheduled-reports",
+      "visibleTextLength": 277,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 看板中心 可信指标 预警管理 定时报告 系统管理 R root.ops 超级管理员 定时报告 首页 / 定时报告 全部报告 1 启用中 1 已执行过 1 已配置通知 1 刷新 新建定时报告 全部数据源 全部 启用中 未配置通知 从未执行 已禁用 共 1 个结果 报告 定时规则 通知方式 最近执行 状态",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/scheduled-reports",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/audit-logs",
+      "visibleTextLength": 275,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 审计日志 首页 / 审计日志 审计日志 数据源、问数、看板和用户权限操作记录 刷新 操作类型 资源类型 状态 时间 操作者 角色 操作 资源 状态 说明 详情 2026/5/8 13",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/audit-logs",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/operations",
+      "visibleTextLength": 199,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 运营后台 首页 / 运营后台 运营后台 刷新 活跃用户 问数次数 128 资产数量 12 看板数量 数据集数量 大屏数量 运行关注 项目 当前值 处理建议 错误审计 0 当前无错误记",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/operations",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/llm-settings",
+      "visibleTextLength": 245,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 大模型配置 首页 / 大模型配置 大模型配置 刷新 提供商 OpenAI 使用推荐 API Base 模型 温度 Agent 规划 全部走 LLM 启发式优先，LLM 兜底 API ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/llm-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/notification-settings",
+      "visibleTextLength": 309,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 通知配置 首页 / 通知配置 通知配置 刷新 企业微信机器人 钉钉机器人 邮件通知（SMTP） SMTP 服务器 端口 SSL 用户名 密码 发件人名称 测试收件人 发送测试邮件 保",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/notification-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/wechat-work-integration",
+      "visibleTextLength": 266,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 用户管理 企业管理 审计日志 运营后台 大模型配置 通知配置 企业微信集成 R root.ops 超级管理员 企业微信集成 首页 / 企业微信集成 企业微信集成 配置企业微信登录、组织绑定、部门权限映射和应用消息投递。 刷新 基础配置 组织绑定 部门权限 消息测试 投递记录 应用配置 企业微",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/wechat-work-integration",
+      "newErrors": []
+    },
+    {
+      "viewport": "desktop",
+      "route": "/embed/mock-token",
+      "visibleTextLength": 90,
+      "textSample": "Smart BI 工作台 大屏中心 数据接入 BI 分析 系统管理 R root.ops 超级管理员 Dashboard 首页 / Dashboard Weekly Revenue",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/embed/mock-token",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/login",
+      "visibleTextLength": 91,
+      "textSample": "Smart BI 智能商业分析平台 登录 企业微信登录 测试账号 超级管理员 企业管理员 普通用户 © 2026 Smart BI - Powered by Chinatelecom",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/login",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/dashboard",
+      "visibleTextLength": 91,
+      "textSample": "R Dashboard 首页 / Dashboard Nova Executive Operations 已发布 Nova Executive Operations 编辑 准时发货率",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dashboard",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/dashboard-center",
+      "visibleTextLength": 162,
+      "textSample": "R 看板中心 首页 / 看板中心 全部 已发布 草稿 模板创建 新建看板 看板名称 描述 状态 可见范围 组件数 操作 Nova Executive Operations 经营驾驶舱 已发布 组织内 1 编辑 预览 分享 更多 Quality Daily Review 质量日会看板 草稿 仅自己 0 编辑 预览 分享 更多",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dashboard-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/big-screen-center",
+      "visibleTextLength": 57,
+      "textSample": "R 大屏中心 首页 / 大屏中心 GoView Nova Manufacturing 查看 设计 刷新 新窗口打开",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/big-screen-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/data-access",
+      "visibleTextLength": 391,
+      "textSample": "R 接入总览 首页 / 接入总览 DATA INTEGRATION 数据接入中心 面向多源异构接入、数据开发、同步与物化、任务运维，把分析前的数据准备能力集中管理。 刷新 申请访问权限 数据源 2 2 个已配置表结构 数据集开发 2 1 个已发布 同步任务 0 1 个失败记录 Doris 数据平台 已启用 连接正常 多源异构接入 统一管理数据库、Excel ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/data-access",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/data-catalog",
+      "visibleTextLength": 151,
+      "textSample": "R 数据目录 首页 / 数据目录 文件夹 全部资产 2 经营分析 数据目录 2 项 当前文件夹 指标 数据集 数据表 看板 大屏 Nova Sales Fulfillment 已发布销售履约数据集 销售 履约 数据集 128 On Time Shipment Rate 准时发货率指标 指标 指标 88",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/data-catalog",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/dataset-center",
+      "visibleTextLength": 362,
+      "textSample": "R 数据集开发 首页 / 数据集开发 DATASET CENTER 数据集中心 2 个数据源，1 个已发布数据集 全部 已发布 草稿 新建数据集 全部数据集 2 已发布 1 草稿 1 可用数据源 2 数据集 数据源 字段 口径 状态 刷新 可见范围 操作 Nova Sales Fulfillment 销售履约分析数据集 Nova ERP Warehouse ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dataset-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/smart-query",
+      "visibleTextLength": 263,
+      "textSample": "R 智能问数 首页 / 智能问数 智能问数助手 智能问数 闲聊模式 清空对话 问数范围 数据源 数据集 Nova ERP Warehouse Nova ERP Warehouse 欢迎使用智能问数助手 您可以用自然语言提问，我会帮您查询数据并生成分析结果 试试这样问： 产出最高的前5个单元 在“1001/OP100 - Failed Hall Cal tes",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/smart-query",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/action-items",
+      "visibleTextLength": 181,
+      "textSample": "R 行动闭环 首页 / 行动闭环 全部行动 1 待处理 1 临近截止 0 已闭环 0 刷新 新建行动项 状态 优先级 来源 共 1 个结果 行动项 关联资源 负责人 / 截止 状态与结果 操作 复核 B 线良率异常 B 线良率连续两天低于阈值 高 预警异常 指标：Manufacturing Yield 用户 #11 未设置 待处理 尚未填写处理结果 编辑 删",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/action-items",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/datasource-settings",
+      "visibleTextLength": 295,
+      "textSample": "R 数据源管理 首页 / 数据源管理 全部数据源 2 已启用 2 已配置表结构 0 Excel 数据源 0 刷新 新增数据源 数据源类型 启用状态 全部 待补表结构 待配钻取 Excel 已禁用 共 2 个结果 数据源 类型 / 状态 表结构 业务口径 操作 Nova ERP Warehouse nova-erp SQLite 启用 0 张表 0 个字段 ·",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/datasource-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/olap-status",
+      "visibleTextLength": 311,
+      "textSample": "R 数据平台 首页 / 数据平台 DATA PLATFORM Doris 数据平台 统一承接数据集物化、刷新任务和高并发分析查询。 刷新状态 引擎 Apache Doris 启用状态 已启用 连接健康 正常 已物化数据集 1 Doris ready 数据集物化 Doris 优先读取已就绪的数据集；未物化或异常时保留原直连路径。 刷新列表 数据集 Doris ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/olap-status",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/user-management",
+      "visibleTextLength": 183,
+      "textSample": "R 用户管理 首页 / 用户管理 3 总用户数 2 管理员 2 企业数 用户列表 3 个用户 刷新 新增用户 用户名 角色 所属企业 操作 R root.ops 超级管理员 - 编辑 删除 N nova.admin 企业管理员 Nova Manufacturing 编辑 删除 N nova.analyst 普通用户 Nova Manufacturing 编辑",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/user-management",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/org-management",
+      "visibleTextLength": 167,
+      "textSample": "R 企业管理 首页 / 企业管理 2 企业总数 企业列表 2 个企业 刷新 新增企业 ID 企业名称 标识 创建时间 操作 1 N Nova Manufacturing nova-mfg Invalid Date 编辑 删除 2 O Orion Retail Group orion-retail Invalid Date 编辑 删除",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/org-management",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/metric-settings",
+      "visibleTextLength": 250,
+      "textSample": "R 可信指标 首页 / 可信指标 全部指标 2 已认证 1 待审核 1 质量风险 1 刷新 新增指标 数据集 认证状态 质量状态 全部 已认证 待审核 质量风险 未绑定字段 共 2 个结果 On Time Shipment Rate % 准时发货率 已认证 履约 经营 质量 正常 数据集 Nova Sales Fulfillment 最新值 96.4 发布 ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/metric-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/alert-settings",
+      "visibleTextLength": 180,
+      "textSample": "R 预警管理 首页 / 预警管理 全部预警 1 启用中 1 邮件订阅 0 多渠道通知 0 刷新 新建预警 全部数据源 全部 启用中 未配置通知 多渠道 已禁用 共 1 个结果 预警 指标 检测窗口 通知方式 状态 操作 SLA Risk Alert 未填写通知内容 On Time Shipment Rate 1 天 每 1 小时 检测 系统 触发 编辑 更多",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/alert-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/scheduled-reports",
+      "visibleTextLength": 208,
+      "textSample": "R 定时报告 首页 / 定时报告 全部报告 1 启用中 1 已执行过 1 已配置通知 1 刷新 新建定时报告 全部数据源 全部 启用中 未配置通知 从未执行 已禁用 共 1 个结果 报告 定时规则 通知方式 最近执行 状态 操作 Daily Operations Brief 总结昨日订单、库存与风险 0 9 * * 1-5 工作日每天 09:00 邮件 20",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/scheduled-reports",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/audit-logs",
+      "visibleTextLength": 188,
+      "textSample": "R 审计日志 首页 / 审计日志 审计日志 数据源、问数、看板和用户权限操作记录 刷新 操作类型 资源类型 状态 时间 操作者 角色 操作 资源 状态 说明 详情 2026/5/8 13:43:46 nova.admin 企业管理员 看板更新 dashboard.update 看板 / Nova Executive Operations 成功 看板已更新 -",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/audit-logs",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/operations",
+      "visibleTextLength": 112,
+      "textSample": "R 运营后台 首页 / 运营后台 运营后台 刷新 活跃用户 问数次数 128 资产数量 12 看板数量 数据集数量 大屏数量 运行关注 项目 当前值 处理建议 错误审计 0 当前无错误记录 资产沉淀 12 持续复用已发布资产",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/operations",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/llm-settings",
+      "visibleTextLength": 158,
+      "textSample": "R 大模型配置 首页 / 大模型配置 大模型配置 刷新 提供商 OpenAI 使用推荐 API Base 模型 温度 Agent 规划 全部走 LLM 启发式优先，LLM 兜底 API Key 保存配置 测试连接 说明 仅管理员可修改配置 API Key 留空表示保持原值 Agent 默认建议使用\"全部走 LLM\"",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/llm-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/notification-settings",
+      "visibleTextLength": 222,
+      "textSample": "R 通知配置 首页 / 通知配置 通知配置 刷新 企业微信机器人 钉钉机器人 邮件通知（SMTP） SMTP 服务器 端口 SSL 用户名 密码 发件人名称 测试收件人 发送测试邮件 保存通知配置 配置说明 企业微信：在群聊中添加机器人，复制 Webhook URL 填入即可 钉钉：创建自定义机器人，可选开启\"加签\"安全验证 邮件：支持 SSL/TLS 两种",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/notification-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/wechat-work-integration",
+      "visibleTextLength": 179,
+      "textSample": "R 企业微信集成 首页 / 企业微信集成 企业微信集成 配置企业微信登录、组织绑定、部门权限映射和应用消息投递。 刷新 基础配置 组织绑定 部门权限 消息测试 投递记录 应用配置 企业微信自建应用的 CorpID、AgentID、Secret 和回调地址。 停用 启用 配置名称 CorpID AgentID 应用 Secret 回调地址 群机器人 保存配置",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/wechat-work-integration",
+      "newErrors": []
+    },
+    {
+      "viewport": "tablet",
+      "route": "/embed/mock-token",
+      "visibleTextLength": 41,
+      "textSample": "R Dashboard 首页 / Dashboard Weekly Revenue",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/embed/mock-token",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/login",
+      "visibleTextLength": 91,
+      "textSample": "Smart BI 智能商业分析平台 登录 企业微信登录 测试账号 超级管理员 企业管理员 普通用户 © 2026 Smart BI - Powered by Chinatelecom",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/login",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/dashboard",
+      "visibleTextLength": 91,
+      "textSample": "R Dashboard 首页 / Dashboard Nova Executive Operations 已发布 Nova Executive Operations 编辑 准时发货率",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dashboard",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/dashboard-center",
+      "visibleTextLength": 162,
+      "textSample": "R 看板中心 首页 / 看板中心 全部 已发布 草稿 模板创建 新建看板 看板名称 描述 状态 可见范围 组件数 操作 Nova Executive Operations 经营驾驶舱 已发布 组织内 1 编辑 预览 分享 更多 Quality Daily Review 质量日会看板 草稿 仅自己 0 编辑 预览 分享 更多",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dashboard-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/big-screen-center",
+      "visibleTextLength": 57,
+      "textSample": "R 大屏中心 首页 / 大屏中心 GoView Nova Manufacturing 查看 设计 刷新 新窗口打开",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/big-screen-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/data-access",
+      "visibleTextLength": 391,
+      "textSample": "R 接入总览 首页 / 接入总览 DATA INTEGRATION 数据接入中心 面向多源异构接入、数据开发、同步与物化、任务运维，把分析前的数据准备能力集中管理。 刷新 申请访问权限 数据源 2 2 个已配置表结构 数据集开发 2 1 个已发布 同步任务 0 1 个失败记录 Doris 数据平台 已启用 连接正常 多源异构接入 统一管理数据库、Excel ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/data-access",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/data-catalog",
+      "visibleTextLength": 151,
+      "textSample": "R 数据目录 首页 / 数据目录 文件夹 全部资产 2 经营分析 数据目录 2 项 当前文件夹 指标 数据集 数据表 看板 大屏 Nova Sales Fulfillment 已发布销售履约数据集 销售 履约 数据集 128 On Time Shipment Rate 准时发货率指标 指标 指标 88",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/data-catalog",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/dataset-center",
+      "visibleTextLength": 362,
+      "textSample": "R 数据集开发 首页 / 数据集开发 DATASET CENTER 数据集中心 2 个数据源，1 个已发布数据集 全部 已发布 草稿 新建数据集 全部数据集 2 已发布 1 草稿 1 可用数据源 2 数据集 数据源 字段 口径 状态 刷新 可见范围 操作 Nova Sales Fulfillment 销售履约分析数据集 Nova ERP Warehouse ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/dataset-center",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/smart-query",
+      "visibleTextLength": 263,
+      "textSample": "R 智能问数 首页 / 智能问数 智能问数助手 智能问数 闲聊模式 清空对话 问数范围 数据源 数据集 Nova ERP Warehouse Nova ERP Warehouse 欢迎使用智能问数助手 您可以用自然语言提问，我会帮您查询数据并生成分析结果 试试这样问： 产出最高的前5个单元 在“1001/OP100 - Failed Hall Cal tes",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/smart-query",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/action-items",
+      "visibleTextLength": 181,
+      "textSample": "R 行动闭环 首页 / 行动闭环 全部行动 1 待处理 1 临近截止 0 已闭环 0 刷新 新建行动项 状态 优先级 来源 共 1 个结果 行动项 关联资源 负责人 / 截止 状态与结果 操作 复核 B 线良率异常 B 线良率连续两天低于阈值 高 预警异常 指标：Manufacturing Yield 用户 #11 未设置 待处理 尚未填写处理结果 编辑 删",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/action-items",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/datasource-settings",
+      "visibleTextLength": 295,
+      "textSample": "R 数据源管理 首页 / 数据源管理 全部数据源 2 已启用 2 已配置表结构 0 Excel 数据源 0 刷新 新增数据源 数据源类型 启用状态 全部 待补表结构 待配钻取 Excel 已禁用 共 2 个结果 数据源 类型 / 状态 表结构 业务口径 操作 Nova ERP Warehouse nova-erp SQLite 启用 0 张表 0 个字段 ·",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/datasource-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/olap-status",
+      "visibleTextLength": 311,
+      "textSample": "R 数据平台 首页 / 数据平台 DATA PLATFORM Doris 数据平台 统一承接数据集物化、刷新任务和高并发分析查询。 刷新状态 引擎 Apache Doris 启用状态 已启用 连接健康 正常 已物化数据集 1 Doris ready 数据集物化 Doris 优先读取已就绪的数据集；未物化或异常时保留原直连路径。 刷新列表 数据集 Doris ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/olap-status",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/user-management",
+      "visibleTextLength": 183,
+      "textSample": "R 用户管理 首页 / 用户管理 3 总用户数 2 管理员 2 企业数 用户列表 3 个用户 刷新 新增用户 用户名 角色 所属企业 操作 R root.ops 超级管理员 - 编辑 删除 N nova.admin 企业管理员 Nova Manufacturing 编辑 删除 N nova.analyst 普通用户 Nova Manufacturing 编辑",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/user-management",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/org-management",
+      "visibleTextLength": 167,
+      "textSample": "R 企业管理 首页 / 企业管理 2 企业总数 企业列表 2 个企业 刷新 新增企业 ID 企业名称 标识 创建时间 操作 1 N Nova Manufacturing nova-mfg Invalid Date 编辑 删除 2 O Orion Retail Group orion-retail Invalid Date 编辑 删除",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/org-management",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/metric-settings",
+      "visibleTextLength": 250,
+      "textSample": "R 可信指标 首页 / 可信指标 全部指标 2 已认证 1 待审核 1 质量风险 1 刷新 新增指标 数据集 认证状态 质量状态 全部 已认证 待审核 质量风险 未绑定字段 共 2 个结果 On Time Shipment Rate % 准时发货率 已认证 履约 经营 质量 正常 数据集 Nova Sales Fulfillment 最新值 96.4 发布 ",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/metric-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/alert-settings",
+      "visibleTextLength": 180,
+      "textSample": "R 预警管理 首页 / 预警管理 全部预警 1 启用中 1 邮件订阅 0 多渠道通知 0 刷新 新建预警 全部数据源 全部 启用中 未配置通知 多渠道 已禁用 共 1 个结果 预警 指标 检测窗口 通知方式 状态 操作 SLA Risk Alert 未填写通知内容 On Time Shipment Rate 1 天 每 1 小时 检测 系统 触发 编辑 更多",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/alert-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/scheduled-reports",
+      "visibleTextLength": 208,
+      "textSample": "R 定时报告 首页 / 定时报告 全部报告 1 启用中 1 已执行过 1 已配置通知 1 刷新 新建定时报告 全部数据源 全部 启用中 未配置通知 从未执行 已禁用 共 1 个结果 报告 定时规则 通知方式 最近执行 状态 操作 Daily Operations Brief 总结昨日订单、库存与风险 0 9 * * 1-5 工作日每天 09:00 邮件 20",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/scheduled-reports",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/audit-logs",
+      "visibleTextLength": 188,
+      "textSample": "R 审计日志 首页 / 审计日志 审计日志 数据源、问数、看板和用户权限操作记录 刷新 操作类型 资源类型 状态 时间 操作者 角色 操作 资源 状态 说明 详情 2026/5/8 13:43:46 nova.admin 企业管理员 看板更新 dashboard.update 看板 / Nova Executive Operations 成功 看板已更新 -",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/audit-logs",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/operations",
+      "visibleTextLength": 112,
+      "textSample": "R 运营后台 首页 / 运营后台 运营后台 刷新 活跃用户 问数次数 128 资产数量 12 看板数量 数据集数量 大屏数量 运行关注 项目 当前值 处理建议 错误审计 0 当前无错误记录 资产沉淀 12 持续复用已发布资产",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/operations",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/llm-settings",
+      "visibleTextLength": 158,
+      "textSample": "R 大模型配置 首页 / 大模型配置 大模型配置 刷新 提供商 OpenAI 使用推荐 API Base 模型 温度 Agent 规划 全部走 LLM 启发式优先，LLM 兜底 API Key 保存配置 测试连接 说明 仅管理员可修改配置 API Key 留空表示保持原值 Agent 默认建议使用\"全部走 LLM\"",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/llm-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/notification-settings",
+      "visibleTextLength": 222,
+      "textSample": "R 通知配置 首页 / 通知配置 通知配置 刷新 企业微信机器人 钉钉机器人 邮件通知（SMTP） SMTP 服务器 端口 SSL 用户名 密码 发件人名称 测试收件人 发送测试邮件 保存通知配置 配置说明 企业微信：在群聊中添加机器人，复制 Webhook URL 填入即可 钉钉：创建自定义机器人，可选开启\"加签\"安全验证 邮件：支持 SSL/TLS 两种",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/notification-settings",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/wechat-work-integration",
+      "visibleTextLength": 179,
+      "textSample": "R 企业微信集成 首页 / 企业微信集成 企业微信集成 配置企业微信登录、组织绑定、部门权限映射和应用消息投递。 刷新 基础配置 组织绑定 部门权限 消息测试 投递记录 应用配置 企业微信自建应用的 CorpID、AgentID、Secret 和回调地址。 停用 启用 配置名称 CorpID AgentID 应用 Secret 回调地址 群机器人 保存配置",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/wechat-work-integration",
+      "newErrors": []
+    },
+    {
+      "viewport": "mobile",
+      "route": "/embed/mock-token",
+      "visibleTextLength": 41,
+      "textSample": "R Dashboard 首页 / Dashboard Weekly Revenue",
+      "horizontalOverflow": 0,
+      "badBounds": [],
+      "pathname": "/embed/mock-token",
+      "newErrors": []
+    }
+  ]
+}

@@ -1,37 +1,21 @@
 <template>
   <div class="governance-page datasource-page">
-    <section class="governance-hero">
-      <div class="governance-hero-copy">
-        <p class="governance-kicker">DATA SOURCE GOVERNANCE</p>
-        <h2 class="governance-title">数据源管理</h2>
-        <p class="governance-desc">
-          管理问数、数据集、看板和大屏共用的数据入口。优先完成连接测试、表结构配置和钻取规则，让业务用户拿到可解释的数据。
-        </p>
+    <div class="page-header">
+      <div class="page-header__chart-area">
+        <div ref="donutRef" class="page-donut" />
+        <div class="page-legend">
+          <div class="page-legend__item" v-for="item in legendItems" :key="item.label">
+            <span class="page-legend__dot" :style="{ background: item.color }" />
+            <span class="page-legend__label">{{ item.label }}</span>
+            <strong class="page-legend__value" :style="{ color: item.color }">{{ item.value }}</strong>
+          </div>
+        </div>
       </div>
-      <div class="governance-actions">
+      <div class="page-header__actions">
         <el-button :icon="Refresh" @click="fetchAll" :loading="loading">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新增数据源</el-button>
       </div>
-    </section>
-
-    <section class="governance-summary-grid">
-      <div class="governance-summary-card">
-        <span>全部数据源</span>
-        <strong>{{ datasourceStats.total }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>已启用</span>
-        <strong>{{ datasourceStats.active }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>已配置表结构</span>
-        <strong>{{ datasourceStats.schemaReady }}</strong>
-      </div>
-      <div class="governance-summary-card">
-        <span>Excel 数据源</span>
-        <strong>{{ datasourceStats.excel }}</strong>
-      </div>
-    </section>
+    </div>
 
     <el-card class="governance-workbench" shadow="never">
       <div class="governance-toolbar">
@@ -44,7 +28,11 @@
             placeholder="搜索名称 / 标识 / 说明"
           />
           <el-select v-model="typeFilter" clearable class="governance-filter" placeholder="数据源类型">
-            <el-option label="数据库" value="database" />
+            <el-option label="PostgreSQL" value="postgresql" />
+            <el-option label="MySQL" value="mysql" />
+            <el-option label="ClickHouse" value="clickhouse" />
+            <el-option label="SQL Server" value="mssql" />
+            <el-option label="SQLite" value="sqlite" />
             <el-option label="Excel" value="excel" />
           </el-select>
           <el-select v-model="statusFilter" clearable class="governance-filter" placeholder="启用状态">
@@ -124,6 +112,7 @@
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item :icon="Connection" @click="openDrillConfigModal(row)">配置钻取</el-dropdown-item>
+                    <el-dropdown-item @click="openRlsModal(row)">行级权限 (RLS)</el-dropdown-item>
                     <el-dropdown-item @click="testConnection(row.id)">测试连接</el-dropdown-item>
                     <el-dropdown-item :icon="Edit" @click="openEdit(row)">编辑数据源</el-dropdown-item>
                     <el-dropdown-item :icon="Delete" divided @click="handleDelete(row.id)">删除</el-dropdown-item>
@@ -145,13 +134,9 @@
       destroy-on-close
     >
       <el-form :model="form" label-position="top">
-        <div class="governance-modal-shell is-single">
-          <div class="governance-modal-main">
-            <section class="governance-dialog-section">
-              <div class="governance-section-head">
-                <h3>连接信息</h3>
-                <p>填写基础连接。</p>
-              </div>
+        <el-tabs v-model="dialogActiveTab" class="modal-tabs">
+          <el-tab-pane label="连接信息" name="connect">
+            <div class="modal-tab-content">
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12">
                   <el-form-item label="名称" required>
@@ -164,74 +149,85 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-              <el-form-item label="数据源类型" required>
-                <el-segmented
-                  v-model="form.source_type"
-                  :options="[
-                    { label: 'PostgreSQL', value: 'database' },
-                    { label: 'Excel 文件', value: 'excel' },
-                  ]"
-                />
+              <el-form-item label="连接器类型" required>
+                <div class="connector-type-grid">
+                  <button v-for="ct in connectorTypes" :key="ct.value" type="button" class="connector-type-card" :class="{ 'is-active': form.source_type === ct.value }" @click="selectConnectorType(ct.value)">
+                    <span class="connector-icon">{{ ct.icon }}</span>
+                    <span class="connector-label">{{ ct.label }}</span>
+                  </button>
+                </div>
               </el-form-item>
-              <el-form-item v-if="form.source_type === 'database'" label="数据库连接" required>
-                <el-input
-                  v-model="form.database_url"
-                  placeholder="postgresql+psycopg2://user:pass@host:port/dbname"
-                  type="textarea"
-                  :rows="3"
-                  class="code-textarea"
-                />
-                <div class="governance-field-hint">连接串只在保存时提交，编辑已有数据源时不会回显历史密码。</div>
+              <template v-if="isDbConnector && form.source_type !== 'sqlite'">
+                <el-row :gutter="16">
+                  <el-col :xs="24" :md="14">
+                    <el-form-item label="主机地址" required>
+                      <el-input v-model="form.conn_host" placeholder="localhost 或 IP" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :xs="24" :md="10">
+                    <el-form-item label="端口" required>
+                      <el-input v-model="form.conn_port" placeholder="端口号" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-form-item label="数据库名" required>
+                  <el-input v-model="form.conn_db" placeholder="数据库名称" />
+                </el-form-item>
+                <el-row :gutter="16">
+                  <el-col :xs="24" :md="12">
+                    <el-form-item label="用户名" required>
+                      <el-input v-model="form.conn_user" placeholder="用户名" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :xs="24" :md="12">
+                    <el-form-item label="密码">
+                      <el-input v-model="form.conn_password" type="password" placeholder="密码" show-password />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-form-item>
+                  <el-checkbox v-model="form.conn_advanced">高级：直接编辑连接串</el-checkbox>
+                </el-form-item>
+                <el-form-item v-if="form.conn_advanced" label="连接串">
+                  <el-input v-model="form.database_url" type="textarea" :rows="2" class="code-textarea" :placeholder="urlPlaceholder" />
+                  <div class="governance-field-hint">手动填写后将覆盖上方表单生成的连接串。</div>
+                </el-form-item>
+                <div v-else-if="generatedUrl" class="connector-url-preview">
+                  <span class="url-preview-label">连接串预览</span>
+                  <code class="url-preview-value">{{ maskedUrl }}</code>
+                </div>
+                <div v-if="!isEdit" class="governance-field-hint">密码只在保存时提交，编辑已有数据源时需重新填写。</div>
+              </template>
+              <el-form-item v-else-if="form.source_type === 'sqlite'" label="数据库文件路径" required>
+                <el-input v-model="form.conn_sqlite_path" placeholder="/data/mydb.sqlite" />
+                <div class="governance-field-hint">服务器上的绝对路径。</div>
               </el-form-item>
-              <el-form-item v-else label="Excel 文件" required>
-                <el-upload
-                  drag
-                  action="#"
-                  :auto-upload="false"
-                  :show-file-list="false"
-                  :limit="1"
-                  accept=".xlsx,.xls"
-                  :before-upload="preventAutoUpload"
-                  :on-change="handleExcelFileChange"
-                >
+              <el-form-item v-else-if="form.source_type === 'excel'" label="Excel 文件" required>
+                <el-upload drag action="#" :auto-upload="false" :show-file-list="false" :limit="1" accept=".xlsx,.xls" :before-upload="preventAutoUpload" :on-change="handleExcelFileChange">
                   <div class="upload-content">
                     <el-icon class="upload-icon"><Upload /></el-icon>
                     <div class="upload-title">拖拽 Excel 文件到这里，或点击选择</div>
                     <div class="upload-hint">仅支持 .xlsx / .xls，保存数据源时自动上传到服务器</div>
-                    <div v-if="selectedExcelName" class="upload-selected">
-                      已选择：{{ selectedExcelName }}
-                    </div>
+                    <div v-if="selectedExcelName" class="upload-selected">已选择：{{ selectedExcelName }}</div>
                   </div>
                 </el-upload>
               </el-form-item>
-            </section>
+            </div>
+          </el-tab-pane>
 
-            <section class="governance-dialog-section">
-              <div class="governance-section-head">
-                <h3>业务语义</h3>
-                <p>供智能问数理解。</p>
-              </div>
+          <el-tab-pane label="业务语义" name="semantic">
+            <div class="modal-tab-content">
               <el-form-item label="指标描述">
-                <el-input
-                  v-model="form.metrics_prompt"
-                  type="textarea"
-                  :rows="4"
-                  placeholder="可用的业务指标描述（可选）"
-                />
-                <div class="governance-field-hint">填写核心指标口径。</div>
+                <el-input v-model="form.metrics_prompt" type="textarea" :rows="5" placeholder="可用的业务指标描述（可选）" />
+                <div class="governance-field-hint">填写核心指标口径，智能问数时会参考。</div>
               </el-form-item>
               <el-form-item label="推荐问题">
-                <el-input
-                  v-model="recommendQuestionsText"
-                  type="textarea"
-                  :rows="4"
-                  placeholder="每行一个推荐问题（可选）"
-                />
-                <div class="governance-field-hint">每行一个常用问题。</div>
+                <el-input v-model="recommendQuestionsText" type="textarea" :rows="5" placeholder="每行一个推荐问题（可选）" />
+                <div class="governance-field-hint">每行一个常用问题，显示在问数入口。</div>
               </el-form-item>
-            </section>
-          </div>
-        </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-form>
       <template #footer>
         <div class="governance-modal-footer">
@@ -261,6 +257,74 @@
       @generate="handleGenerateDrillConfig"
       @save="handleSaveDrillConfig"
     />
+
+    <!-- RLS 管理对话框 -->
+    <el-dialog
+      v-model="rlsModalVisible"
+      title="行级权限（Row-Level Security）"
+      width="min(900px, calc(100vw - 32px))"
+      class="governance-modal"
+      destroy-on-close
+    >
+      <div class="rls-shell">
+        <div class="rls-intro">
+          <p>为不同<strong>组织</strong>或<strong>用户</strong>设置数据过滤规则，查询时自动注入 WHERE 条件，限制可见数据范围。</p>
+        </div>
+
+        <el-table :data="rlsRules" size="small" border v-loading="rlsLoading" empty-text="暂无规则">
+          <el-table-column label="表名" min-width="120">
+            <template #default="{ row }">
+              <el-input v-model="row.table_name" size="small" placeholder="表名" />
+            </template>
+          </el-table-column>
+          <el-table-column label="字段" min-width="120">
+            <template #default="{ row }">
+              <el-input v-model="row.column_name" size="small" placeholder="字段名" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作符" width="120">
+            <template #default="{ row }">
+              <el-select v-model="row.operator" size="small" style="width:100%">
+                <el-option v-for="op in rlsOperators" :key="op" :label="op" :value="op" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="过滤值" min-width="140">
+            <template #default="{ row }">
+              <el-input v-model="row.filter_value" size="small" placeholder="过滤值（IN 用逗号分隔）" />
+            </template>
+          </el-table-column>
+          <el-table-column label="作用范围" min-width="160">
+            <template #default="{ row }">
+              <div class="rls-scope">
+                <el-select v-model="row._scopeType" size="small" style="width:90px" @change="row.org_id=null;row.user_id=null">
+                  <el-option label="组织" value="org" />
+                  <el-option label="用户" value="user" />
+                </el-select>
+                <el-input v-model.number="row.org_id" v-if="row._scopeType === 'org'" size="small" placeholder="org_id" type="number" style="width:70px" />
+                <el-input v-model.number="row.user_id" v-else size="small" placeholder="user_id" type="number" style="width:70px" />
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="启用" width="60" align="center">
+            <template #default="{ row }">
+              <el-switch v-model="row.is_active" :active-value="1" :inactive-value="0" size="small" />
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" align="center">
+            <template #default="{ row }">
+              <el-button v-if="row.id" text type="primary" size="small" :loading="row._saving" @click="saveRlsRule(row)">保存</el-button>
+              <el-button v-else text type="success" size="small" :loading="row._saving" @click="createRlsRule(row)">创建</el-button>
+              <el-button text type="danger" size="small" @click="deleteRlsRule(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="rls-toolbar">
+          <el-button :icon="Plus" @click="addRlsRow">添加规则</el-button>
+        </div>
+      </div>
+    </el-dialog>
 
     <el-dialog
       v-model="previewVisible"
@@ -333,7 +397,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import * as echarts from "echarts"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { UploadFile } from "element-plus"
@@ -436,6 +501,7 @@ const typeFilter = ref("")
 const statusFilter = ref<number | null>(null)
 const quickFilter = ref("all")
 const dialogVisible = ref(false)
+const dialogActiveTab = ref("connect")
 const isEdit = ref(false)
 const editId = ref<number | null>(null)
 const saving = ref(false)
@@ -447,6 +513,75 @@ const schemaModalVisible = ref(false)
 const currentDatasourceId = ref<number | null>(null)
 const currentSchema = ref<SchemaMetadata | null>(null)
 const drillConfigModalVisible = ref(false)
+
+// RLS
+const rlsModalVisible = ref(false)
+const rlsLoading = ref(false)
+const rlsRules = ref<any[]>([])
+const rlsDatasourceId = ref<number | null>(null)
+const rlsOperators = ["=", "!=", ">", "<", ">=", "<=", "IN", "NOT IN", "LIKE"]
+
+const openRlsModal = async (row: DataSourceDetail) => {
+  rlsDatasourceId.value = row.id
+  rlsModalVisible.value = true
+  rlsLoading.value = true
+  try {
+    const res = await axios.get(`/api/datasources/${row.id}/rls`)
+    rlsRules.value = res.data.map((r: any) => ({ ...r, _scopeType: r.user_id ? "user" : "org", _saving: false }))
+  } catch { rlsRules.value = [] }
+  finally { rlsLoading.value = false }
+}
+
+const addRlsRow = () => {
+  rlsRules.value.push({
+    id: null, table_name: "", column_name: "", operator: "=", filter_value: "",
+    org_id: null, user_id: null, is_active: 1, _scopeType: "org", _saving: false,
+  })
+}
+
+const createRlsRule = async (row: any) => {
+  if (!rlsDatasourceId.value) return
+  row._saving = true
+  try {
+    const res = await axios.post(`/api/datasources/${rlsDatasourceId.value}/rls`, {
+      table_name: row.table_name, column_name: row.column_name,
+      operator: row.operator, filter_value: row.filter_value,
+      org_id: row._scopeType === "org" ? row.org_id : null,
+      user_id: row._scopeType === "user" ? row.user_id : null,
+      is_active: row.is_active,
+    })
+    Object.assign(row, res.data, { _saving: false })
+    ElMessage.success("规则已创建")
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || "创建失败")
+    row._saving = false
+  }
+}
+
+const saveRlsRule = async (row: any) => {
+  if (!rlsDatasourceId.value || !row.id) return
+  row._saving = true
+  try {
+    await axios.put(`/api/datasources/${rlsDatasourceId.value}/rls/${row.id}`, {
+      table_name: row.table_name, column_name: row.column_name,
+      operator: row.operator, filter_value: row.filter_value,
+      org_id: row._scopeType === "org" ? row.org_id : null,
+      user_id: row._scopeType === "user" ? row.user_id : null,
+      is_active: row.is_active,
+    })
+    ElMessage.success("规则已保存")
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || "保存失败")
+  } finally { row._saving = false }
+}
+
+const deleteRlsRule = async (row: any) => {
+  if (row.id && rlsDatasourceId.value) {
+    await axios.delete(`/api/datasources/${rlsDatasourceId.value}/rls/${row.id}`)
+  }
+  const idx = rlsRules.value.indexOf(row)
+  if (idx >= 0) rlsRules.value.splice(idx, 1)
+}
 const currentDatasourceName = ref("")
 const currentDrillConfig = ref<DrillConfig | null>(null)
 const generatingDrillConfig = ref(false)
@@ -484,7 +619,10 @@ const filteredDatasources = computed(() => {
     if (quickFilter.value === "missing_drill" && item.drill_config) return false
     if (quickFilter.value === "excel" && item.source_type !== "excel") return false
     if (quickFilter.value === "disabled" && item.is_active) return false
-    if (typeFilter.value && item.source_type !== typeFilter.value) return false
+    if (typeFilter.value) {
+      const effectiveType = item.source_type === "database" ? "postgresql" : item.source_type
+      if (effectiveType !== typeFilter.value) return false
+    }
     if (statusFilter.value !== null && statusFilter.value !== undefined && item.is_active !== statusFilter.value) {
       return false
     }
@@ -495,13 +633,77 @@ const filteredDatasources = computed(() => {
   })
 })
 
+const connectorTypes = [
+  { value: "postgresql", label: "PostgreSQL", icon: "🐘", defaultPort: "5432" },
+  { value: "mysql", label: "MySQL", icon: "🐬", defaultPort: "3306" },
+  { value: "clickhouse", label: "ClickHouse", icon: "🖱️", defaultPort: "9000" },
+  { value: "mssql", label: "SQL Server", icon: "🪟", defaultPort: "1433" },
+  { value: "sqlite", label: "SQLite", icon: "📁", defaultPort: "" },
+  { value: "excel", label: "Excel", icon: "📊", defaultPort: "" },
+]
+
+const DB_PREFIXES: Record<string, string> = {
+  postgresql: "postgresql+psycopg2",
+  database: "postgresql+psycopg2",
+  mysql: "mysql+pymysql",
+  clickhouse: "clickhouse+native",
+  mssql: "mssql+pymssql",
+  sqlite: "sqlite",
+}
+
+const DEFAULT_PORTS: Record<string, string> = {
+  postgresql: "5432",
+  database: "5432",
+  mysql: "3306",
+  clickhouse: "9000",
+  mssql: "1433",
+}
+
 const form = reactive({
   name: "",
   slug: "",
-  source_type: "database",
+  source_type: "postgresql",
+  conn_host: "",
+  conn_port: "5432",
+  conn_db: "",
+  conn_user: "",
+  conn_password: "",
+  conn_sqlite_path: "",
+  conn_advanced: false,
   database_url: "",
   metrics_prompt: "",
 })
+
+const isDbConnector = computed(() => form.source_type !== "excel")
+
+const generatedUrl = computed(() => {
+  if (form.source_type === "excel") return ""
+  if (form.source_type === "sqlite") {
+    return form.conn_sqlite_path ? `sqlite:///${form.conn_sqlite_path}` : ""
+  }
+  if (!form.conn_host || !form.conn_port || !form.conn_db || !form.conn_user) return ""
+  const prefix = DB_PREFIXES[form.source_type] || "postgresql+psycopg2"
+  const pass = form.conn_password ? `:${encodeURIComponent(form.conn_password)}` : ""
+  const suffix = form.source_type === "mysql" ? "?charset=utf8mb4" : ""
+  return `${prefix}://${encodeURIComponent(form.conn_user)}${pass}@${form.conn_host}:${form.conn_port}/${form.conn_db}${suffix}`
+})
+
+const maskedUrl = computed(() => {
+  if (!generatedUrl.value) return ""
+  return generatedUrl.value.replace(/:([^@/]+)@/, ":****@")
+})
+
+const urlPlaceholder = computed(() => {
+  const prefix = DB_PREFIXES[form.source_type] || "postgresql+psycopg2"
+  return `${prefix}://user:password@host:port/dbname`
+})
+
+const selectConnectorType = (type: string) => {
+  form.source_type = type
+  const ct = connectorTypes.find(c => c.value === type)
+  if (ct?.defaultPort) form.conn_port = ct.defaultPort
+  form.conn_advanced = false
+}
 
 const recommendQuestionsText = ref("")
 
@@ -521,7 +723,12 @@ const fetchAll = async () => {
   }
 }
 
-const sourceTypeLabel = (value: string) => value === "excel" ? "Excel" : "数据库"
+const sourceTypeLabel = (value: string) => {
+  const ct = connectorTypes.find(c => c.value === value)
+  if (ct) return ct.label
+  if (value === "database") return "PostgreSQL"
+  return value
+}
 
 const schemaTablesCount = (row: DataSourceDetail) => row.schema_metadata?.tables?.length || 0
 
@@ -543,9 +750,17 @@ const datasourceCompletion = (row: DataSourceDetail) => {
 const openCreate = () => {
   isEdit.value = false
   editId.value = null
+  dialogActiveTab.value = "connect"
   form.name = ""
   form.slug = ""
-  form.source_type = "database"
+  form.source_type = "postgresql"
+  form.conn_host = ""
+  form.conn_port = "5432"
+  form.conn_db = ""
+  form.conn_user = ""
+  form.conn_password = ""
+  form.conn_sqlite_path = ""
+  form.conn_advanced = false
   form.database_url = ""
   form.metrics_prompt = ""
   selectedExcelFile.value = null
@@ -557,10 +772,19 @@ const openCreate = () => {
 const openEdit = (row: DataSourceDetail) => {
   isEdit.value = true
   editId.value = row.id
+  dialogActiveTab.value = "connect"
   form.name = row.name
   form.slug = row.slug
-  form.source_type = row.source_type || "database"
-  form.database_url = ""  // Don't show existing URL for security
+  const storedType = row.source_type || "database"
+  form.source_type = storedType === "database" ? "postgresql" : storedType
+  form.conn_host = ""
+  form.conn_port = DEFAULT_PORTS[form.source_type] || "5432"
+  form.conn_db = ""
+  form.conn_user = ""
+  form.conn_password = ""
+  form.conn_sqlite_path = ""
+  form.conn_advanced = false
+  form.database_url = ""
   form.metrics_prompt = row.metrics_prompt || ""
   selectedExcelFile.value = null
   selectedExcelName.value = ""
@@ -587,11 +811,34 @@ const handleExcelFileChange = (uploadFile: UploadFile) => {
 }
 
 const handleSave = async () => {
-  // Validate required fields
-  const requiresDatabaseUrl = form.source_type === "database"
-  const requiresExcelFile = form.source_type === "excel" && (!isEdit.value || !!selectedExcelFile.value)
-  if (!form.name || !form.slug || (requiresDatabaseUrl && !form.database_url) || (form.source_type === "excel" && !isEdit.value && !selectedExcelFile.value)) {
-    ElMessage.warning("请填写必填字段")
+  if (!form.name || !form.slug) {
+    ElMessage.warning("请填写名称和标识")
+    return
+  }
+
+  // Build the final database_url
+  let finalDatabaseUrl = ""
+  if (form.source_type === "excel") {
+    // handled separately via upload
+  } else if (form.conn_advanced && form.database_url) {
+    finalDatabaseUrl = form.database_url
+  } else if (form.source_type === "sqlite") {
+    if (!form.conn_sqlite_path) { ElMessage.warning("请填写 SQLite 文件路径"); return }
+    finalDatabaseUrl = `sqlite:///${form.conn_sqlite_path}`
+  } else {
+    if (!form.conn_host || !form.conn_port || !form.conn_db || !form.conn_user) {
+      ElMessage.warning("请填写主机、端口、数据库名和用户名")
+      return
+    }
+    finalDatabaseUrl = generatedUrl.value
+  }
+
+  if (form.source_type !== "excel" && !finalDatabaseUrl && !isEdit.value) {
+    ElMessage.warning("请填写连接信息")
+    return
+  }
+  if (form.source_type === "excel" && !isEdit.value && !selectedExcelFile.value) {
+    ElMessage.warning("请选择 Excel 文件")
     return
   }
 
@@ -610,15 +857,15 @@ const handleSave = async () => {
       recommend_questions: questions.length > 0 ? questions : null,
     }
 
-    if (form.source_type === "excel" && selectedExcelFile.value && requiresExcelFile) {
+    if (form.source_type === "excel" && selectedExcelFile.value) {
       const uploadPayload = new FormData()
       uploadPayload.append("file", selectedExcelFile.value)
       const uploadResponse = await axios.post("/api/datasources/upload-excel", uploadPayload, {
         headers: { "Content-Type": "multipart/form-data" },
       })
       payload.database_url = uploadResponse.data.database_url
-    } else if (form.database_url) {
-      payload.database_url = form.database_url
+    } else if (finalDatabaseUrl) {
+      payload.database_url = finalDatabaseUrl
     }
 
     if (isEdit.value && editId.value) {
@@ -772,11 +1019,47 @@ const handleSaveDrillConfig = async (config: DrillConfig) => {
   }
 }
 
+const donutRef = ref<HTMLElement | null>(null)
+let donutChart: echarts.ECharts | null = null
+
+const legendItems = computed(() => [
+  { label: "全部数据源",   value: datasourceStats.value.total,       color: "#3b82f6" },
+  { label: "已启用",       value: datasourceStats.value.active,      color: "#16a34a" },
+  { label: "已配置表结构", value: datasourceStats.value.schemaReady, color: "#d97706" },
+  { label: "Excel 数据源", value: datasourceStats.value.excel,       color: "#8b5cf6" },
+])
+
+const updateDonut = () => {
+  if (!donutRef.value) return
+  if (!donutChart) donutChart = echarts.init(donutRef.value)
+  const s = datasourceStats.value
+  const inactive = Math.max(0, s.total - s.active)
+  const data = [
+    { value: s.active,      name: "已启用",       itemStyle: { color: "#16a34a" } },
+    { value: s.schemaReady, name: "已配置表结构", itemStyle: { color: "#d97706" } },
+    { value: s.excel,       name: "Excel 数据源", itemStyle: { color: "#8b5cf6" } },
+    { value: inactive,      name: "已停用",       itemStyle: { color: "#94a3b8" } },
+  ].filter(d => d.value > 0)
+  if (!data.length) data.push({ value: 1, name: "暂无数据", itemStyle: { color: "#e2e8f0" } })
+  donutChart.setOption({
+    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    series: [{ type: "pie", radius: ["52%", "80%"], center: ["50%", "50%"], avoidLabelOverlap: false,
+      label: { show: true, position: "center",
+        formatter: () => `{total|${s.total}}\n{label|数据源总数}`,
+        rich: { total: { fontSize: 22, fontWeight: 700, color: "#1e293b", lineHeight: 28 }, label: { fontSize: 11, color: "#94a3b8", lineHeight: 18 } } },
+      emphasis: { label: { show: true } }, labelLine: { show: false }, data }],
+  }, true)
+}
+
+watch(datasourceStats, () => nextTick(updateDonut), { deep: true })
+onBeforeUnmount(() => { donutChart?.dispose(); donutChart = null })
+
 onMounted(async () => {
   if (!authStore.profile && authStore.token) {
     await authStore.fetchProfile()
   }
   await fetchAll()
+  nextTick(updateDonut)
 })
 </script>
 
@@ -903,6 +1186,75 @@ onMounted(async () => {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+.connector-type-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.connector-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  min-width: 76px;
+}
+
+.connector-type-card:hover {
+  border-color: var(--app-primary);
+  color: var(--app-primary);
+}
+
+.connector-type-card.is-active {
+  border-color: var(--app-primary);
+  background: rgba(15, 118, 110, 0.06);
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+.connector-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.connector-label {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.connector-url-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--app-surface-muted);
+  border-radius: var(--app-radius-sm);
+  border: 1px solid var(--app-border-light);
+  margin-top: 4px;
+}
+
+.url-preview-label {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.url-preview-value {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--app-text);
+  word-break: break-all;
+}
+
 @media (max-width: 640px) {
   .preview-overview {
     flex-direction: column;
@@ -916,5 +1268,31 @@ onMounted(async () => {
   .preview-table-select {
     width: 100%;
   }
+}
+
+.rls-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rls-intro {
+  padding: 10px 14px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--app-radius-sm);
+  font-size: 13px;
+  color: var(--app-text);
+}
+
+.rls-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.rls-scope {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 </style>

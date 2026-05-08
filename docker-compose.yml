@@ -27,6 +27,14 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       CUBE_API_URL: ${CUBE_API_URL:-http://host.docker.internal:4000/cubejs-api/v1}
       CUBE_API_TOKEN: ${CUBE_API_TOKEN:-change_me}
+      DORIS_ENABLED: ${DORIS_ENABLED:-false}
+      DORIS_HOST: ${DORIS_HOST:-doris-fe}
+      DORIS_QUERY_PORT: ${DORIS_QUERY_PORT:-9030}
+      DORIS_HTTP_PORT: ${DORIS_HTTP_PORT:-8030}
+      DORIS_USER: ${DORIS_USER:-root}
+      DORIS_PASSWORD: ${DORIS_PASSWORD:-}
+      DORIS_DATABASE: ${DORIS_DATABASE:-smart_bi_olap}
+      DORIS_MATERIALIZATION_LIMIT: ${DORIS_MATERIALIZATION_LIMIT:-100000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +65,49 @@ services:
     ports:
       - "${FRONTEND_PORT:-16006}:80"
 
+  doris-fe:
+    image: apache/doris:fe-2.1.11
+    restart: unless-stopped
+    profiles: ["olap"]
+    hostname: doris-fe
+    environment:
+      FE_SERVERS: fe1:doris-fe:9010
+      FE_ID: 1
+    volumes:
+      - doris_fe_meta:/opt/apache-doris/fe/doris-meta
+      - doris_fe_log:/opt/apache-doris/fe/log
+    ports:
+      - "${DORIS_HTTP_PORT:-8030}:8030"
+      - "${DORIS_QUERY_PORT:-9030}:9030"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc '</dev/tcp/127.0.0.1/9030'"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  doris-be:
+    image: apache/doris:be-2.1.11
+    restart: unless-stopped
+    profiles: ["olap"]
+    hostname: doris-be
+    environment:
+      FE_SERVERS: fe1:doris-fe:9010
+      BE_ADDR: doris-be:9050
+    depends_on:
+      doris-fe:
+        condition: service_healthy
+    volumes:
+      - doris_be_storage:/opt/apache-doris/be/storage
+      - doris_be_log:/opt/apache-doris/be/log
+    ports:
+      - "${DORIS_BE_WEB_PORT:-8040}:8040"
+      - "${DORIS_BE_HEARTBEAT_PORT:-9050}:9050"
+
 volumes:
   postgres_data:
   backend_uploads:
+  doris_fe_meta:
+  doris_fe_log:
+  doris_be_storage:
+  doris_be_log:

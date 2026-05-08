@@ -14,20 +14,25 @@ ROUTE_MAP = {
     "问数": "/smart-query",
     "数据源": "/datasource-settings",
     "数据源管理": "/datasource-settings",
+    "数据平台": "/olap-status",
+    "Doris": "/olap-status",
     "用户管理": "/user-management",
     "企业管理": "/org-management",
     "指标配置": "/metric-settings",
     "大模型配置": "/llm-settings",
+    "通知配置": "/notification-settings",
 }
 
 ROUTE_PERMISSIONS = {
     "/dashboard": ["user", "org_admin", "super_admin"],
     "/smart-query": ["user", "org_admin", "super_admin"],
     "/datasource-settings": ["user", "org_admin", "super_admin"],
+    "/olap-status": ["org_admin", "super_admin"],
     "/user-management": ["org_admin", "super_admin"],
     "/org-management": ["super_admin"],
     "/metric-settings": ["user", "org_admin", "super_admin"],
     "/llm-settings": ["super_admin"],
+    "/notification-settings": ["super_admin"],
 }
 
 

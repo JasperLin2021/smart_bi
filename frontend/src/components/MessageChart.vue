@@ -30,9 +30,9 @@
           <el-icon><Setting /></el-icon>
           维度
         </el-button>
-        <el-button v-if="sqlQuery" size="small" type="primary" text @click="showPinDialog = true">
+        <el-button v-if="sqlQuery" size="small" type="primary" text @click="openPinDialog">
           <el-icon><Star /></el-icon>
-          固定
+          加入看板
         </el-button>
       </div>
     </div>
@@ -79,32 +79,155 @@
 
     <div ref="chartRef" class="chart-body"></div>
     
-    <!-- 固定到Dashboard弹窗 -->
-    <el-dialog v-model="showPinDialog" title="固定到Dashboard" width="400px">
-      <el-form label-width="80px">
-        <el-form-item label="图表标题">
-          <el-input v-model="pinForm.title" placeholder="请输入图表标题" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="pinForm.description" type="textarea" :rows="2" placeholder="可选描述" />
-        </el-form-item>
+    <el-dialog
+      v-model="showPinDialog"
+      title="加入看板"
+      width="860px"
+      top="6vh"
+      append-to-body
+      class="chart-creator-dialog pin-chart-creator-dialog"
+      body-class="pin-chart-dialog-body"
+      footer-class="pin-chart-dialog-footer"
+      @opened="() => window.dispatchEvent(new Event('resize'))"
+    >
+      <el-form :model="pinChartForm" label-position="top" class="chart-creator-form">
+        <el-tabs v-model="pinDialogTab" class="modal-tabs">
+          <el-tab-pane label="图表配置" name="config">
+            <div class="modal-tab-content config-tab-content">
+              <el-row :gutter="12">
+                <el-col :xs="24" :sm="12">
+                  <el-form-item label="标题">
+                    <el-input v-model="pinChartForm.title" maxlength="128" />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12">
+                  <el-form-item label="目标看板">
+                    <el-select
+                      v-model="pinChartForm.dashboard_id"
+                      :loading="dashboardsLoading"
+                      :disabled="dashboards.length === 0"
+                      filterable
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="dashboard in dashboards"
+                        :key="dashboard.id"
+                        :label="dashboard.title"
+                        :value="dashboard.id"
+                      >
+                        <div class="dashboard-option">
+                          <strong>{{ dashboard.title }}</strong>
+                          <small>{{ dashboardComponentCount(dashboard) }} 个组件</small>
+                        </div>
+                      </el-option>
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12">
+                  <el-form-item label="数据源">
+                    <el-select v-model="pinChartForm.datasource_id" style="width: 100%">
+                      <el-option
+                        v-for="datasource in datasourceStore.datasources"
+                        :key="datasource.id"
+                        :label="datasource.name"
+                        :value="datasource.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12">
+                  <el-form-item label="图表类型">
+                    <el-select v-model="pinChartForm.chart_type" style="width: 100%">
+                      <el-option
+                        v-for="option in chartTypeOptions"
+                        :key="option.value"
+                        :label="option.label"
+                        :value="option.value"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12">
+                  <el-form-item label="排序">
+                    <el-select v-model="pinChartForm.sort_order" style="width: 100%">
+                      <el-option label="默认" value="none" />
+                      <el-option label="降序" value="desc" />
+                      <el-option label="升序" value="asc" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item label="描述" class="pin-description-field">
+                <el-input
+                  v-model="pinChartForm.description"
+                  class="pin-description-input"
+                  type="textarea"
+                  :rows="8"
+                  resize="vertical"
+                />
+              </el-form-item>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="数据查询" name="query">
+            <div class="modal-tab-content">
+              <el-form-item label="创建方式">
+                <el-segmented v-model="pinCreateMode" :options="chartCreateModeOptions" />
+              </el-form-item>
+              <el-form-item v-if="pinCreateMode === 'nl'" label="问题">
+                <el-input
+                  v-model="pinChartForm.question"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="例如：统计每个月的销售额趋势"
+                />
+              </el-form-item>
+              <el-form-item label="SQL">
+                <el-input v-model="pinChartForm.sql_query" type="textarea" :rows="6" placeholder="SELECT ..." />
+              </el-form-item>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="预览" name="preview">
+            <div class="modal-tab-content">
+              <section class="chart-preview-panel">
+                <PinnedChartCard
+                  v-if="pinPreviewResult && pinPreviewResult.rows.length"
+                  :chart="pinPreviewCard"
+                  @delete="noop"
+                />
+                <el-empty v-else description="点击底部「预览」按钮生成图表" :image-size="72" />
+              </section>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-form>
       <template #footer>
         <el-button @click="showPinDialog = false">取消</el-button>
-        <el-button type="primary" :loading="pinLoading" @click="pinToDashboard">确定</el-button>
+        <el-button :loading="pinPreviewLoading" @click="previewPinChartDraft">预览</el-button>
+        <el-button type="primary" :loading="pinLoading" @click="savePinChartToDashboard">
+          保存并加入看板
+        </el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from "vue"
+import { computed, onMounted, reactive, ref, watch, nextTick } from "vue"
 import { Star, Setting } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import * as echarts from "echarts"
 import { useQueryStore, type ChatMessage, type DrillAction } from "@/store/query"
 import { useDatasourceStore } from "@/store/datasource"
+import PinnedChartCard from "@/components/PinnedChartCard.vue"
+import {
+  CHART_COLOR_PALETTE,
+  PRIMARY_CHART_COLOR,
+  chartColorAt,
+  colorizeCategoryData,
+} from "@/utils/chartColors"
 
 const props = defineProps<{
   message: ChatMessage
@@ -112,6 +235,27 @@ const props = defineProps<{
   rows: Array<Record<string, any>>
   sqlQuery?: string
 }>()
+
+interface DashboardOption {
+  id: number
+  title: string
+  layout_json: { components?: Array<Record<string, unknown>> } | null
+}
+
+interface ChartPreviewResult {
+  columns: string[]
+  rows: Array<Record<string, unknown>>
+}
+
+interface PinnedChartPreviewCard {
+  id: number
+  title: string
+  description: string | null
+  chart_type: string
+  sort_order: string
+  columns: string[]
+  rows: Array<Record<string, unknown>>
+}
 
 const chartRef = ref<HTMLDivElement | null>(null)
 const queryStore = useQueryStore()
@@ -133,15 +277,39 @@ const selectedGroupFields = ref<string[]>([])
 // 固定相关
 const showPinDialog = ref(false)
 const pinLoading = ref(false)
-const pinForm = ref({
+const pinPreviewLoading = ref(false)
+const dashboardsLoading = ref(false)
+const dashboards = ref<DashboardOption[]>([])
+const pinDialogTab = ref("config")
+const pinCreateMode = ref("sql")
+const pinPreviewResult = ref<ChartPreviewResult | null>(null)
+const pinChartForm = reactive({
+  dashboard_id: null as number | null,
   title: "",
-  description: ""
+  description: "",
+  question: "",
+  sql_query: "",
+  datasource_id: null as number | null,
+  chart_type: "bar",
+  sort_order: "desc",
 })
 
-// 颜色调色板
-const colorPalette = [
-  "#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de",
-  "#3ba272", "#fc8452", "#9a60b4", "#ea7ccc", "#48b8d0"
+const chartCreateModeOptions = [
+  { label: "自然语言", value: "nl" },
+  { label: "SQL", value: "sql" },
+]
+
+const chartTypeOptions = [
+  { label: "指标卡", value: "kpi" },
+  { label: "明细表", value: "table" },
+  { label: "柱状图", value: "bar" },
+  { label: "条形图", value: "horizontal_bar" },
+  { label: "折线图", value: "line" },
+  { label: "面积图", value: "area" },
+  { label: "饼图", value: "pie" },
+  { label: "环形图", value: "donut" },
+  { label: "散点图", value: "scatter" },
+  { label: "组合图", value: "combo" },
 ]
 
 // 识别数值列
@@ -238,6 +406,20 @@ const selectedSummary = computed(() => {
   return `${selectedXField.value}: ${selectedRow.value[selectedXField.value]}`
 })
 
+const effectiveDatasourceId = computed(() =>
+  queryStore.selectedDatasourceId || datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
+)
+
+const pinPreviewCard = computed<PinnedChartPreviewCard>(() => ({
+  id: 0,
+  title: pinChartForm.title || "预览图表",
+  description: pinChartForm.description || null,
+  chart_type: pinChartForm.chart_type,
+  sort_order: pinChartForm.sort_order,
+  columns: pinPreviewResult.value?.columns || props.columns,
+  rows: pinPreviewResult.value?.rows || props.rows,
+}))
+
 const certificationLabel = (status: string) => {
   const labels: Record<string, string> = {
     draft: "草稿",
@@ -290,16 +472,19 @@ const buildMultiSeriesOption = () => {
   // 构建系列
   const series = groups.map((group, idx) => {
     const groupData = dataMap.get(group)!
+    const color = chartColorAt(idx)
     return {
       name: group,
       type: chartType.value,
       data: xValues.map(x => groupData.get(x) || 0),
       smooth: chartType.value === "line",
-      itemStyle: { color: colorPalette[idx % colorPalette.length] }
+      itemStyle: { color },
+      lineStyle: chartType.value === "line" ? { color, width: 2 } : undefined,
     }
   })
   
   return {
+    color: CHART_COLOR_PALETTE,
     tooltip: { 
       trigger: "axis",
       axisPointer: { type: "cross" }
@@ -336,11 +521,13 @@ const buildSingleSeriesOption = () => {
     else if (sortOrder.value === "asc") data.sort((a, b) => a.value - b.value)
     
     return {
+      color: CHART_COLOR_PALETTE,
       tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
       series: [{
         type: "pie",
         radius: ["30%", "60%"],
-        data: data.slice(0, 15)
+        data: data.slice(0, 15),
+        itemStyle: { borderRadius: 4, borderWidth: 1, borderColor: "#fff" },
       }]
     }
   }
@@ -355,6 +542,7 @@ const buildSingleSeriesOption = () => {
   else if (sortOrder.value === "asc") dataPoints.sort((a, b) => a.y - b.y)
   
   return {
+    color: CHART_COLOR_PALETTE,
     tooltip: { trigger: "axis" },
     grid: { top: 20, bottom: 50, left: 50, right: 20 },
     xAxis: { 
@@ -365,9 +553,9 @@ const buildSingleSeriesOption = () => {
     yAxis: { type: "value" },
     series: [{
       type: chartType.value,
-      data: dataPoints.map(d => d.y),
+      data: colorizeCategoryData(dataPoints.map(d => d.y), chartType.value === "bar" ? [3, 3, 0, 0] : undefined),
       smooth: chartType.value === "line",
-      itemStyle: { color: "#0f766e" }
+      lineStyle: chartType.value === "line" ? { color: PRIMARY_CHART_COLOR, width: 2 } : undefined,
     }]
   }
 }
@@ -460,32 +648,130 @@ const runDrill = async (action: DrillAction) => {
   }, props.message.historyId)
 }
 
-// 固定到Dashboard
-const pinToDashboard = async () => {
-  if (!pinForm.value.title.trim()) {
+const dashboardComponentCount = (dashboard: DashboardOption) => dashboard.layout_json?.components?.length || 0
+
+const noop = () => {}
+
+const fetchDashboards = async () => {
+  dashboardsLoading.value = true
+  try {
+    const response = await axios.get("/api/dashboards")
+    dashboards.value = response.data.items || []
+    if (!pinChartForm.dashboard_id && dashboards.value.length > 0) {
+      pinChartForm.dashboard_id = dashboards.value[0].id
+    }
+  } catch {
+    dashboards.value = []
+    ElMessage.error("看板列表加载失败")
+  } finally {
+    dashboardsLoading.value = false
+  }
+}
+
+const prefillPinChartForm = () => {
+  pinChartForm.dashboard_id = dashboards.value[0]?.id || null
+  pinChartForm.title = (props.message.sourceQuestion || props.message.content || "智能问数图表").slice(0, 128)
+  pinChartForm.description = props.message.summary || ""
+  pinChartForm.question = props.message.sourceQuestion || ""
+  pinChartForm.sql_query = props.sqlQuery || ""
+  pinChartForm.datasource_id = effectiveDatasourceId.value
+  pinChartForm.chart_type = chartType.value
+  pinChartForm.sort_order = sortOrder.value
+  pinPreviewResult.value = { columns: props.columns, rows: props.rows }
+}
+
+const openPinDialog = async () => {
+  pinDialogTab.value = "config"
+  pinCreateMode.value = "sql"
+  prefillPinChartForm()
+  showPinDialog.value = true
+  try {
+    if (!datasourceStore.datasources.length) {
+      await datasourceStore.fetchDatasources()
+      pinChartForm.datasource_id = pinChartForm.datasource_id || effectiveDatasourceId.value
+    }
+    await fetchDashboards()
+  } catch {
+    return
+  }
+}
+
+const previewPinChartDraft = async () => {
+  if (pinCreateMode.value === "nl") {
+    const question = pinChartForm.question.trim()
+    if (!question) {
+      ElMessage.warning("请输入问题")
+      return false
+    }
+  } else if (!pinChartForm.sql_query.trim()) {
+    ElMessage.warning("请输入 SQL")
+    return false
+  }
+
+  pinPreviewLoading.value = true
+  try {
+    if (pinCreateMode.value === "nl") {
+      const response = await axios.post("/api/query/ask", {
+        question: pinChartForm.question.trim(),
+        mode: "text2sql",
+        datasource_id: pinChartForm.datasource_id,
+        dataset_id: queryStore.scopeMode === "dataset" ? queryStore.selectedDatasetId : null,
+      })
+      pinChartForm.sql_query = response.data.sql_query || ""
+      pinPreviewResult.value = response.data.result || { columns: [], rows: [] }
+      if (!pinChartForm.title.trim()) {
+        pinChartForm.title = pinChartForm.question.trim().slice(0, 128)
+      }
+    } else {
+      const response = await axios.post("/api/pinned-charts/preview", {
+        sql_query: pinChartForm.sql_query.trim(),
+        datasource_id: pinChartForm.datasource_id,
+      })
+      pinPreviewResult.value = response.data
+    }
+    pinDialogTab.value = "preview"
+    if (pinPreviewResult.value && !pinPreviewResult.value.rows.length) {
+      ElMessage.warning("查询成功，但没有返回数据")
+    }
+    return true
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "图表预览失败")
+    return false
+  } finally {
+    pinPreviewLoading.value = false
+  }
+}
+
+const savePinChartToDashboard = async () => {
+  if (!pinChartForm.dashboard_id) {
+    ElMessage.warning("请选择目标看板")
+    return
+  }
+  if (!pinChartForm.title.trim()) {
     ElMessage.warning("请输入图表标题")
     return
   }
-  if (!props.sqlQuery) {
+  if (!pinChartForm.sql_query.trim()) {
     ElMessage.error("缺少SQL查询语句")
     return
   }
   
   pinLoading.value = true
   try {
-    await axios.post("/api/pinned-charts", {
-      title: pinForm.value.title.trim(),
-      description: pinForm.value.description.trim() || null,
-      sql_query: props.sqlQuery,
-      chart_type: chartType.value,
-      sort_order: sortOrder.value,
-      datasource_id: datasourceStore.currentId,
+    await axios.post("/api/pinned-charts/add-to-dashboard", {
+      dashboard_id: pinChartForm.dashboard_id,
+      title: pinChartForm.title.trim(),
+      description: pinChartForm.description.trim() || null,
+      sql_query: pinChartForm.sql_query.trim(),
+      chart_type: pinChartForm.chart_type,
+      sort_order: pinChartForm.sort_order,
+      datasource_id: pinChartForm.datasource_id,
     })
-    ElMessage.success("已固定到Dashboard")
+    const dashboard = dashboards.value.find((item) => item.id === pinChartForm.dashboard_id)
+    ElMessage.success(`已加入「${dashboard?.title || "目标"}」看板`)
     showPinDialog.value = false
-    pinForm.value = { title: "", description: "" }
-  } catch (error) {
-    ElMessage.error("固定失败，请重试")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "加入看板失败，请重试")
   } finally {
     pinLoading.value = false
   }
@@ -622,5 +908,125 @@ onMounted(() => {
 
 .detail-action-bar {
   margin-bottom: 8px;
+}
+
+:global(.el-dialog.pin-chart-creator-dialog) {
+  display: flex;
+  flex-direction: column;
+  height: min(760px, calc(100vh - 12vh));
+  max-height: calc(100vh - 12vh);
+  max-width: calc(100vw - 32px);
+  margin-top: 6vh !important;
+}
+
+:global(.pin-chart-dialog-body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:global(.pin-chart-dialog-footer) {
+  flex: 0 0 auto;
+}
+
+.chart-creator-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.modal-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modal-tabs :deep(.el-tabs__header) {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+
+.modal-tabs :deep(.el-tabs__content) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal-tabs :deep(.el-tab-pane) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal-tab-content {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 4px 4px;
+}
+
+.config-tab-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.config-tab-content :deep(.el-row) {
+  flex: 0 0 auto;
+}
+
+.pin-description-field {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.pin-description-field :deep(.el-form-item__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pin-description-input {
+  width: 100%;
+  height: 100%;
+}
+
+.pin-description-input :deep(.el-textarea__inner) {
+  height: 100%;
+  min-height: 220px;
+  line-height: 1.55;
+}
+
+.dashboard-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-option strong,
+.dashboard-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-option small {
+  color: #909399;
+  flex-shrink: 0;
+}
+
+.chart-preview-panel {
+  min-height: 320px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
 }
 </style>

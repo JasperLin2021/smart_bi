@@ -35,14 +35,21 @@
           router
           class="app-menu"
         >
-          <template v-for="group in visibleMenuGroups" :key="group.key">
-            <el-sub-menu :index="group.key">
+          <template v-for="entry in visibleMenuEntries" :key="entry.type === 'item' ? entry.path : entry.key">
+            <el-menu-item
+              v-if="entry.type === 'item'"
+              :index="entry.path"
+            >
+              <el-icon><component :is="entry.icon" /></el-icon>
+              <span>{{ entry.label }}</span>
+            </el-menu-item>
+            <el-sub-menu v-else :index="entry.key">
               <template #title>
-                <el-icon><component :is="group.icon" /></el-icon>
-                <span>{{ group.label }}</span>
+                <el-icon><component :is="entry.icon" /></el-icon>
+                <span>{{ entry.label }}</span>
               </template>
               <el-menu-item
-                v-for="item in group.items"
+                v-for="item in entry.items"
                 :key="item.path"
                 :index="item.path"
               >
@@ -87,6 +94,41 @@
         </div>
         <div class="header-right">
           <el-button :icon="Refresh" circle @click="refresh" />
+
+          <!-- Notification bell -->
+          <el-popover
+            v-model:visible="notifPopoverVisible"
+            placement="bottom-end"
+            :width="320"
+            trigger="click"
+            @show="fetchNotifications"
+          >
+            <template #reference>
+              <el-badge :value="unreadCount || undefined" :max="99" :hidden="!unreadCount" type="danger">
+                <el-button :icon="Bell" circle />
+              </el-badge>
+            </template>
+            <div class="notif-panel">
+              <div class="notif-header">
+                <span>通知</span>
+                <el-button v-if="notifications.length" text size="small" @click="markAllRead">全部已读</el-button>
+              </div>
+              <el-empty v-if="!notifications.length" description="暂无通知" :image-size="60" />
+              <div v-else class="notif-list">
+                <div
+                  v-for="n in notifications"
+                  :key="n.id"
+                  class="notif-item"
+                  :class="{ unread: !n.is_read }"
+                  @click="handleNotifClick(n)"
+                >
+                  <div class="notif-msg">{{ n.message }}</div>
+                  <div class="notif-time">{{ formatNotifTime(n.created_at) }}</div>
+                </div>
+              </div>
+            </div>
+          </el-popover>
+
           <el-dropdown trigger="click">
             <el-button :icon="User" circle />
             <template #dropdown>
@@ -116,6 +158,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, type Component } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import axios from "axios"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import {
@@ -130,6 +173,66 @@ const authStore = useAuthStore()
 const datasourceStore = useDatasourceStore()
 
 const isSidebarCollapsed = ref(false)
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+interface NotifItem {
+  id: number
+  asset_id: number
+  message: string
+  is_read: boolean
+  created_at: string | null
+}
+
+const notifPopoverVisible = ref(false)
+const unreadCount = ref(0)
+const notifications = ref<NotifItem[]>([])
+let notifPollTimer: ReturnType<typeof setInterval> | null = null
+
+const fetchUnreadCount = async () => {
+  if (!authStore.token) return
+  try {
+    const { data } = await axios.get("/api/catalog/notifications", { params: { unread: true } })
+    unreadCount.value = data.unread_count
+  } catch {
+    /* ignore */
+  }
+}
+
+const fetchNotifications = async () => {
+  try {
+    const { data } = await axios.get("/api/catalog/notifications")
+    notifications.value = data.items
+    unreadCount.value = data.unread_count
+  } catch {
+    /* ignore */
+  }
+}
+
+const markAllRead = async () => {
+  try {
+    await axios.put("/api/catalog/notifications/read-all")
+    notifications.value.forEach(n => { n.is_read = true })
+    unreadCount.value = 0
+  } catch {
+    /* ignore */
+  }
+}
+
+const handleNotifClick = async (n: NotifItem) => {
+  if (!n.is_read) {
+    await axios.put(`/api/catalog/notifications/${n.id}/read`)
+    n.is_read = true
+    unreadCount.value = Math.max(0, unreadCount.value - 1)
+  }
+  notifPopoverVisible.value = false
+  router.push("/data-catalog")
+}
+
+const formatNotifTime = (val: string | null) => {
+  if (!val) return ""
+  const d = new Date(val)
+  return isNaN(d.getTime()) ? val : d.toLocaleString("zh-CN", { hour12: false })
+}
 const isMobileLayout = ref(false)
 
 const activePath = computed(() => route.path)
@@ -144,15 +247,23 @@ type MenuItem = {
   roles?: MenuRole[]
 }
 
+type StandaloneMenuItem = MenuItem & {
+  type: "item"
+}
+
 type MenuGroup = {
+  type: "group"
   key: string
   label: string
   icon: Component
   items: MenuItem[]
 }
 
-const menuGroups: MenuGroup[] = [
+type MenuEntry = StandaloneMenuItem | MenuGroup
+
+const menuEntries: MenuEntry[] = [
   {
+    type: "group",
     key: "workspace",
     label: "工作台",
     icon: DataLine,
@@ -162,29 +273,35 @@ const menuGroups: MenuGroup[] = [
       { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
+  { type: "item", path: "/big-screen-center", label: "大屏中心", icon: DataLine },
   {
+    type: "group",
+    key: "data-access",
+    label: "数据接入",
+    icon: Coin,
+    items: [
+      { path: "/data-access", label: "接入总览", icon: DataLine },
+      { path: "/data-link", label: "数据接入", icon: Coin },
+      { path: "/datasource-settings", label: "数据源管理", icon: Coin },
+      { path: "/dataset-center", label: "数据集开发", icon: Document },
+      { path: "/olap-status", label: "数据平台", icon: DataLine, roles: ["org_admin", "super_admin"] },
+      { path: "/data-catalog", label: "数据目录", icon: FolderOpened },
+    ],
+  },
+  {
+    type: "group",
     key: "bi-assets",
     label: "BI 分析",
     icon: Grid,
     items: [
       { path: "/dashboard-center", label: "看板中心", icon: Grid },
-      { path: "/big-screen-center", label: "大屏中心", icon: DataLine },
-      { path: "/dataset-center", label: "数据集中心", icon: Document },
-      { path: "/data-catalog", label: "数据目录", icon: FolderOpened },
-    ],
-  },
-  {
-    key: "data-governance",
-    label: "数据治理",
-    icon: Coin,
-    items: [
-      { path: "/datasource-settings", label: "数据源管理", icon: Coin },
       { path: "/metric-settings", label: "可信指标", icon: TrendCharts },
       { path: "/alert-settings", label: "预警管理", icon: Bell },
       { path: "/scheduled-reports", label: "定时报告", icon: AlarmClock },
     ],
   },
   {
+    type: "group",
     key: "system-admin",
     label: "系统管理",
     icon: Setting,
@@ -194,6 +311,8 @@ const menuGroups: MenuGroup[] = [
       { path: "/audit-logs", label: "审计日志", icon: Document, roles: ["org_admin", "super_admin"] },
       { path: "/operations", label: "运营后台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/llm-settings", label: "大模型配置", icon: Setting, roles: ["super_admin"] },
+      { path: "/notification-settings", label: "通知配置", icon: Bell, roles: ["super_admin"] },
+      { path: "/wechat-work-integration", label: "企业微信集成", icon: OfficeBuilding, roles: ["super_admin"] },
     ],
   },
 ]
@@ -204,24 +323,34 @@ const hasRole = (roles?: MenuRole[]) => {
   return Boolean(role && roles.includes(role))
 }
 
-const visibleMenuGroups = computed(() =>
-  menuGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => hasRole(item.roles)),
-    }))
-    .filter((group) => group.items.length > 0)
-)
+const visibleMenuEntries = computed(() => {
+  const entries: MenuEntry[] = []
+  menuEntries.forEach((entry) => {
+    if (entry.type === "item") {
+      if (hasRole(entry.roles)) entries.push(entry)
+      return
+    }
+
+    const items = entry.items.filter((item) => hasRole(item.roles))
+    if (items.length > 0) {
+      entries.push({ ...entry, items })
+    }
+  })
+  return entries
+})
 
 const defaultOpeneds = computed(() =>
-  visibleMenuGroups.value
-    .filter((group) => group.items.some((item) => item.path === activePath.value))
+  visibleMenuEntries.value
+    .filter((entry): entry is MenuGroup => entry.type === "group" && entry.items.some((item) => item.path === activePath.value))
     .map((group) => group.key)
 )
 
+const flattenMenuItems = (entries: MenuEntry[]) =>
+  entries.flatMap((entry) => (entry.type === "item" ? [entry] : entry.items))
+
 const pageTitleMap = computed(() =>
   Object.fromEntries(
-    menuGroups.flatMap((group) => group.items.map((item) => [item.path, item.label]))
+    flattenMenuItems(menuEntries).map((item) => [item.path, item.label])
   ) as Record<string, string>
 )
 
@@ -272,10 +401,13 @@ onMounted(async () => {
     authStore.fetchProfile()
   }
   await datasourceStore.fetchDatasources()
+  fetchUnreadCount()
+  notifPollTimer = setInterval(fetchUnreadCount, 60_000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", syncViewport)
+  if (notifPollTimer) clearInterval(notifPollTimer)
 })
 </script>
 
@@ -538,5 +670,59 @@ onBeforeUnmount(() => {
 .layout-content {
   padding: 18px;
   overflow-y: auto;
+}
+
+.notif-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.notif-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0 10px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.notif-list {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notif-item {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.notif-item:hover {
+  background: var(--el-fill-color-light);
+}
+
+.notif-item.unread {
+  background: var(--el-color-primary-light-9);
+}
+
+.notif-item.unread:hover {
+  background: var(--el-color-primary-light-8);
+}
+
+.notif-msg {
+  font-size: 13px;
+  color: var(--app-text);
+  line-height: 1.4;
+}
+
+.notif-time {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  margin-top: 4px;
 }
 </style>

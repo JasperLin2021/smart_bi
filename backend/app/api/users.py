@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
 from app.core.permissions import require_org_admin_or_above
+from app.core.safe_delete import assert_user_can_delete
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.organization import Organization
@@ -188,6 +189,7 @@ def delete_user(
         raise HTTPException(status_code=403, detail="无权删除此用户")
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="不能删除自己")
+    assert_user_can_delete(db, user)
     user_id_value = user.id
     username = user.username
     user_org_id = user.org_id
