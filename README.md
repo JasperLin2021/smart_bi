@@ -36,21 +36,51 @@ loop with follow-up actions.
 
 ### Screenshots
 
-| AI 问数 · Natural-language query | 可信指标 · Certified metrics |
-|---|---|
-| ![AI query interface showing natural-language question input with SQL preview and bar chart result](docs/assets/ss-smart-query.png) | ![Certified metrics list with trust scores, dataset binding, and owner information](docs/assets/ss-metrics.png) |
+The screenshots below are captured from the current Smart BI interface running with
+the repository's demo data. They are used here instead of generated illustrations so
+the README reflects the real product surface.
 
-| 看板中心 · Dashboard center | 数据目录 · Data catalog |
-|---|---|
-| ![Dashboard center with pinned charts and dashboard cards](docs/assets/ss-dashboards.png) | ![Data catalog with asset registry, category tree, and usage statistics](docs/assets/ss-catalog.png) |
+#### Natural-language Query
 
-| 数据接入 · Data sources | 预警管理 · Alert rules |
-|---|---|
-| ![Data source management with connection status, completion progress bars, and table counts](docs/assets/ss-datasource.png) | ![Alert rules list with dataset scope, metric thresholds, and notification channels](docs/assets/ss-alerts.png) |
+![Smart BI natural-language query page with datasource scope selector, suggested questions, and query history](docs/assets/ss-smart-query.png)
 
-| 用户与权限 · Access control | 看板 · Dashboard |
-|---|---|
-| ![Unified access control page showing 17 users across 2 enterprises with role and status columns](docs/assets/ss-access.png) | ![Interactive dashboard with ECharts visualizations and metric summary cards](docs/assets/ss-dashboard.png) |
+<sub>Figure 1. The AI query workspace lets users choose a datasource or dataset scope, ask business questions in natural language, and review query history.</sub>
+
+#### Trusted Metrics
+
+![Smart BI trusted metrics page showing certified metrics, quality status, dataset source, formulas, latest values, and version fields](docs/assets/ss-metrics.png)
+
+<sub>Figure 2. The trusted metrics page shows certification status, quality signals, dataset/source binding, formulas, latest values, and version information.</sub>
+
+#### Dashboard Center
+
+![Smart BI dashboard center showing published dashboards, visibility scope, component counts, preview, edit, and share actions](docs/assets/ss-dashboards.png)
+
+<sub>Figure 3. The dashboard center manages published and draft dashboards, including visibility scope, component count, preview, editing, and sharing actions.</sub>
+
+#### Data Catalog
+
+![Smart BI data catalog showing folder tree, asset type filters, search controls, and dataset or dashboard asset cards](docs/assets/ss-catalog.png)
+
+<sub>Figure 4. The data catalog organizes assets by folder and type, with search, filters, status indicators, and asset cards for datasets, dashboards, and related BI resources.</sub>
+
+#### Data Sources
+
+![Smart BI datasource management page showing datasource status, schema counts, business context, and preview or schema actions](docs/assets/ss-datasource.png)
+
+<sub>Figure 5. Datasource management tracks connection type, enablement state, schema readiness, table and field counts, business context, and operational actions.</sub>
+
+#### Alerts
+
+![Smart BI alert management page showing alert rules, metrics, detection window, notification channels, status switches, and trigger actions](docs/assets/ss-alerts.png)
+
+<sub>Figure 6. Alert management defines metric-driven rules with detection windows, notification channels, enablement state, and manual trigger controls.</sub>
+
+#### Access Control
+
+![Smart BI unified access control page showing users, roles, enterprises, permission status, and edit or delete actions](docs/assets/ss-access.png)
+
+<sub>Figure 7. The unified access control page manages users, roles, enterprises, permission state, and administrative actions in one place.</sub>
 
 ---
 
@@ -344,21 +374,49 @@ Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它�
 
 ### 界面截图
 
-| AI 问数 | 可信指标 |
-|---|---|
-| ![自然语言提问界面，含 SQL 预览与柱状图结果](docs/assets/ss-smart-query.png) | ![可信指标列表，含信任度评分、数据集绑定和负责人信息](docs/assets/ss-metrics.png) |
+以下截图来自当前 Smart BI 系统界面和仓库演示数据，不再使用与真实产品无关的生成式插画。
 
-| 看板中心 | 数据目录 |
-|---|---|
-| ![看板中心，含固钉图表和看板卡片](docs/assets/ss-dashboards.png) | ![数据目录，含资产登记、目录树和使用统计](docs/assets/ss-catalog.png) |
+#### AI 问数
 
-| 数据接入 | 预警管理 |
-|---|---|
-| ![数据源管理，含连接状态、完整度进度条和表数量](docs/assets/ss-datasource.png) | ![预警规则列表，含数据集范围、指标阈值和通知渠道](docs/assets/ss-alerts.png) |
+![Smart BI 智能问数页面，包含数据源范围选择、推荐问题和查询历史](docs/assets/ss-smart-query.png)
 
-| 用户与权限 | 看板 |
-|---|---|
-| ![统一权限管理页，含跨 2 个企业的 17 名用户及角色状态列](docs/assets/ss-access.png) | ![含 ECharts 图表和指标卡片的交互式看板](docs/assets/ss-dashboard.png) |
+<sub>图 1. 智能问数工作台支持选择数据源或数据集范围，用自然语言提出业务问题，并查看查询历史。</sub>
+
+#### 可信指标
+
+![Smart BI 可信指标页面，展示认证状态、质量状态、数据集来源、公式、最新值和版本字段](docs/assets/ss-metrics.png)
+
+<sub>图 2. 可信指标页面展示认证状态、质量信号、数据集/来源绑定、指标公式、最新值和版本信息。</sub>
+
+#### 看板中心
+
+![Smart BI 看板中心，展示已发布看板、可见范围、组件数量、预览、编辑和分享操作](docs/assets/ss-dashboards.png)
+
+<sub>图 3. 看板中心管理已发布和草稿看板，包含可见范围、组件数量、预览、编辑和分享操作。</sub>
+
+#### 数据目录
+
+![Smart BI 数据目录，展示目录树、资产类型筛选、搜索控件和数据集或看板资产卡片](docs/assets/ss-catalog.png)
+
+<sub>图 4. 数据目录按文件夹和资产类型组织数据资产，支持搜索、筛选、状态识别和资产卡片浏览。</sub>
+
+#### 数据源管理
+
+![Smart BI 数据源管理页面，展示数据源状态、表结构数量、业务上下文和预览或表结构操作](docs/assets/ss-datasource.png)
+
+<sub>图 5. 数据源管理展示连接类型、启用状态、表结构就绪度、表和字段数量、业务口径以及预览/表结构等操作。</sub>
+
+#### 预警管理
+
+![Smart BI 预警管理页面，展示预警规则、指标、检测窗口、通知渠道、启用开关和触发操作](docs/assets/ss-alerts.png)
+
+<sub>图 6. 预警管理基于指标配置检测窗口、通知渠道、启用状态，并支持手动触发。</sub>
+
+#### 用户与权限
+
+![Smart BI 统一权限管理页面，展示用户、角色、所属企业、权限状态和编辑或删除操作](docs/assets/ss-access.png)
+
+<sub>图 7. 用户与权限页面在一个界面中管理用户、角色、企业归属、权限状态和管理操作。</sub>
 
 ---
 
