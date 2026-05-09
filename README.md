@@ -64,7 +64,7 @@ Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它�
 
 ![Smart BI 中文技术架构图，展示前端体验层、后端服务层、AI 与语义层、数据与加速层、企业集成层](docs/assets/readme-architecture.png)
 
-<sub>架构图使用中文标签，并按当前真实系统能力绘制：Vue 3 前端、FastAPI 后端、AI Planner、语义数据集、可信指标、PostgreSQL、可选 Doris、企业微信和 GoView。</sub>
+<sub>Vue 3 前端、FastAPI 后端、AI Planner、语义数据集、可信指标、PostgreSQL、可选 Doris、企业微信和 GoView。</sub>
 
 ```text
 浏览器 / 嵌入视图
