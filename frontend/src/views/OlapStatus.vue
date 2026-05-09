@@ -3,7 +3,7 @@
     <section class="olap-hero">
       <div>
         <p class="eyebrow">DATA PLATFORM</p>
-        <h2>Doris 数据平台</h2>
+        <h2>OLAP 数据平台</h2>
         <p class="hero-copy">统一承接数据集物化、刷新任务和高并发分析查询。</p>
       </div>
       <div class="hero-actions">

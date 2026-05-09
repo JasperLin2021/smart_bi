@@ -12,7 +12,8 @@ test("data platform status has a system route and menu item", () => {
 
   assert.match(router, /path:\s*"\/olap-status"/)
   assert.match(router, /import\("@\/views\/OlapStatus\.vue"\)/)
-  assert.match(layout, /path:\s*"\/olap-status",\s*label:\s*"数据平台"/)
+  assert.match(layout, /path:\s*"\/olap-status",\s*label:\s*"OLAP 数据平台"/)
+  assert.doesNotMatch(layout, /path:\s*"\/olap-status",\s*label:\s*"数据平台"/)
 })
 
 test("olap status view calls Doris platform APIs", () => {
@@ -20,5 +21,6 @@ test("olap status view calls Doris platform APIs", () => {
 
   assert.match(view, /\/api\/olap\/status/)
   assert.match(view, /\/api\/datasets\/\$\{dataset\.id\}\/materialize/)
+  assert.match(view, /OLAP 数据平台/)
   assert.match(view, /Doris/)
 })

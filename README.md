@@ -29,7 +29,7 @@
 
 ### 项目概览
 
-Smart BI 是一个企业级开源商业智能平台。它将数据接入、语义数据集、可信指标、AI 问数、看板、大屏、预警、行动闭环、权限和审计整合为一个产品。
+Smart BI 是一个企业级开源商业智能平台。它将连接器接入、语义数据集、可信指标、AI 问数、看板、大屏、预警、行动闭环、权限和审计整合为一个产品。
 
 Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它支持连接企业数据、沉淀可复用数据集、认证业务指标、用自然语言问数、发布看板、触发预警，并通过行动项完成业务闭环。
 
@@ -52,9 +52,11 @@ Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它�
 | 可信指标 | 指标认证流程、仅绑定数据集、指标血缘、可信信号和提示词同步。 |
 | 看板中心 | 看板管理、图表固钉、评论、模板、分享和嵌入视图。 |
 | 大屏中心 | 集成 GoView，并提供内置大屏中心用于运营可视化。 |
+| 复杂报表 | 类 Excel 设计器、分页/参数/填报模板、版本管理、Excel/PDF/Word 导出任务。 |
+| 自助分析 | 拖拽式工作台、维度/指标组合、同环比/累计/排名/占比、钻取和联动配置。 |
 | 预警与报告 | 基于数据集的预警规则、调度器、消息投递和定时报告。 |
 | 数据目录 | 资产登记、目录树、字段级元数据、血缘图、订阅和使用统计。 |
-| 数据接入 | MySQL、PostgreSQL、Excel、SQL Server、ClickHouse 类连接器和同步框架。 |
+| 数据准备 | 连接器接入、数据源配置、数据集开发、Vue Flow 数据加工管道、补数、数据质量规则和可选 OLAP 物化。 |
 | 治理能力 | 多租户 RBAC、菜单权限、操作权限、用户级覆盖、RLS 基础和审计日志。 |
 | 安全删除 | 当资源被其他实体引用时阻止删除，并返回可操作的错误提示。 |
 | 企业微信 | 扫码登录、组织绑定、部门权限映射和消息投递记录。 |
@@ -77,6 +79,8 @@ Nginx SPA 代理 -> FastAPI 后端 -> SQLAlchemy / Alembic
                          |
                          +-- AI Planner 与 OpenAI 兼容 LLM 适配器
                          +-- 语义层与 SQL 安全护栏
+                         +-- 复杂报表模板、导出任务与填报记录
+                         +-- 数据集成 DAG、质量规则与自助分析视图
                          +-- 预警调度器与消息分发器
                          +-- 权限解析、安全删除保护、审计写入
                          |
@@ -217,7 +221,13 @@ DORIS_HTTP_PORT=8030
 远端仓库已经包含 `mock_data.sql`、`demo_setup.py` 和 `feature_demo_setup.py`。
 其中 `mock_data.sql` 是推荐的 Docker Compose 开箱即用示例数据，因为它可以在后端完成建表后直接导入 PostgreSQL。
 
-默认快速预览命令 `docker compose up -d --build` 会自动导入 `mock_data.sql`，因此从 GitHub 克隆后启动即可看到拟真企业、数据源、数据集、指标、看板、数据目录、预警和待办数据。
+默认快速预览命令 `docker compose up -d --build` 会自动导入 `mock_data.sql`，因此从 GitHub 克隆后启动即可看到拟真企业、数据源、数据集、指标、看板、复杂报表、数据加工管道、自助分析视图、数据目录、预警和待办数据。
+
+示例数据包含三组 P1 企业级能力样例：
+
+- `复杂报表`：Nexteer OEE 分页周报、RTY 质量填报月报、蓝途销售经营 Word 报告，含模板版本、导出运行和填报记录。
+- `数据加工管道`：生产明细日同步、销售增量同步，含 DAG 节点、补数运行、质量规则和最近执行日志。
+- `自助分析`：产线 OEE 趋势、RTY 失效模式 Pareto、客户销售贡献分析，含计算字段和钻取/联动配置。
 
 开发环境导入完整演示数据：
 
@@ -407,7 +417,7 @@ Copyright (c) 2025 Smart BI Contributors
 ### Overview
 
 Smart BI is an enterprise-grade, open-source business intelligence platform. It brings
-data access, semantic datasets, trusted metrics, AI-assisted analysis, dashboards,
+connector access, semantic datasets, trusted metrics, AI-assisted analysis, dashboards,
 big-screen operations, alerts, actions, permissions, and auditability into one product.
 
 It is built for teams that need a real operational BI workflow instead of a charting
@@ -428,9 +438,11 @@ See the [central screenshot overview](#screenshots) above. It is captured from t
 | Trusted metrics | Certification workflow, dataset-only binding, lineage, trust signals, and prompt synchronization. |
 | Dashboards | Dashboard center, pinned charts, comments, templates, sharing, and embedded views. |
 | Big screens | GoView integration plus an internal big-screen center for operational visualization. |
+| Complex reports | Excel-like report designer, paginated/parameter/fill-form templates, versioning, and Excel/PDF/Word export jobs. |
+| Self-service analytics | Drag-style workbench, dimension/measure composition, YoY/MoM, cumulative, rank, ratio, drill-down, and linkage settings. |
 | Alerts and reports | Dataset-scoped alert rules, scheduler, notification delivery, and scheduled reports. |
 | Data catalog | Asset registry, category tree, field-level metadata, lineage graph, subscriptions, and usage statistics. |
-| Data access | MySQL, PostgreSQL, Excel, SQL Server, ClickHouse-style connectors, and connector sync foundations. |
+| Data preparation | Connector access, data source setup, dataset development, Vue Flow data processing pipelines, backfill runs, data quality rules, and optional OLAP materialization. |
 | Governance | Multi-tenant RBAC, menu permissions, action permissions, user overrides, RLS foundation, and audit logs. |
 | Safe deletion | Deletion is blocked when referenced by dependent entities, with actionable error details. |
 | Enterprise WeChat | QR-code login, organization binding, department permission mapping, and message delivery records. |
@@ -453,6 +465,8 @@ Nginx SPA proxy -> FastAPI backend -> SQLAlchemy / Alembic
                          |
                          +-- AI planner and OpenAI-compatible LLM adapter
                          +-- Semantic layer and SQL guardrails
+                         +-- Complex report templates, export jobs, fill records
+                         +-- Data integration DAGs, quality rules, analysis views
                          +-- Alert scheduler and message dispatcher
                          +-- Permission resolver, safe-delete guard, audit writer
                          |
@@ -599,7 +613,14 @@ has created the application tables.
 
 The default quick-start command, `docker compose up -d --build`, automatically imports
 `mock_data.sql`, so a fresh GitHub clone starts with realistic organizations, data
-sources, datasets, metrics, dashboards, catalog assets, alerts, and action items.
+sources, datasets, metrics, dashboards, complex report templates, data pipelines,
+self-service analysis views, catalog assets, alerts, and action items.
+
+The demo seed now includes three P1 enterprise-capability samples:
+
+- `Complex reports`: Nexteer OEE paginated weekly report, RTY quality fill-form report, and Lantu sales Word report, including template versions, export runs, and fill records.
+- `Data pipelines`: production daily sync and sales incremental sync, including DAG nodes, backfill runs, quality rules, and recent execution logs.
+- `Self-service analysis`: OEE trend analysis, RTY Pareto analysis, and customer sales contribution analysis, including calculation fields and drill/linkage settings.
 
 To start the development stack and import the full demo dataset in one flow:
 

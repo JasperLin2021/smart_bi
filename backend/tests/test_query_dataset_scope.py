@@ -111,7 +111,7 @@ class QueryDatasetScopeTests(unittest.TestCase):
             self.assertEqual(captured_context["datasource_id"], datasource.id)
             self.assertIn("当前选择数据集：Paid Sales Dataset", captured_context["context"])
             self.assertIn("主表：sales", captured_context["context"])
-            self.assertIn("已选字段：sales.region, sales.amount", captured_context["context"])
+            self.assertIn("维度字段：sales.region, sales.amount", captured_context["context"])
             self.assertIn("固定筛选：sales.status = paid", captured_context["context"])
             self.assertEqual(response["result"]["rows"], [{"region": "East", "amount": 100}])
             self.assertEqual(db.query(QueryHistory).one().datasource_id, datasource.id)

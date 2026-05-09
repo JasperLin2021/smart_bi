@@ -81,6 +81,25 @@
           <span>{{ authStore.profile.org_name }}</span>
         </div>
       </div>
+
+      <button
+        v-if="!isMobileLayout"
+        type="button"
+        class="sidebar-edge-toggle"
+        :class="{ collapsed: effectiveSidebarCollapsed }"
+        :aria-label="effectiveSidebarCollapsed ? '展开侧边栏导航' : '收起侧边栏导航'"
+        :title="effectiveSidebarCollapsed ? '展开侧边栏导航' : '收起侧边栏导航'"
+        @click="toggleSidebar"
+      >
+        <span class="sidebar-edge-grip">
+          <el-icon>
+            <component :is="effectiveSidebarCollapsed ? Expand : Fold" />
+          </el-icon>
+        </span>
+        <span class="visually-hidden">
+          {{ effectiveSidebarCollapsed ? '展开侧边栏导航' : '收起侧边栏导航' }}
+        </span>
+      </button>
     </el-aside>
 
     <el-container class="main-container">
@@ -164,7 +183,7 @@ import { useDatasourceStore } from "@/store/datasource"
 import {
   DataLine, ChatDotRound, Coin, User, OfficeBuilding,
   TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock,
-  Grid, FolderOpened, Document, Fold, Expand, Tickets
+  Grid, FolderOpened, Document, Fold, Expand, Tickets, SetUp
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -270,6 +289,7 @@ const menuEntries: MenuEntry[] = [
     items: [
       { path: "/dashboard", label: "Dashboard", icon: DataLine },
       { path: "/smart-query", label: "智能问数", icon: ChatDotRound },
+      { path: "/analysis-workbench", label: "自助分析", icon: TrendCharts },
       { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
@@ -277,14 +297,14 @@ const menuEntries: MenuEntry[] = [
   {
     type: "group",
     key: "data-access",
-    label: "数据接入",
+    label: "数据准备",
     icon: Coin,
     items: [
-      { path: "/data-access", label: "接入总览", icon: DataLine },
-      { path: "/data-link", label: "数据接入", icon: Coin },
-      { path: "/datasource-settings", label: "数据源管理", icon: Coin },
-      { path: "/dataset-center", label: "数据集开发", icon: Document },
-      { path: "/olap-status", label: "数据平台", icon: DataLine, roles: ["org_admin", "super_admin"] },
+      { path: "/data-access", label: "准备总览", icon: DataLine },
+      { path: "/data-link", label: "连接器接入", icon: Coin },
+      { path: "/data-pipelines", label: "数据加工管道", icon: SetUp, roles: ["org_admin", "super_admin"] },
+      { path: "/data-development", label: "数据源与数据集", icon: Document },
+      { path: "/olap-status", label: "OLAP 数据平台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/data-catalog", label: "数据目录", icon: FolderOpened },
     ],
   },
@@ -295,6 +315,7 @@ const menuEntries: MenuEntry[] = [
     icon: Grid,
     items: [
       { path: "/dashboard-center", label: "看板中心", icon: Grid },
+      { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/metric-settings", label: "可信指标", icon: TrendCharts },
       { path: "/alert-settings", label: "预警管理", icon: Bell },
       { path: "/scheduled-reports", label: "定时报告", icon: AlarmClock },
@@ -421,8 +442,10 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   transition: width 0.18s ease;
+  z-index: 20;
 }
 
 .sidebar-brand {
@@ -459,12 +482,82 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-toggle {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
   margin-left: auto;
   color: var(--app-text-muted);
 }
 
 .app-sidebar.collapsed .sidebar-toggle {
   margin-left: 0;
+}
+
+.sidebar-edge-toggle {
+  position: absolute;
+  top: 50%;
+  right: -22px;
+  z-index: 30;
+  width: 44px;
+  min-height: 96px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--app-text-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  transform: translateY(-50%);
+}
+
+.sidebar-edge-grip {
+  width: 28px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--app-border);
+  border-left-color: rgba(15, 118, 110, 0.18);
+  border-radius: 0 12px 12px 0;
+  background: #ffffff;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+  transition: color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.sidebar-edge-toggle:hover .sidebar-edge-grip,
+.sidebar-edge-toggle:active .sidebar-edge-grip {
+  color: var(--app-primary);
+  border-color: rgba(15, 118, 110, 0.28);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  transform: translateX(2px);
+}
+
+.sidebar-edge-toggle:focus-visible {
+  outline: none;
+}
+
+.sidebar-edge-toggle:focus-visible .sidebar-edge-grip {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18), 0 14px 30px rgba(15, 23, 42, 0.14);
+}
+
+.sidebar-edge-toggle.collapsed .sidebar-edge-grip {
+  color: var(--app-primary-dark);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .ds-option {
@@ -723,5 +816,18 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--app-text-muted);
   margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .sidebar-edge-toggle {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar,
+  .sidebar-edge-grip {
+    transition: none;
+  }
 }
 </style>

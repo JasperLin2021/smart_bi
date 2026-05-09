@@ -11,7 +11,7 @@ from app.core.permissions import (
 from app.core.safe_delete import assert_user_can_delete
 from app.core.security import get_password_hash
 from app.db.session import get_db
-from app.models.organization import Organization
+from app.models.organization import Department, Organization
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate, UserOut
 
@@ -44,6 +44,7 @@ def _user_to_out(user: User, db: Session) -> dict:
         "username": user.username,
         "role": user.role,
         "role_label": ROLE_DISPLAY_NAMES.get(user.role, user.role),
+        "department_id": getattr(user, "department_id", None),
         "department": getattr(user, "department", None),
         "org_id": user.org_id,
         "org_name": org_name,
@@ -52,6 +53,22 @@ def _user_to_out(user: User, db: Session) -> dict:
         "menu_permissions": _parse_permissions(user.menu_permissions),
         "action_permissions": _parse_permissions(user.action_permissions),
     }
+
+
+def _resolve_department(
+    db: Session,
+    *,
+    org_id: int | None,
+    department_id: int | None,
+) -> Department | None:
+    if department_id is None:
+        return None
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=400, detail="部门不存在")
+    if org_id is not None and department.org_id != org_id:
+        raise HTTPException(status_code=400, detail="部门不属于所选企业")
+    return department
 
 
 @router.get("", response_model=list[UserOut])
@@ -87,12 +104,17 @@ def create_user(
     if db.query(User).filter(User.username == payload.username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
 
+    department = _resolve_department(db, org_id=payload.org_id, department_id=payload.department_id)
+    if department and payload.org_id is None:
+        payload.org_id = department.org_id
+
     user = User(
         username=payload.username,
         hashed_password=get_password_hash(payload.password),
         role=payload.role,
         org_id=payload.org_id,
-        department=getattr(payload, "department", None),
+        department_id=department.id if department else None,
+        department=department.name if department else getattr(payload, "department", None),
         data_scope=payload.data_scope,
         permission_override_enabled=payload.permission_override_enabled,
         menu_permissions=_dump_permissions(payload.menu_permissions),
@@ -136,6 +158,7 @@ def list_assignable_users_inline(
             "username": u.username,
             "role": u.role,
             "role_label": ROLE_DISPLAY_NAMES.get(u.role, u.role),
+            "department_id": getattr(u, "department_id", None),
             "department": dept,
         })
 
@@ -204,7 +227,18 @@ def update_user(
         user.role = payload.role
     if payload.org_id is not None and current_user.role == "super_admin":
         user.org_id = payload.org_id
-    if hasattr(payload, "department") and payload.department is not None:
+
+    if "department_id" in payload.model_fields_set:
+        department = _resolve_department(db, org_id=user.org_id, department_id=payload.department_id)
+        user.department_id = department.id if department else None
+        user.department = department.name if department else None
+    elif payload.org_id is not None and user.department_id is not None:
+        department = _resolve_department(db, org_id=None, department_id=user.department_id)
+        if department and department.org_id != user.org_id:
+            user.department_id = None
+            user.department = None
+
+    if "department" in payload.model_fields_set and payload.department is not None and user.department_id is None:
         user.department = payload.department
     if payload.data_scope is not None:
         user.data_scope = payload.data_scope
@@ -261,5 +295,4 @@ def delete_user(
         org_id=user_org_id,
         message="用户已删除",
     )
-
 

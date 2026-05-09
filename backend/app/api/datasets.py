@@ -22,6 +22,7 @@ from app.models.datasource import DataSource
 from app.models.user import User
 from app.schemas.dataset import (
     DatasetCreate,
+    DatasetDraftPreviewRequest,
     DatasetListResponse,
     DatasetMaterializeRequest,
     DatasetOut,
@@ -58,6 +59,22 @@ AGGREGATION_RE = re.compile(
     r"(?P<field>\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*$",
     re.IGNORECASE,
 )
+
+
+class _ExcelIdentifierPreparer:
+    def quote(self, identifier: str) -> str:
+        return f'"{str(identifier).replace('"', '""')}"'
+
+
+class _ExcelDialect:
+    identifier_preparer = _ExcelIdentifierPreparer()
+
+
+class _ExcelSqlEngine:
+    dialect = _ExcelDialect()
+
+
+EXCEL_SQL_ENGINE = _ExcelSqlEngine()
 
 
 def _ensure_values(status: str | None = None, visibility: str | None = None) -> None:
@@ -111,15 +128,35 @@ def _as_list(value: Any) -> list[Any]:
 def _field_name(field: Any) -> str:
     """Extract field name from either a string or a dict with a 'name' key."""
     if isinstance(field, dict):
-        return str(field.get("name") or "").strip()
+        return str(field.get("field") or field.get("name") or field.get("key") or "").strip()
     return str(field).strip()
+
+
+def _output_alias(value: Any) -> str | None:
+    alias = str(value or "").strip()
+    if not alias:
+        return None
+    if len(alias) > 128 or any(token in alias for token in (";", "--", "/*", "*/", "\x00")):
+        raise HTTPException(status_code=400, detail="字段别名不合法")
+    return alias
+
+
+def _field_alias_override(field: Any) -> str | None:
+    if not isinstance(field, dict):
+        return None
+    return _output_alias(field.get("alias") or field.get("label") or field.get("display_name"))
+
+
+def _quote_output_alias(engine, alias: str) -> str:
+    preparer = engine.dialect.identifier_preparer
+    return preparer.quote(alias)
 
 
 def _source_table(dataset: Dataset) -> str:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
     table = str(fields_json.get("table") or "").strip()
     if not table:
-        fields = _as_list(fields_json.get("fields"))
+        fields = _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields"))
         for field in fields:
             name = _field_name(field)
             if "." in name:
@@ -163,6 +200,11 @@ def _field_alias(field: str, default_table: str) -> str:
     return column
 
 
+def _normalized_field_ref(field: str, default_table: str) -> str:
+    table, column = _split_field(field, default_table)
+    return f"{table}.{column}"
+
+
 def _validate_database_table_and_columns(engine, table: str, fields: list[str]) -> None:
     inspector = inspect(engine)
     if table not in inspector.get_table_names():
@@ -177,9 +219,46 @@ def _validate_database_table_and_columns(engine, table: str, fields: list[str]) 
 
 
 def _selected_fields(dataset: Dataset, table: str) -> list[str]:
+    return [item["field"] for item in _dimension_specs(dataset, table)]
+
+
+def _dimension_specs(dataset: Dataset, table: str) -> list[dict[str, str | None]]:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
-    fields = [_field_name(f) for f in _as_list(fields_json.get("fields")) if _field_name(f)]
-    return fields or [f"{table}.*"]
+    raw_fields = _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields"))
+    specs = [
+        {"field": _field_name(item), "alias": _field_alias_override(item)}
+        for item in raw_fields
+        if _field_name(item)
+    ]
+    return specs or [{"field": f"{table}.*", "alias": None}]
+
+
+def _dataset_dimension_fields(dataset: Dataset) -> list[str]:
+    try:
+        table = _source_table(dataset)
+    except HTTPException:
+        return []
+    return [field for field in _selected_fields(dataset, table) if not field.endswith(".*")]
+
+
+def _normalize_fields_json(fields_json: Any) -> Any:
+    if not isinstance(fields_json, dict):
+        return fields_json
+    normalized = dict(fields_json)
+    dimensions = _as_list(normalized.get("dimensions"))
+    if not dimensions:
+        dimensions = _as_list(normalized.get("fields"))
+    if dimensions:
+        normalized["dimensions"] = dimensions
+        normalized["fields"] = [_field_name(item) for item in dimensions if _field_name(item)]
+    metrics = _as_list(normalized.get("metrics"))
+    if metrics:
+        normalized["metrics"] = metrics
+    if "dimension_labels" not in normalized and "field_labels" in normalized:
+        normalized["dimension_labels"] = normalized.get("field_labels")
+    if "field_labels" not in normalized and "dimension_labels" in normalized:
+        normalized["field_labels"] = normalized.get("dimension_labels")
+    return normalized
 
 
 def _derived_expressions(dataset: Dataset) -> list[str]:
@@ -212,8 +291,42 @@ def _filter_expressions(dataset: Dataset) -> list[Any]:
 
 
 def _aggregation_expressions(dataset: Dataset) -> list[str]:
+    return [item["expression"] for item in _metric_specs(dataset)]
+
+
+def _metric_specs(dataset: Dataset) -> list[dict[str, str | None]]:
     aggregations_json = dataset.aggregations_json if isinstance(dataset.aggregations_json, dict) else {}
-    return [str(item) for item in _as_list(aggregations_json.get("aggregations")) if str(item).strip()]
+    fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
+    raw_items = _as_list(fields_json.get("metrics")) or _as_list(aggregations_json.get("aggregations"))
+    specs: list[dict[str, str | None]] = []
+    for item in raw_items:
+        alias = None
+        if isinstance(item, dict):
+            alias = _field_alias_override(item)
+            expression = str(item.get("expression") or "").strip()
+            if not expression:
+                field = _field_name(item)
+                aggregation = str(item.get("aggregation") or item.get("fn") or "SUM").strip().upper()
+                if field and aggregation:
+                    expression = f"{aggregation}({field})"
+        else:
+            expression = str(item).strip()
+        if expression:
+            specs.append({"expression": expression, "alias": alias})
+    return specs
+
+
+def _aggregation_field_refs(aggregations: list[str], default_table: str) -> set[str]:
+    refs: set[str] = set()
+    for expression in aggregations:
+        match = AGGREGATION_RE.match(expression)
+        if not match:
+            continue
+        field = match.group("field")
+        if field == "*":
+            continue
+        refs.add(_normalized_field_ref(field, default_table))
+    return refs
 
 
 def _render_derived_expression(engine, expression: str, default_table: str) -> str:
@@ -240,17 +353,18 @@ def _render_derived_expression(engine, expression: str, default_table: str) -> s
     return f"{rendered} AS {_quote_table(engine, alias)}"
 
 
-def _render_aggregation(engine, expression: str, default_table: str) -> str:
+def _render_aggregation(engine, expression: str, default_table: str, alias_override: str | None = None) -> str:
     match = AGGREGATION_RE.match(expression)
     if not match:
         raise HTTPException(status_code=400, detail=f"聚合表达式不合法: {expression}")
     fn = match.group("fn").upper()
     field = match.group("field")
     if field == "*":
-        return f"{fn}(*) AS {_quote_table(engine, fn.lower())}"
+        alias = alias_override or fn.lower()
+        return f"{fn}(*) AS {_quote_output_alias(engine, alias)}"
     _, column = _split_field(field, default_table)
-    alias = f"{fn.lower()}_{column}"
-    return f"{fn}({_quote_column_ref(engine, field, default_table)}) AS {_quote_table(engine, alias)}"
+    alias = alias_override or f"{fn.lower()}_{column}"
+    return f"{fn}({_quote_column_ref(engine, field, default_table)}) AS {_quote_output_alias(engine, alias)}"
 
 
 def _normalize_filter_value(value: str) -> str:
@@ -317,27 +431,58 @@ def _build_excel_dataset_sql(dataset: Dataset, datasource: DataSource, limit: in
     if table not in get_excel_tables(datasource.database_url):
         raise HTTPException(status_code=404, detail="数据表不存在")
 
-    fields = _selected_fields(dataset, table)
-    aggregations = _aggregation_expressions(dataset)
+    engine = EXCEL_SQL_ENGINE
+    dimension_specs = _dimension_specs(dataset, table)
+    fields = [item["field"] for item in dimension_specs]
+    metric_specs = _metric_specs(dataset)
+    aggregations = [item["expression"] for item in metric_specs]
+    aggregation_fields = _aggregation_field_refs(aggregations, table)
     params: dict[str, Any] = {}
+    if limit is not None:
+        params["limit"] = _clamp_preview_limit(limit)
 
     select_parts: list[str] = []
     group_by_parts: list[str] = []
-    for field in fields:
+    for spec in dimension_specs:
+        field = str(spec["field"])
         if field.endswith(".*"):
+            if aggregations:
+                continue
             select_parts.append("*")
             continue
-        col = field.split(".", 1)[1] if "." in field else field
-        select_parts.append(f"{col}")
+        if aggregations and _normalized_field_ref(field, table) in aggregation_fields:
+            continue
+        alias = spec["alias"] or _field_alias(field, table)
+        column_ref = _quote_column_ref(engine, field, table)
+        select_parts.append(f"{column_ref} AS {_quote_output_alias(engine, alias)}")
         if aggregations:
-            group_by_parts.append(col)
+            group_by_parts.append(column_ref)
+
+    for expression in _derived_expressions(dataset):
+        select_parts.append(_render_derived_expression(engine, expression, table))
+
+    for spec in metric_specs:
+        select_parts.append(_render_aggregation(engine, str(spec["expression"]), table, spec["alias"]))
 
     if not select_parts:
         select_parts.append("*")
 
-    sql_parts = [f"SELECT {', '.join(select_parts)}", f"FROM {table}"]
+    join_parts = _render_joins(engine, _join_expressions(dataset), table)
+    where_parts = [
+        _render_filter(engine, item, table, params, index)
+        for index, item in enumerate(_filter_expressions(dataset))
+    ]
+    sql_parts = [
+        f"SELECT {', '.join(select_parts)}",
+        f"FROM {_quote_table(engine, table)}",
+        *join_parts,
+    ]
+    if where_parts:
+        sql_parts.append(f"WHERE {' AND '.join(where_parts)}")
+    if group_by_parts:
+        sql_parts.append(f"GROUP BY {', '.join(group_by_parts)}")
     if limit is not None:
-        sql_parts.append(f"LIMIT {_clamp_preview_limit(limit)}")
+        sql_parts.append("LIMIT :limit")
     return "\n".join(sql_parts), params
 
 
@@ -346,14 +491,18 @@ def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | No
         return _build_excel_dataset_sql(dataset, datasource, limit)
 
     table = _source_table(dataset)
-    fields = _selected_fields(dataset, table)
-    aggregations = _aggregation_expressions(dataset)
+    dimension_specs = _dimension_specs(dataset, table)
+    fields = [item["field"] for item in dimension_specs]
+    metric_specs = _metric_specs(dataset)
+    aggregations = [item["expression"] for item in metric_specs]
+    aggregation_fields = _aggregation_field_refs(aggregations, table)
     params: dict[str, Any] = {}
     if limit is not None:
         params["limit"] = _clamp_preview_limit(limit)
     engine = get_datasource_engine(datasource.database_url)
 
     validation_fields = [field for field in fields if not field.endswith(".*")]
+    validation_fields.extend(field for field in aggregation_fields)
     for expression in _derived_expressions(dataset):
         validation_fields.extend(
             re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\b", expression)
@@ -362,21 +511,26 @@ def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | No
 
     select_parts: list[str] = []
     group_by_parts: list[str] = []
-    for field in fields:
+    for spec in dimension_specs:
+        field = str(spec["field"])
         if field.endswith(".*"):
+            if aggregations:
+                continue
             select_parts.append("*")
             continue
-        alias = _field_alias(field, table)
+        if aggregations and _normalized_field_ref(field, table) in aggregation_fields:
+            continue
+        alias = spec["alias"] or _field_alias(field, table)
         column_ref = _quote_column_ref(engine, field, table)
-        select_parts.append(f"{column_ref} AS {_quote_table(engine, alias)}")
+        select_parts.append(f"{column_ref} AS {_quote_output_alias(engine, alias)}")
         if aggregations:
             group_by_parts.append(column_ref)
 
     for expression in _derived_expressions(dataset):
         select_parts.append(_render_derived_expression(engine, expression, table))
 
-    for expression in aggregations:
-        select_parts.append(_render_aggregation(engine, expression, table))
+    for spec in metric_specs:
+        select_parts.append(_render_aggregation(engine, str(spec["expression"]), table, spec["alias"]))
 
     if not select_parts:
         select_parts.append("*")
@@ -476,10 +630,12 @@ def _sync_dataset_asset(db: Session, dataset: Dataset) -> None:
     asset.metadata_json = {
         "visibility": dataset.visibility,
         "fields": dataset.fields_json,
+        "dimensions": _dataset_dimension_fields(dataset),
         "filters": dataset.filters_json,
         "derived_columns": dataset.derived_columns_json,
         "joins": dataset.joins_json,
         "aggregations": dataset.aggregations_json,
+        "metrics": _aggregation_expressions(dataset),
         "semantic_model": dataset.semantic_model_json,
     }
     db.flush()
@@ -567,8 +723,10 @@ def create_dataset(
     _ensure_values(payload.status, payload.visibility)
     datasource = _get_datasource_for_user(db, payload.datasource_id, current_user)
     org_id = payload.org_id if current_user.role == "super_admin" and payload.org_id else datasource.org_id
+    values = payload.model_dump(exclude={"org_id", "owner_id"})
+    values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
     dataset = Dataset(
-        **payload.model_dump(exclude={"org_id", "owner_id"}),
+        **values,
         org_id=org_id,
         owner_id=payload.owner_id or current_user.id,
     )
@@ -716,6 +874,40 @@ def preview_dataset(
         detail={"limit": _clamp_preview_limit(limit), "row_count": response["row_count"]},
     )
     return jsonable_encoder(response)
+
+
+@router.post("/preview-draft", response_model=DatasetPreviewResponse)
+def preview_dataset_draft(
+    payload: DatasetDraftPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_values(payload.status, payload.visibility)
+    datasource = _get_datasource_for_user(db, payload.datasource_id, current_user)
+    org_id = payload.org_id if current_user.role == "super_admin" and payload.org_id else datasource.org_id
+    values = payload.model_dump(exclude={"org_id", "owner_id", "limit"})
+    values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
+    dataset = Dataset(
+        **values,
+        org_id=org_id,
+        owner_id=payload.owner_id or current_user.id,
+    )
+    limit = _clamp_preview_limit(payload.limit)
+    try:
+        preview = _execute_dataset_preview(dataset, datasource, limit)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"数据集预览失败: {exc}")
+
+    return jsonable_encoder(
+        {
+            "dataset_id": 0,
+            "columns": preview.get("columns", []),
+            "rows": preview.get("rows", []),
+            "row_count": len(preview.get("rows", [])),
+        }
+    )
 
 
 @router.post("/{dataset_id}/materialize", response_model=DatasetOut)
@@ -898,6 +1090,8 @@ def update_dataset(
         raise HTTPException(status_code=403, detail="无权限")
     values = payload.model_dump(exclude_unset=True)
     _ensure_values(values.get("status"), values.get("visibility"))
+    if "fields_json" in values:
+        values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
     if "datasource_id" in values:
         datasource = _get_datasource_for_user(db, values["datasource_id"], current_user)
         if current_user.role != "super_admin":

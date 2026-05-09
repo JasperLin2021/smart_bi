@@ -16,138 +16,6 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════ -->
-    <!--  TAB: USERS                                                   -->
-    <!-- ══════════════════════════════════════════════════════════════ -->
-    <div v-show="activeTab === 'users'" class="tab-content">
-      <!-- Stats -->
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-icon" style="background: linear-gradient(135deg,#0f766e,#2563eb)">
-            <el-icon :size="20"><User /></el-icon>
-          </div>
-          <div>
-            <div class="stat-val">{{ users.length }}</div>
-            <div class="stat-lbl">总用户</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon" style="background: linear-gradient(135deg,#f59e0b,#d97706)">
-            <el-icon :size="20"><UserFilled /></el-icon>
-          </div>
-          <div>
-            <div class="stat-val">{{ adminCount }}</div>
-            <div class="stat-lbl">管理员</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon" style="background: linear-gradient(135deg,#8b5cf6,#7c3aed)">
-            <el-icon :size="20"><Grid /></el-icon>
-          </div>
-          <div>
-            <div class="stat-val">{{ deptCount }}</div>
-            <div class="stat-lbl">部门</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon" style="background: linear-gradient(135deg,#10b981,#059669)">
-            <el-icon :size="20"><OfficeBuilding /></el-icon>
-          </div>
-          <div>
-            <div class="stat-val">{{ organizations.length }}</div>
-            <div class="stat-lbl">企业</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Toolbar -->
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <el-input
-            v-model="userSearch"
-            placeholder="搜索用户名..."
-            prefix-icon="Search"
-            clearable
-            style="width: 220px"
-          />
-          <el-select v-model="roleFilter" placeholder="角色" clearable style="width: 140px">
-            <el-option label="普通用户" value="user" />
-            <el-option label="部门管理员" value="dept_admin" />
-            <el-option label="企业管理员" value="org_admin" />
-            <el-option label="超级管理员" value="super_admin" />
-          </el-select>
-          <el-select v-model="deptFilter" placeholder="部门" clearable style="width: 160px">
-            <el-option v-for="d in allDepts" :key="d" :label="d" :value="d" />
-          </el-select>
-        </div>
-        <div class="toolbar-right">
-          <el-button :icon="Refresh" @click="fetchAll">刷新</el-button>
-          <el-button type="primary" :icon="Plus" @click="openCreate">新增用户</el-button>
-        </div>
-      </div>
-
-      <!-- Table -->
-      <div class="table-wrap">
-        <el-table
-          :data="filteredUsers"
-          stripe
-          highlight-current-row
-          @row-click="openDrawer"
-          style="cursor: pointer"
-        >
-          <el-table-column label="用户" min-width="180">
-            <template #default="{ row }">
-              <div class="user-cell">
-                <div class="avatar" :class="`avatar--${row.role}`">
-                  {{ row.username.charAt(0).toUpperCase() }}
-                </div>
-                <div>
-                  <div class="cell-name">{{ row.username }}</div>
-                  <div class="cell-sub">{{ row.department || '—' }}</div>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="角色" width="140">
-            <template #default="{ row }">
-              <el-tag :type="roleTagType(row.role)" size="small" effect="light">
-                {{ roleLabel(row.role) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="所属企业" min-width="160">
-            <template #default="{ row }">
-              <span v-if="row.org_name" class="org-chip">
-                <el-icon><OfficeBuilding /></el-icon>{{ row.org_name }}
-              </span>
-              <span v-else class="muted">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="权限" width="100">
-            <template #default="{ row }">
-              <el-tag
-                v-if="row.permission_override_enabled"
-                size="small"
-                type="warning"
-                effect="plain"
-              >个性化</el-tag>
-              <span v-else class="muted">角色默认</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="130" fixed="right" @click.stop>
-            <template #default="{ row }">
-              <el-button size="small" text type="primary" @click.stop="openDrawer(row)">
-                <el-icon><Edit /></el-icon>编辑
-              </el-button>
-              <el-button size="small" text type="danger" @click.stop="deleteUser(row.id)">
-                <el-icon><Delete /></el-icon>删除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-    </div>
-
-    <!-- ══════════════════════════════════════════════════════════════ -->
     <!--  TAB: ROLES                                                   -->
     <!-- ══════════════════════════════════════════════════════════════ -->
     <div v-show="activeTab === 'roles'" class="tab-content">
@@ -162,7 +30,7 @@
             :class="{ active: selectedRole?.code === role.code, [`role-card--${role.code}`]: true }"
             @click="selectedRole = role"
           >
-            <div class="role-card-icon">{{ roleIcon(role.code) }}</div>
+            <el-icon class="role-card-icon"><component :is="roleIcon(role.code)" /></el-icon>
             <div class="role-card-body">
               <div class="role-card-name">{{ role.name }}</div>
               <div class="role-card-meta">
@@ -239,58 +107,172 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════ -->
-    <!--  TAB: ORGS (super_admin only)                                 -->
+    <!--  TAB: ORGS / DEPARTMENTS                                      -->
     <!-- ══════════════════════════════════════════════════════════════ -->
     <div v-show="activeTab === 'orgs'" class="tab-content">
       <div class="toolbar">
         <div class="toolbar-left">
-          <el-input v-model="orgSearch" placeholder="搜索企业..." prefix-icon="Search" clearable style="width: 220px" />
+          <el-input v-model="orgSearch" placeholder="搜索企业 / 部门..." prefix-icon="Search" clearable style="width: 260px" />
         </div>
         <div class="toolbar-right">
-          <el-button :icon="Refresh" @click="fetchOrgs">刷新</el-button>
-          <el-button type="primary" :icon="Plus" @click="openOrgCreate">新增企业</el-button>
+          <el-button :icon="Refresh" @click="fetchOrgTree">刷新</el-button>
+          <el-button v-if="isSuperAdmin" type="primary" :icon="Plus" @click="openOrgCreate">新增企业</el-button>
         </div>
       </div>
 
-      <div class="table-wrap">
-        <el-table :data="filteredOrgs" stripe>
-          <el-table-column label="企业" min-width="220">
-            <template #default="{ row }">
-              <div class="user-cell">
-                <div class="org-avatar-cell">{{ row.name.charAt(0) }}</div>
-                <div>
-                  <div class="cell-name">{{ row.name }}</div>
-                  <div class="cell-sub">{{ row.slug }}</div>
-                </div>
+      <div class="enterprise-layout">
+        <section class="enterprise-tree-panel">
+          <div class="enterprise-panel-head">
+            <div>
+              <div class="enterprise-panel-title">企业 / 部门</div>
+              <div class="enterprise-panel-sub">{{ organizationCount }} 个企业 · {{ deptCount }} 个部门</div>
+            </div>
+            <el-button
+              v-if="selectedOrgNode"
+              size="small"
+              type="primary"
+              :icon="Plus"
+              @click="openDepartmentCreate(selectedOrgNode)"
+            >
+              新建下级部门
+            </el-button>
+          </div>
+
+          <el-tree
+            class="org-tree"
+            :data="orgTreeData"
+            :props="orgTreeProps"
+            node-key="node_key"
+            default-expand-all
+            highlight-current
+            :expand-on-click-node="false"
+            @node-click="selectOrgNode"
+          >
+            <template #default="{ data }">
+              <div class="org-tree-node" :class="`org-node--${data.type}`">
+                <el-icon class="org-tree-icon">
+                  <OfficeBuilding v-if="data.type === 'organization'" />
+                  <Grid v-else />
+                </el-icon>
+                <span class="org-tree-label">{{ data.label }}</span>
+                <span class="org-tree-meta">
+                  {{ data.type === 'organization' ? `${data.department_count} 部门` : `${data.user_count} 人` }}
+                </span>
               </div>
             </template>
-          </el-table-column>
-          <el-table-column label="标识" width="160">
-            <template #default="{ row }">
-              <el-tag effect="plain" size="small">{{ row.slug }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="用户数" width="100">
-            <template #default="{ row }">
-              <span>{{ userCountByOrg(row.id) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="创建时间" width="180">
-            <template #default="{ row }">
-              <span class="muted">{{ formatDate(row.created_at) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="130" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" text type="primary" @click="openOrgEdit(row)">
-                <el-icon><Edit /></el-icon>编辑
-              </el-button>
-              <el-button size="small" text type="danger" @click="deleteOrg(row.id)">
-                <el-icon><Delete /></el-icon>删除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+          </el-tree>
+        </section>
+
+        <section class="enterprise-detail-panel">
+          <template v-if="selectedOrgNode">
+            <div class="enterprise-detail-head">
+              <div class="enterprise-title-row">
+                <div class="enterprise-avatar" :class="`enterprise-avatar--${selectedOrgNode.type}`">
+                  <el-icon><OfficeBuilding v-if="selectedOrgNode.type === 'organization'" /><Grid v-else /></el-icon>
+                </div>
+                <div>
+                  <div class="enterprise-name">{{ selectedOrgNode.name }}</div>
+                  <div class="enterprise-path">{{ selectedNodePath }}</div>
+                </div>
+              </div>
+              <div class="enterprise-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  :icon="Plus"
+                  @click="openCreateForOrgNode(selectedOrgNode)"
+                >
+                  新增成员
+                </el-button>
+                <el-button
+                  size="small"
+                  :icon="Plus"
+                  @click="openDepartmentCreate(selectedOrgNode)"
+                >
+                  新建下级部门
+                </el-button>
+                <template v-if="selectedOrgNode.type === 'department'">
+                  <el-button size="small" :icon="Edit" @click="openDepartmentEdit(selectedOrgNode)">
+                    重命名部门
+                  </el-button>
+                  <el-button size="small" type="danger" :icon="Delete" @click="deleteDepartment(selectedOrgNode)">
+                    删除部门
+                  </el-button>
+                </template>
+                <template v-else-if="isSuperAdmin">
+                  <el-button size="small" :icon="Edit" @click="openOrgEdit(nodeToOrg(selectedOrgNode))">编辑企业</el-button>
+                  <el-button size="small" type="danger" :icon="Delete" @click="deleteOrg(selectedOrgNode.id)">删除企业</el-button>
+                </template>
+              </div>
+            </div>
+
+            <div class="enterprise-metrics">
+              <div class="enterprise-metric">
+                <span class="metric-label">成员</span>
+                <strong>{{ selectedOrgNode.user_count }}</strong>
+              </div>
+              <div class="enterprise-metric">
+                <span class="metric-label">下级部门</span>
+                <strong>{{ selectedOrgNode.department_count }}</strong>
+              </div>
+              <div class="enterprise-metric">
+                <span class="metric-label">类型</span>
+                <strong>{{ selectedOrgNode.type === 'organization' ? '企业' : '部门' }}</strong>
+              </div>
+            </div>
+
+            <div class="enterprise-members">
+              <div class="enterprise-section-head">
+                <div>
+                  <div class="enterprise-section-title">当前节点成员</div>
+                  <div class="enterprise-section-sub">在企业或部门节点内直接维护成员账号、角色和个性化权限。</div>
+                </div>
+                <el-input
+                  v-model="memberSearch"
+                  placeholder="搜索成员"
+                  prefix-icon="Search"
+                  clearable
+                  style="width: 220px"
+                />
+              </div>
+              <el-table
+                :data="selectedNodeUsersFiltered"
+                stripe
+                size="small"
+                empty-text="暂无成员"
+                @row-click="openDrawer"
+              >
+                <el-table-column label="用户" min-width="160">
+                  <template #default="{ row }">
+                    <div class="user-cell">
+                      <div class="avatar" :class="`avatar--${row.role}`">{{ row.username.charAt(0).toUpperCase() }}</div>
+                      <div>
+                        <div class="cell-name">{{ row.username }}</div>
+                        <div class="cell-sub">{{ roleLabel(row.role) }}</div>
+                      </div>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="部门" min-width="160">
+                  <template #default="{ row }">{{ row.department || '未分配部门' }}</template>
+                </el-table-column>
+                <el-table-column label="权限" width="100">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.permission_override_enabled" size="small" type="warning" effect="plain">个性化</el-tag>
+                    <span v-else class="muted">角色默认</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="142" fixed="right">
+                  <template #default="{ row }">
+                    <el-button size="small" text type="primary" :icon="Edit" @click.stop="openDrawer(row)">编辑</el-button>
+                    <el-button size="small" text type="danger" :icon="Delete" @click.stop="deleteUser(row.id)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </template>
+          <el-empty v-else description="选择左侧企业或部门" :image-size="88" />
+        </section>
       </div>
     </div>
 
@@ -351,10 +333,29 @@
               </el-select>
             </el-form-item>
             <el-form-item label="部门">
-              <el-input v-model="drawerForm.department" placeholder="如：数据分析部" />
+              <el-select
+                v-model="drawerForm.department_id"
+                clearable
+                filterable
+                placeholder="选择部门"
+                style="width:100%"
+                @change="onDrawerDepartmentChange"
+              >
+                <el-option
+                  v-for="dept in departmentOptionsForDrawerOrg"
+                  :key="dept.id"
+                  :label="dept.path"
+                  :value="dept.id"
+                >
+                  <div class="dept-option">
+                    <span>{{ dept.name }}</span>
+                    <small>{{ dept.path }}</small>
+                  </div>
+                </el-option>
+              </el-select>
             </el-form-item>
             <el-form-item v-if="isSuperAdmin" label="所属企业">
-              <el-select v-model="drawerForm.org_id" clearable placeholder="选择企业" style="width:100%">
+              <el-select v-model="drawerForm.org_id" clearable placeholder="选择企业" style="width:100%" @change="onDrawerOrgChange">
                 <el-option v-for="org in organizations" :key="org.id" :label="org.name" :value="org.id" />
               </el-select>
             </el-form-item>
@@ -461,6 +462,35 @@
         <el-button type="primary" :loading="savingOrg" @click="saveOrg">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!--  DEPARTMENT DIALOG                                            -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <el-dialog
+      v-model="departmentDialogVisible"
+      :title="departmentIsEdit ? '重命名部门' : '新建下级部门'"
+      width="460px"
+      destroy-on-close
+    >
+      <el-form :model="departmentForm" label-width="92px">
+        <el-form-item label="所属企业">
+          <span class="readonly-line">{{ departmentDialogOrgName }}</span>
+        </el-form-item>
+        <el-form-item v-if="!departmentIsEdit" label="上级部门">
+          <span class="readonly-line">{{ departmentDialogParentName }}</span>
+        </el-form-item>
+        <el-form-item label="部门名称" required>
+          <el-input v-model="departmentForm.name" placeholder="如：销售运营部" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="departmentForm.sort_order" :min="0" :max="999" style="width: 160px" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="departmentDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingDepartment" @click="saveDepartment">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -470,7 +500,7 @@ import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { useAuthStore } from "@/store/auth"
 import {
-  User, UserFilled, OfficeBuilding, Grid, Setting,
+  User, OfficeBuilding, Grid, Setting,
   Refresh, Plus, Edit, Delete, Check, Close,
 } from "@element-plus/icons-vue"
 
@@ -481,6 +511,7 @@ interface UserItem {
   username: string
   role: string
   role_label: string | null
+  department_id: number | null
   department: string | null
   org_id: number | null
   org_name: string | null
@@ -493,7 +524,34 @@ interface OrgItem {
   id: number
   name: string
   slug: string
-  created_at: string
+  created_at?: string
+}
+
+interface DepartmentItem {
+  id: number
+  name: string
+  org_id: number
+  parent_id: number | null
+  sort_order: number
+}
+
+interface OrgTreeNode {
+  id: number
+  node_key: string
+  type: "organization" | "department"
+  name: string
+  label: string
+  org_id: number
+  slug?: string
+  parent_id: number | null
+  sort_order: number
+  user_count: number
+  department_count: number
+  children: OrgTreeNode[]
+}
+
+interface DepartmentOption extends DepartmentItem {
+  path: string
 }
 
 interface PermItem { code: string; name: string }
@@ -509,14 +567,12 @@ interface RoleTemplate {
 
 const authStore = useAuthStore()
 const isSuperAdmin = computed(() => authStore.profile?.role === "super_admin")
+const canManageEnterprise = computed(() => ["super_admin", "org_admin"].includes(authStore.profile?.role || ""))
 
-const activeTab = ref<"users" | "roles" | "orgs">("users")
+const activeTab = ref<"orgs" | "roles">("orgs")
 
 // Users
 const users = ref<UserItem[]>([])
-const userSearch = ref("")
-const roleFilter = ref("")
-const deptFilter = ref("")
 
 // Roles
 const roles = ref<RoleTemplate[]>([])
@@ -526,7 +582,12 @@ const permTab = ref("menu")
 
 // Orgs
 const organizations = ref<OrgItem[]>([])
+const organizationTree = ref<OrgTreeNode[]>([])
+const selectedOrgNode = ref<OrgTreeNode | null>(null)
+const departmentCache = ref<Record<number, DepartmentItem[]>>({})
 const orgSearch = ref("")
+const memberSearch = ref("")
+const orgTreeProps = { children: "children", label: "label" }
 
 // Drawer
 const drawerVisible = ref(false)
@@ -537,7 +598,7 @@ const drawerForm = reactive({
   username: "",
   password: "",
   role: "user",
-  department: "",
+  department_id: null as number | null,
   org_id: null as number | null,
 })
 
@@ -557,42 +618,83 @@ const orgEditId = ref<number | null>(null)
 const savingOrg = ref(false)
 const orgForm = reactive({ name: "", slug: "" })
 
+// Department dialog
+const departmentDialogVisible = ref(false)
+const departmentIsEdit = ref(false)
+const departmentEditId = ref<number | null>(null)
+const departmentForm = reactive({
+  org_id: null as number | null,
+  parent_id: null as number | null,
+  name: "",
+  sort_order: 0,
+})
+const savingDepartment = ref(false)
+
 // ── Computed ───────────────────────────────────────────────────────────────────
 
 const visibleTabs = computed(() => {
-  const tabs: { key: string; label: string; icon: Component; badge?: number }[] = [
-    { key: "users", label: "用户管理", icon: User, badge: users.value.length },
-    { key: "roles", label: "角色与权限", icon: Setting },
-  ]
-  if (isSuperAdmin.value) {
-    tabs.push({ key: "orgs", label: "企业管理", icon: OfficeBuilding, badge: organizations.value.length })
+  const tabs: { key: string; label: string; icon: Component; badge?: number }[] = []
+  if (canManageEnterprise.value) {
+    tabs.push({ key: "orgs", label: "企业管理", icon: OfficeBuilding, badge: organizationCount.value })
   }
+  tabs.push({ key: "roles", label: "角色与权限", icon: Setting })
   return tabs
 })
 
-const adminCount = computed(() => users.value.filter(u => u.role !== "user").length)
-const deptCount = computed(() => new Set(users.value.map(u => u.department).filter(Boolean)).size)
+const deptCount = computed(() => departmentOptions.value.length)
+const organizationCount = computed(() => organizationTree.value.length || organizations.value.length)
 
-const allDepts = computed(() => [...new Set(users.value.map(u => u.department).filter(Boolean))] as string[])
-
-const filteredUsers = computed(() => {
-  return users.value.filter(u => {
-    const matchSearch = !userSearch.value || u.username.toLowerCase().includes(userSearch.value.toLowerCase())
-    const matchRole = !roleFilter.value || u.role === roleFilter.value
-    const matchDept = !deptFilter.value || u.department === deptFilter.value
-    return matchSearch && matchRole && matchDept
-  })
-})
-
-const filteredOrgs = computed(() => {
-  if (!orgSearch.value) return organizations.value
-  return organizations.value.filter(o => o.name.toLowerCase().includes(orgSearch.value.toLowerCase()) || o.slug.includes(orgSearch.value))
-})
+const orgTreeData = computed(() => filterOrgTree(organizationTree.value, orgSearch.value))
 
 const menuGroups = computed(() => catalog.value.filter(g => g.type === "menu"))
 const actionGroups = computed(() => catalog.value.filter(g => g.type === "action"))
 
 const drawerTitle = computed(() => drawerUser.value ? `编辑 ${drawerUser.value.username}` : "新增用户")
+
+const departmentOptions = computed(() => flattenDepartmentOptions(organizationTree.value))
+
+const departmentOptionsForDrawerOrg = computed(() => {
+  if (!drawerForm.org_id) return departmentOptions.value
+  const cached = departmentCache.value[drawerForm.org_id]
+  if (cached?.length) return flattenDepartmentRecords(cached, drawerForm.org_id)
+  return departmentOptions.value.filter(dept => dept.org_id === drawerForm.org_id)
+})
+
+const selectedNodeUsers = computed(() => {
+  const node = selectedOrgNode.value
+  if (!node) return []
+  if (node.type === "organization") return users.value.filter(user => user.org_id === node.id)
+  return users.value.filter(user => user.department_id === node.id)
+})
+
+const selectedNodeUsersFiltered = computed(() => {
+  const term = memberSearch.value.trim().toLowerCase()
+  if (!term) return selectedNodeUsers.value
+  return selectedNodeUsers.value.filter(user => {
+    return [
+      user.username,
+      user.department || "",
+      user.org_name || "",
+      roleLabel(user.role),
+    ].some(value => value.toLowerCase().includes(term))
+  })
+})
+
+const selectedNodePath = computed(() => {
+  const node = selectedOrgNode.value
+  if (!node) return ""
+  return findNodePath(organizationTree.value, node.node_key).join(" / ")
+})
+
+const departmentDialogOrgName = computed(() => {
+  if (!departmentForm.org_id) return "未选择企业"
+  return getOrgName(departmentForm.org_id)
+})
+
+const departmentDialogParentName = computed(() => {
+  if (!departmentForm.parent_id) return "企业根部门"
+  return findDepartmentOption(departmentForm.parent_id)?.path || "企业根部门"
+})
 
 const availableRoles = computed(() => {
   const all = [
@@ -623,11 +725,14 @@ const roleTagType = (role: string): "info" | "success" | "warning" | "danger" | 
   return map[role] || "info"
 }
 
-const roleIcon = (code: string) => {
-  const icons: Record<string, string> = {
-    user: "👤", dept_admin: "👥", org_admin: "🏢", super_admin: "⭐",
+const roleIcon = (code: string): Component => {
+  const icons: Record<string, Component> = {
+    user: User,
+    dept_admin: Grid,
+    org_admin: OfficeBuilding,
+    super_admin: Setting,
   }
-  return icons[code] || "🔑"
+  return icons[code] || Setting
 }
 
 const userCountByRole = (role: string) => users.value.filter(u => u.role === role).length
@@ -643,6 +748,94 @@ const formatDate = (s: string) => {
   return isNaN(d.getTime()) ? s : d.toLocaleDateString("zh-CN")
 }
 
+const getOrgName = (orgId: number) => {
+  const fromTree = organizationTree.value.find(org => org.id === orgId)
+  if (fromTree) return fromTree.name
+  return organizations.value.find(org => org.id === orgId)?.name || `企业 #${orgId}`
+}
+
+const filterOrgTree = (nodes: OrgTreeNode[], keyword: string): OrgTreeNode[] => {
+  const term = keyword.trim().toLowerCase()
+  if (!term) return nodes
+  return nodes
+    .map(node => {
+      const children = filterOrgTree(node.children || [], keyword)
+      const selfMatch = node.name.toLowerCase().includes(term) || (node.slug || "").toLowerCase().includes(term)
+      if (!selfMatch && children.length === 0) return null
+      return { ...node, children }
+    })
+    .filter(Boolean) as OrgTreeNode[]
+}
+
+const flattenDepartmentOptions = (nodes: OrgTreeNode[]): DepartmentOption[] => {
+  const options: DepartmentOption[] = []
+  const walk = (node: OrgTreeNode, path: string[]) => {
+    const nextPath = [...path, node.name]
+    if (node.type === "department") {
+      options.push({
+        id: node.id,
+        name: node.name,
+        org_id: node.org_id,
+        parent_id: node.parent_id,
+        sort_order: node.sort_order,
+        path: nextPath.join(" / "),
+      })
+    }
+    node.children?.forEach(child => walk(child, nextPath))
+  }
+  nodes.forEach(org => org.children?.forEach(child => walk(child, [org.name])))
+  return options
+}
+
+const flattenDepartmentRecords = (records: DepartmentItem[], orgId: number): DepartmentOption[] => {
+  const byParent = new Map<number | null, DepartmentItem[]>()
+  records.forEach(item => {
+    const key = item.parent_id ?? null
+    byParent.set(key, [...(byParent.get(key) || []), item])
+  })
+  byParent.forEach(siblings => siblings.sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id)))
+  const options: DepartmentOption[] = []
+  const walk = (item: DepartmentItem, path: string[]) => {
+    const nextPath = [...path, item.name]
+    options.push({ ...item, path: nextPath.join(" / ") })
+    ;(byParent.get(item.id) || []).forEach(child => walk(child, nextPath))
+  }
+  ;(byParent.get(null) || []).forEach(item => walk(item, [getOrgName(orgId)]))
+  return options
+}
+
+const findDepartmentOption = (departmentId: number) => {
+  return departmentOptions.value.find(dept => dept.id === departmentId)
+}
+
+const findNodePath = (nodes: OrgTreeNode[], nodeKey: string, path: string[] = []): string[] => {
+  for (const node of nodes) {
+    const nextPath = [...path, node.name]
+    if (node.node_key === nodeKey) return nextPath
+    const childPath = findNodePath(node.children || [], nodeKey, nextPath)
+    if (childPath.length) return childPath
+  }
+  return []
+}
+
+const findOrgTreeNode = (nodeKey: string | null): OrgTreeNode | null => {
+  if (!nodeKey) return null
+  const stack = [...organizationTree.value]
+  while (stack.length) {
+    const node = stack.shift()
+    if (!node) continue
+    if (node.node_key === nodeKey) return node
+    stack.push(...(node.children || []))
+  }
+  return null
+}
+
+const nodeToOrg = (node: OrgTreeNode): OrgItem => ({
+  id: node.id,
+  name: node.name,
+  slug: node.slug || "",
+})
+
 // ── Data fetching ──────────────────────────────────────────────────────────────
 
 const fetchUsers = async () => {
@@ -657,6 +850,30 @@ const fetchOrgs = async () => {
   }
 }
 
+const fetchOrgTree = async () => {
+  if (!canManageEnterprise.value) return
+  try {
+    const previousKey = selectedOrgNode.value?.node_key || null
+    const { data } = await axios.get("/api/organizations/tree")
+    organizationTree.value = data
+    if (!isSuperAdmin.value) {
+      organizations.value = data.map((node: OrgTreeNode) => ({
+        id: node.id,
+        name: node.name,
+        slug: node.slug || "",
+      }))
+    }
+    selectedOrgNode.value = findOrgTreeNode(previousKey) || organizationTree.value[0] || null
+  } catch {
+    ElMessage.error("组织架构加载失败")
+  }
+}
+
+const fetchDepartmentsForOrg = async (orgId: number) => {
+  const { data } = await axios.get(`/api/organizations/${orgId}/departments`)
+  departmentCache.value = { ...departmentCache.value, [orgId]: data }
+}
+
 const fetchCatalog = async () => {
   try {
     const { data } = await axios.get("/api/users/permissions/catalog")
@@ -669,19 +886,22 @@ const fetchCatalog = async () => {
 }
 
 const fetchAll = async () => {
-  await Promise.all([fetchUsers(), fetchOrgs(), fetchCatalog()])
+  await Promise.all([fetchUsers(), fetchOrgs(), fetchOrgTree(), fetchCatalog()])
 }
 
 // ── User drawer ────────────────────────────────────────────────────────────────
 
-const openCreate = () => {
+const openCreateForOrgNode = (node: OrgTreeNode | null = selectedOrgNode.value) => {
   drawerUser.value = null
   drawerTab.value = "info"
   drawerForm.username = ""
   drawerForm.password = ""
   drawerForm.role = "user"
-  drawerForm.department = ""
-  drawerForm.org_id = authStore.profile?.org_id || null
+  drawerForm.org_id = node
+    ? (node.type === "organization" ? node.id : node.org_id)
+    : authStore.profile?.org_id || null
+  drawerForm.department_id = node?.type === "department" ? node.id : null
+  if (drawerForm.org_id) fetchDepartmentsForOrg(drawerForm.org_id).catch(() => undefined)
   drawerVisible.value = true
 }
 
@@ -691,8 +911,9 @@ const openDrawer = async (row: UserItem) => {
   drawerForm.username = row.username
   drawerForm.password = ""
   drawerForm.role = row.role
-  drawerForm.department = row.department || ""
+  drawerForm.department_id = row.department_id || null
   drawerForm.org_id = row.org_id
+  if (drawerForm.org_id) fetchDepartmentsForOrg(drawerForm.org_id).catch(() => undefined)
   drawerVisible.value = true
 
   // Load permission data
@@ -720,7 +941,7 @@ const saveUser = async () => {
     const payload: Record<string, unknown> = {
       username: drawerForm.username,
       role: drawerForm.role,
-      department: drawerForm.department || null,
+      department_id: drawerForm.department_id || null,
       org_id: drawerForm.org_id,
     }
     if (drawerForm.password) payload.password = drawerForm.password
@@ -733,7 +954,7 @@ const saveUser = async () => {
       ElMessage.success("用户已创建")
     }
     drawerVisible.value = false
-    await fetchUsers()
+    await Promise.all([fetchUsers(), fetchOrgTree()])
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
     ElMessage.error(err.response?.data?.detail || "保存失败")
@@ -748,8 +969,25 @@ const deleteUser = async (id: number) => {
     await axios.delete(`/api/users/${id}`)
     ElMessage.success("已删除")
     if (drawerVisible.value && drawerUser.value?.id === id) drawerVisible.value = false
-    await fetchUsers()
+    await Promise.all([fetchUsers(), fetchOrgTree()])
   } catch { /* cancelled */ }
+}
+
+const onDrawerOrgChange = async () => {
+  drawerForm.department_id = null
+  if (drawerForm.org_id) {
+    try {
+      await fetchDepartmentsForOrg(drawerForm.org_id)
+    } catch {
+      ElMessage.error("部门列表加载失败")
+    }
+  }
+}
+
+const onDrawerDepartmentChange = () => {
+  if (!drawerForm.department_id || drawerForm.org_id) return
+  const department = findDepartmentOption(drawerForm.department_id)
+  if (department) drawerForm.org_id = department.org_id
 }
 
 // ── Permission override ────────────────────────────────────────────────────────
@@ -789,6 +1027,10 @@ const resetOverride = async () => {
 
 // ── Org CRUD ───────────────────────────────────────────────────────────────────
 
+const selectOrgNode = (node: OrgTreeNode) => {
+  selectedOrgNode.value = node
+}
+
 const openOrgCreate = () => {
   orgIsEdit.value = false
   orgEditId.value = null
@@ -817,7 +1059,7 @@ const saveOrg = async () => {
       ElMessage.success("企业已创建")
     }
     orgDialogVisible.value = false
-    await fetchOrgs()
+    await Promise.all([fetchOrgs(), fetchOrgTree()])
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
     ElMessage.error(err.response?.data?.detail || "保存失败")
@@ -831,7 +1073,78 @@ const deleteOrg = async (id: number) => {
     await ElMessageBox.confirm("确定删除此企业？删除后该企业下的用户将无法登录。", "提示", { type: "warning" })
     await axios.delete(`/api/organizations/${id}`)
     ElMessage.success("已删除")
-    await Promise.all([fetchOrgs(), fetchUsers()])
+    await Promise.all([fetchOrgs(), fetchUsers(), fetchOrgTree()])
+  } catch { /* cancelled */ }
+}
+
+// ── Department CRUD ───────────────────────────────────────────────────────────
+
+const openDepartmentCreate = (baseNode: OrgTreeNode | null) => {
+  const node = baseNode || selectedOrgNode.value
+  if (!node) {
+    ElMessage.warning("请先选择企业或部门")
+    return
+  }
+  departmentIsEdit.value = false
+  departmentEditId.value = null
+  departmentForm.org_id = node.type === "organization" ? node.id : node.org_id
+  departmentForm.parent_id = node.type === "department" ? node.id : null
+  departmentForm.name = ""
+  departmentForm.sort_order = 0
+  departmentDialogVisible.value = true
+}
+
+const openDepartmentEdit = (node: OrgTreeNode) => {
+  if (node.type !== "department") return
+  departmentIsEdit.value = true
+  departmentEditId.value = node.id
+  departmentForm.org_id = node.org_id
+  departmentForm.parent_id = node.parent_id
+  departmentForm.name = node.name
+  departmentForm.sort_order = node.sort_order || 0
+  departmentDialogVisible.value = true
+}
+
+const saveDepartment = async () => {
+  if (!departmentForm.org_id || !departmentForm.name.trim()) {
+    ElMessage.warning("请填写部门名称")
+    return
+  }
+  savingDepartment.value = true
+  try {
+    if (departmentIsEdit.value && departmentEditId.value) {
+      await axios.put(`/api/organizations/${departmentForm.org_id}/departments/${departmentEditId.value}`, {
+        name: departmentForm.name,
+        sort_order: departmentForm.sort_order,
+      })
+      ElMessage.success("部门已更新")
+    } else {
+      await axios.post(`/api/organizations/${departmentForm.org_id}/departments`, {
+        name: departmentForm.name,
+        parent_id: departmentForm.parent_id,
+        sort_order: departmentForm.sort_order,
+      })
+      ElMessage.success("部门已创建")
+    }
+    departmentDialogVisible.value = false
+    delete departmentCache.value[departmentForm.org_id]
+    await fetchOrgTree()
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } } }
+    ElMessage.error(err.response?.data?.detail || "保存失败")
+  } finally {
+    savingDepartment.value = false
+  }
+}
+
+const deleteDepartment = async (node: OrgTreeNode) => {
+  if (node.type !== "department") return
+  try {
+    await ElMessageBox.confirm(`确定删除部门「${node.name}」？如果仍有下级部门或用户，系统会阻止删除。`, "删除部门", { type: "warning" })
+    await axios.delete(`/api/organizations/${node.org_id}/departments/${node.id}`)
+    ElMessage.success("部门已删除")
+    delete departmentCache.value[node.org_id]
+    await Promise.all([fetchOrgTree(), fetchUsers()])
   } catch { /* cancelled */ }
 }
 
@@ -913,7 +1226,7 @@ onMounted(fetchAll)
 /* ── Stats ──────────────────────────────────────────────────────────────────── */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -921,6 +1234,7 @@ onMounted(fetchAll)
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
   padding: 16px 20px;
   background: var(--app-surface);
   border: 1px solid var(--app-border);
@@ -965,6 +1279,62 @@ onMounted(fetchAll)
   gap: 10px;
 }
 
+@media (max-width: 760px) {
+  .stats-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat-card {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .stat-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .stat-val {
+    font-size: 22px;
+  }
+
+  .toolbar,
+  .toolbar-left,
+  .toolbar-right {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar-left :deep(.el-input),
+  .toolbar-left :deep(.el-select),
+  .toolbar-right .el-button {
+    width: 100% !important;
+  }
+
+  .enterprise-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .enterprise-detail-head,
+  .enterprise-panel-head,
+  .enterprise-section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .enterprise-section-head :deep(.el-input) {
+    width: 100% !important;
+  }
+
+  .enterprise-actions {
+    justify-content: flex-start;
+  }
+
+  .enterprise-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* ── Table wrap ─────────────────────────────────────────────────────────────── */
 .table-wrap {
   background: var(--app-surface);
@@ -972,6 +1342,201 @@ onMounted(fetchAll)
   border-radius: 12px;
   overflow: hidden;
   flex: 1;
+}
+
+/* ── Enterprise tree ───────────────────────────────────────────────────────── */
+.enterprise-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+}
+
+.enterprise-tree-panel,
+.enterprise-detail-panel {
+  min-width: 0;
+  min-height: 0;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+
+.enterprise-tree-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.enterprise-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.enterprise-panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.enterprise-panel-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
+.org-tree {
+  flex: 1;
+  padding: 10px;
+  overflow: auto;
+}
+
+.org-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding-right: 6px;
+}
+
+.org-tree-icon {
+  color: var(--app-primary);
+  flex-shrink: 0;
+}
+
+.org-node--department .org-tree-icon {
+  color: #64748b;
+}
+
+.org-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.org-tree-meta {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+
+.enterprise-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  overflow: auto;
+}
+
+.enterprise-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.enterprise-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.enterprise-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.enterprise-avatar--organization {
+  background: linear-gradient(135deg,#0f766e,#2563eb);
+}
+
+.enterprise-avatar--department {
+  background: linear-gradient(135deg,#475569,#0f766e);
+}
+
+.enterprise-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.enterprise-path {
+  margin-top: 3px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.enterprise-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.enterprise-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.enterprise-metric {
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--el-fill-color-lighter);
+}
+
+.enterprise-metric .metric-label {
+  display: block;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-bottom: 4px;
+}
+
+.enterprise-metric strong {
+  color: var(--app-text);
+  font-size: 18px;
+}
+
+.enterprise-members {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.enterprise-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.enterprise-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.enterprise-section-sub {
+  margin-top: 3px;
+  color: var(--app-text-muted);
+  font-size: 12px;
 }
 
 /* ── User cell ──────────────────────────────────────────────────────────────── */
@@ -1075,7 +1640,11 @@ onMounted(fetchAll)
 .role-card--dept_admin.active  { background: #d1fae5; border-color: #6ee7b7; }
 .role-card--user.active        { background: #f3f4f6; border-color: #d1d5db; }
 
-.role-card-icon { font-size: 22px; }
+.role-card-icon {
+  width: 22px;
+  font-size: 20px;
+  color: var(--app-primary);
+}
 .role-card-body { flex: 1; min-width: 0; }
 .role-card-name { font-weight: 600; font-size: 14px; }
 .role-card-meta { font-size: 12px; color: var(--app-text-muted); }
@@ -1230,8 +1799,21 @@ onMounted(fetchAll)
 .role-opt { display: flex; align-items: center; gap: 10px; }
 .role-opt-desc { font-size: 12px; color: var(--app-text-muted); }
 
+.dept-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.dept-option small {
+  color: var(--app-text-muted);
+  font-size: 11px;
+}
+
 /* ── Misc ───────────────────────────────────────────────────────────────────── */
 .form-tip { font-size: 12px; color: var(--app-text-muted); margin-top: 4px; }
+.readonly-line { color: var(--app-text); font-size: 13px; }
 
 .perm-tabs { flex: 1; }
 

@@ -61,8 +61,13 @@
             <el-tag effect="plain">{{ datasourceName(row.datasource_id) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="字段" min-width="230" show-overflow-tooltip>
-          <template #default="{ row }">{{ fieldText(row.fields_json) }}</template>
+        <el-table-column label="维度 / 指标" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="dataset-model-cell">
+              <span>维度：{{ dimensionText(row.fields_json) }}</span>
+              <span>指标：{{ metricText(row.fields_json, row.aggregations_json) }}</span>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column label="口径" min-width="180">
           <template #default="{ row }">
@@ -71,7 +76,7 @@
                 筛选 {{ countList(row.filters_json, "filters") }}
               </el-tag>
               <el-tag v-if="countList(row.aggregations_json, 'aggregations')" size="small" effect="plain">
-                聚合 {{ countList(row.aggregations_json, "aggregations") }}
+                指标 {{ countList(row.aggregations_json, "aggregations") }}
               </el-tag>
               <span v-if="!hasBusinessLogic(row)" class="muted">无</span>
             </div>
@@ -236,76 +241,183 @@
           </section>
 
           <section v-else-if="activeStep === 'fields'" class="designer-section">
-            <div class="section-head">
+            <div class="section-head fields-section-head">
               <div>
-                <h3>配置字段与口径</h3>
-                <p>{{ selectedColumns.length }} 个字段，{{ filters.length }} 条筛选，{{ aggregations.length }} 个聚合</p>
+                <h3>配置维度与指标</h3>
+                <p>把字段定义为可分析的维度和可计算的指标，预览会按当前口径实时生成。</p>
               </div>
-              <el-button :loading="previewLoading" :disabled="!form.table" @click="fetchPreview">
-                预览数据
-              </el-button>
+              <div class="fields-head-actions">
+                <div class="fields-health-pill">
+                  <span>{{ selectedColumns.length }} 维度</span>
+                  <span>{{ metricConfigs.length }} 指标</span>
+                  <span>{{ filters.length }} 筛选</span>
+                </div>
+                <el-button type="primary" :loading="previewLoading" :disabled="!form.table" @click="fetchPreview">
+                  预览数据
+                </el-button>
+              </div>
             </div>
 
             <div class="field-layout">
               <section class="field-panel">
-                <div class="panel-title">
-                  <span>{{ form.table || "字段" }}</span>
-                  <small>{{ currentColumns.length }} 个字段</small>
+                <div class="field-panel-hero">
+                  <div>
+                    <span class="eyebrow">字段候选区</span>
+                    <strong>{{ form.table || "可选字段" }}</strong>
+                    <small>{{ currentColumns.length }} 个字段，可按用途快速筛选</small>
+                  </div>
+                  <el-tag effect="plain">{{ visibleFieldConfigs.length }} 可见</el-tag>
                 </div>
+
+                <div class="field-mode-tabs" aria-label="字段用途筛选">
+                  <button
+                    v-for="tab in fieldRoleTabs"
+                    :key="tab.value"
+                    type="button"
+                    class="field-mode-tab"
+                    :class="{ active: fieldRoleView === tab.value }"
+                    @click="fieldRoleView = tab.value"
+                  >
+                    <span>{{ tab.label }}</span>
+                    <strong>{{ tab.count }}</strong>
+                  </button>
+                </div>
+
                 <el-input
                   v-model="fieldKeyword"
                   :prefix-icon="Search"
                   class="field-search"
                   clearable
-                  placeholder="搜索字段"
+                  placeholder="搜索字段名、别名、类型或描述"
                 />
-                <div class="field-list" role="listbox">
+                <div class="field-config-list" role="list">
                   <div
-                    v-for="column in visibleColumns"
-                    :key="columnKey(form.table, column.name)"
-                    class="field-row"
-                    :class="{ selected: isFieldSelected(columnKey(form.table, column.name)) }"
-                    role="checkbox"
-                    tabindex="0"
-                    :aria-checked="isFieldSelected(columnKey(form.table, column.name))"
-                    @click="toggleField(columnKey(form.table, column.name))"
-                    @keydown.enter.prevent="toggleField(columnKey(form.table, column.name))"
-                    @keydown.space.prevent="toggleField(columnKey(form.table, column.name))"
+                    v-for="config in visibleFieldConfigs"
+                    :key="config.key"
+                    class="field-config-row"
+                    :class="`role-${config.role}`"
+                    role="listitem"
                   >
-                    <input
-                      class="field-checkbox"
-                      type="checkbox"
-                      :checked="isFieldSelected(columnKey(form.table, column.name))"
-                      @click.stop
-                      @change="onFieldCheckboxChange(columnKey(form.table, column.name), $event)"
-                    />
-                    <span class="field-main">
-                      <strong>{{ column.name }}</strong>
-                      <small v-if="column.description">{{ column.description }}</small>
-                    </span>
-                    <el-tag size="small" effect="plain">{{ column.type }}</el-tag>
+                    <div class="field-config-top">
+                      <div class="field-config-main">
+                        <span class="role-dot" />
+                        <div>
+                          <strong>{{ config.column }}</strong>
+                          <small>{{ config.description || config.key }}</small>
+                        </div>
+                      </div>
+                      <div class="field-config-tags">
+                        <el-tag size="small" effect="plain">{{ config.type }}</el-tag>
+                        <span class="role-label">{{ fieldRoleLabel(config.role) }}</span>
+                      </div>
+                    </div>
+
+                    <div class="field-config-controls">
+                      <label class="control-field control-role">
+                        <span>字段用途</span>
+                        <el-segmented
+                          v-model="config.role"
+                          :options="roleOptions"
+                          class="role-segmented"
+                          @change="handleRoleChange(config)"
+                        />
+                      </label>
+                      <label class="control-field">
+                        <span>显示名称</span>
+                        <el-input
+                          v-model="config.alias"
+                          clearable
+                          class="alias-input"
+                          placeholder="用于图表、问数和语义层"
+                        />
+                      </label>
+                      <label v-if="config.role === 'metric'" class="control-field">
+                        <span>计算方式</span>
+                        <el-select
+                          v-model="config.aggregation"
+                          class="aggregation-select"
+                          placeholder="计算方式"
+                        >
+                          <el-option
+                            v-for="option in aggregationOptions"
+                            :key="option.value"
+                            :label="option.label"
+                            :value="option.value"
+                          />
+                        </el-select>
+                      </label>
+                      <div v-else class="field-role-hint">
+                        {{ fieldRoleHint(config.role) }}
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <el-empty v-if="form.table && visibleColumns.length === 0" description="没有匹配字段" />
+                <el-empty
+                  v-if="form.table && visibleFieldConfigs.length === 0"
+                  :image-size="72"
+                  description="没有匹配字段"
+                />
               </section>
 
               <section class="logic-panel">
-                <div class="selected-summary">
-                  <div class="selected-summary-head">
-                    <span>已选字段</span>
-                    <small>{{ selectedColumns.length }} 个</small>
+                <div class="model-overview">
+                  <div
+                    v-for="item in modelQualityItems"
+                    :key="item.label"
+                    class="model-overview-item"
+                    :class="`tone-${item.tone}`"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                    <small>{{ item.hint }}</small>
                   </div>
-                  <div class="selected-field-list compact">
-                    <el-tag
-                      v-for="field in selectedColumns"
-                      :key="field.key"
-                      closable
-                      effect="plain"
-                      @close="removeField(field.key)"
-                    >
-                      {{ field.label }}
-                    </el-tag>
-                    <span v-if="selectedColumns.length === 0" class="muted">至少选择一个字段</span>
+                </div>
+
+                <div class="model-summary-grid">
+                  <div class="selected-summary dimension-summary">
+                    <div class="selected-summary-head">
+                      <div>
+                        <span>维度字段</span>
+                        <small>用于分组、钻取、筛选和联动</small>
+                      </div>
+                      <small>{{ selectedColumns.length }} 个</small>
+                    </div>
+                    <div class="selected-field-list compact">
+                      <el-tag
+                        v-for="field in selectedColumns"
+                        :key="field.key"
+                        closable
+                        effect="plain"
+                        class="selected-field-chip dimension-chip"
+                        @close="setFieldRole(field.key, 'ignore')"
+                      >
+                        {{ field.alias || field.column }}
+                      </el-tag>
+                      <span v-if="selectedColumns.length === 0" class="empty-inline">从左侧字段卡片切换为维度</span>
+                    </div>
+                  </div>
+                  <div class="selected-summary metric-summary">
+                    <div class="selected-summary-head">
+                      <div>
+                        <span>指标字段</span>
+                        <small>用于聚合计算、趋势和 KPI</small>
+                      </div>
+                      <small>{{ metricConfigs.length }} 个</small>
+                    </div>
+                    <div class="selected-field-list compact">
+                      <el-tag
+                        v-for="metric in metricConfigs"
+                        :key="metric.key"
+                        closable
+                        effect="plain"
+                        class="selected-field-chip metric-chip"
+                        @close="setFieldRole(metric.key, 'ignore')"
+                      >
+                        {{ metric.alias || metric.column }}
+                        <code>{{ metricExpressionLabel(metric) }}</code>
+                      </el-tag>
+                      <span v-if="metricConfigs.length === 0" class="empty-inline">从左侧字段卡片切换为指标</span>
+                    </div>
                   </div>
                 </div>
 
@@ -352,41 +464,6 @@
                     </div>
                   </el-tab-pane>
 
-                  <el-tab-pane name="aggregations">
-                    <template #label>聚合指标 {{ aggregations.length }}</template>
-                    <div class="logic-card">
-                      <div class="panel-title">
-                        <span>聚合指标</span>
-                        <small>生成汇总口径</small>
-                      </div>
-                      <div class="aggregation-builder">
-                        <el-select v-model="aggregationField" placeholder="字段" filterable>
-                          <el-option
-                            v-for="field in selectedColumns"
-                            :key="field.key"
-                            :label="field.label"
-                            :value="field.key"
-                          />
-                        </el-select>
-                        <el-select v-model="aggregationFn" placeholder="聚合">
-                          <el-option label="求和 SUM" value="SUM" />
-                          <el-option label="计数 COUNT" value="COUNT" />
-                          <el-option label="平均 AVG" value="AVG" />
-                          <el-option label="最大 MAX" value="MAX" />
-                          <el-option label="最小 MIN" value="MIN" />
-                        </el-select>
-                        <el-button @click="addAggregation">添加</el-button>
-                      </div>
-                      <div v-if="aggregations.length" class="condition-list">
-                        <div v-for="aggregation in aggregations" :key="aggregation" class="condition-item">
-                          <span>{{ aggregation }}</span>
-                          <el-button text type="danger" @click="removeAggregation(aggregation)">删除</el-button>
-                        </div>
-                      </div>
-                      <el-empty v-else :image-size="64" description="暂无聚合指标" />
-                    </div>
-                  </el-tab-pane>
-
                   <el-tab-pane name="advanced">
                     <template #label>高级建模 {{ derivedColumns.length + joins.length }}</template>
                     <div class="advanced-workbench">
@@ -429,9 +506,9 @@
                                 v-for="field in selectedColumns"
                                 :key="field.key"
                                 type="button"
-                                @click="appendDerivedToken(field.label)"
+                                @click="appendDerivedToken(field.key)"
                               >
-                                {{ field.column }}
+                                {{ field.alias || field.column }}
                               </button>
                             </div>
 
@@ -608,9 +685,9 @@
                     {{ form.datasource_id ? datasourceName(form.datasource_id) : "-" }}
                   </el-descriptions-item>
                   <el-descriptions-item label="主表">{{ form.table || "-" }}</el-descriptions-item>
-                  <el-descriptions-item label="字段">{{ selectedColumns.length }} 个</el-descriptions-item>
+                  <el-descriptions-item label="维度">{{ selectedColumns.length }} 个</el-descriptions-item>
                   <el-descriptions-item label="筛选">{{ filters.length }} 条</el-descriptions-item>
-                  <el-descriptions-item label="聚合">{{ aggregations.length }} 个</el-descriptions-item>
+                  <el-descriptions-item label="指标">{{ aggregations.length }} 个</el-descriptions-item>
                 </el-descriptions>
               </section>
             </div>
@@ -751,6 +828,19 @@ interface DatasetItem {
 }
 
 type StepKey = "source" | "fields" | "publish"
+type FieldRole = "ignore" | "dimension" | "metric"
+type FieldRoleFilter = FieldRole | "all"
+
+interface FieldRoleConfig {
+  key: string
+  table: string
+  column: string
+  type: string
+  description: string
+  role: FieldRole
+  alias: string
+  aggregation: string
+}
 
 const datasourceStore = useDatasourceStore()
 const datasets = ref<DatasetItem[]>([])
@@ -765,9 +855,9 @@ const statusFilter = ref("all")
 const activeStep = ref<StepKey>("source")
 const logicTab = ref("filters")
 const fieldKeyword = ref("")
-const selectedFieldKeys = ref<string[]>([])
+const fieldRoleView = ref<FieldRoleFilter>("all")
+const fieldRoleConfigs = ref<FieldRoleConfig[]>([])
 const filters = ref<string[]>([])
-const aggregations = ref<string[]>([])
 const derivedColumns = ref<string[]>([])
 const joins = ref<string[]>([])
 const filterField = ref("")
@@ -781,8 +871,6 @@ const joinRightTable = ref("")
 const joinRightColumn = ref("")
 const joinType = ref("LEFT JOIN")
 const joinOperator = ref("=")
-const aggregationField = ref("")
-const aggregationFn = ref("SUM")
 const previewLoading = ref(false)
 const previewRows = ref<Record<string, unknown>[]>([])
 const rawPreviewColumns = ref<string[]>([])
@@ -805,7 +893,7 @@ const semanticDataset = reactive<{ id: number | null; name: string }>({
 
 const steps: { key: StepKey; title: string; subtitle: string }[] = [
   { key: "source", title: "数据范围", subtitle: "数据源与主表" },
-  { key: "fields", title: "业务口径", subtitle: "字段、筛选、聚合" },
+  { key: "fields", title: "业务口径", subtitle: "维度、筛选、指标" },
   { key: "publish", title: "保存发布", subtitle: "权限与摘要" },
 ]
 
@@ -813,6 +901,20 @@ const statusOptions = [
   { label: "全部", value: "all" },
   { label: "已发布", value: "published" },
   { label: "草稿", value: "draft" },
+]
+
+const roleOptions = [
+  { label: "忽略", value: "ignore" },
+  { label: "维度", value: "dimension" },
+  { label: "指标", value: "metric" },
+]
+
+const aggregationOptions = [
+  { label: "求和 SUM", value: "SUM" },
+  { label: "计数 COUNT", value: "COUNT" },
+  { label: "平均 AVG", value: "AVG" },
+  { label: "最大 MAX", value: "MAX" },
+  { label: "最小 MIN", value: "MIN" },
 ]
 
 const filterOperators = [
@@ -878,36 +980,93 @@ const currentFieldOptions = computed(() =>
   }))
 )
 
-const visibleColumns = computed(() => {
+const visibleFieldConfigs = computed(() => {
   const q = fieldKeyword.value.trim().toLowerCase()
-  if (!q) return currentColumns.value
-  return currentColumns.value.filter((column) =>
-    [column.name, column.type, column.description || ""].some((item) => item.toLowerCase().includes(q))
+  const byRole = fieldRoleView.value === "all"
+    ? fieldRoleConfigs.value
+    : fieldRoleConfigs.value.filter((config) => config.role === fieldRoleView.value)
+  if (!q) return byRole
+  return byRole.filter((config) =>
+    [config.column, config.key, config.type, config.description, config.alias].some((item) =>
+      item.toLowerCase().includes(q)
+    )
   )
 })
 
-const selectedColumns = computed(() =>
-  selectedFieldKeys.value.map((key) => {
-    const [tableName, columnName] = splitColumnKey(key)
-    const table = schemaTables.value.find((item) => item.name === tableName)
-    const column = table?.columns.find((item) => item.name === columnName)
-    return {
-      key,
-      table: tableName,
-      column: columnName,
-      label: columnName ? `${tableName}.${columnName}` : key,
-      type: column?.type || "",
-      description: column?.description || "",
-    }
-  })
+const dimensionConfigs = computed(() =>
+  fieldRoleConfigs.value.filter((config) => config.role === "dimension")
 )
 
+const metricConfigs = computed(() =>
+  fieldRoleConfigs.value.filter((config) => config.role === "metric")
+)
+
+const fieldRoleTabs = computed(() => {
+  const counts: Record<FieldRoleFilter, number> = {
+    all: fieldRoleConfigs.value.length,
+    dimension: dimensionConfigs.value.length,
+    metric: metricConfigs.value.length,
+    ignore: fieldRoleConfigs.value.filter((config) => config.role === "ignore").length,
+  }
+  return [
+    { label: "全部", value: "all" as const, count: counts.all },
+    { label: "维度", value: "dimension" as const, count: counts.dimension },
+    { label: "指标", value: "metric" as const, count: counts.metric },
+    { label: "忽略", value: "ignore" as const, count: counts.ignore },
+  ]
+})
+
+const modelQualityItems = computed(() => [
+  {
+    label: "维度",
+    value: selectedColumns.value.length,
+    hint: selectedColumns.value.length ? "分析粒度已设置" : "至少选择一个分组字段",
+    tone: "dimension",
+  },
+  {
+    label: "指标",
+    value: metricConfigs.value.length,
+    hint: metricConfigs.value.length ? "可生成聚合结果" : "建议选择数值字段",
+    tone: "metric",
+  },
+  {
+    label: "筛选",
+    value: filters.value.length,
+    hint: filters.value.length ? "已限制数据范围" : "可选，用于控制数据集范围",
+    tone: "filter",
+  },
+])
+
+const selectedColumns = computed(() =>
+  dimensionConfigs.value.map((config) => ({
+    ...config,
+    label: config.alias || config.key,
+  }))
+)
+
+const dimensionPayloads = computed(() =>
+  dimensionConfigs.value.map((config) => ({
+    field: config.key,
+    alias: config.alias.trim() || config.column,
+  }))
+)
+
+const metricPayloads = computed(() =>
+  metricConfigs.value.map((config) => ({
+    field: config.key,
+    aggregation: config.aggregation,
+    alias: config.alias.trim() || defaultMetricAlias(config),
+  }))
+)
+
+const metricExpressions = computed(() =>
+  metricConfigs.value.map((config) => `${config.aggregation}(${config.key})`)
+)
+
+const aggregations = metricExpressions
+
 const previewColumns = computed(() => {
-  const selectedNames = selectedColumns.value
-    .filter((field) => field.table === form.table)
-    .map((field) => field.column)
-  const columns = selectedNames.length > 0 ? selectedNames : rawPreviewColumns.value
-  return columns.filter((column) => rawPreviewColumns.value.includes(column))
+  return rawPreviewColumns.value
 })
 
 const filterValueDisabled = computed(() => ["IS NULL", "IS NOT NULL"].includes(filterOperator.value))
@@ -949,16 +1108,47 @@ const datasourceName = (id: number) =>
   `数据源 #${id}`
 
 const normalizeList = (value: unknown) => (Array.isArray(value) ? value.map(String).filter(Boolean) : [])
+const rawList = (value: unknown) => (Array.isArray(value) ? value : [])
 
 const countList = (value: Record<string, unknown> | null, key: string) => normalizeList(value?.[key]).length
 
-const textFromJson = (value: Record<string, unknown> | null, key: string) => normalizeList(value?.[key]).join(", ")
+const fieldItemName = (item: unknown) => {
+  if (typeof item === "object" && item !== null) {
+    const value = item as Record<string, unknown>
+    return String(value.field || value.name || value.key || "").trim()
+  }
+  return String(item || "").trim()
+}
 
-const fieldText = (value: Record<string, unknown> | null) => textFromJson(value, "fields") || "-"
+const fieldItemAlias = (item: unknown) => {
+  if (typeof item === "object" && item !== null) {
+    const value = item as Record<string, unknown>
+    return String(value.alias || value.label || value.display_name || "").trim()
+  }
+  return ""
+}
+
+const fieldItemText = (item: unknown) => {
+  const name = fieldItemName(item)
+  const alias = fieldItemAlias(item)
+  return alias && alias !== name ? `${alias} (${name})` : name
+}
+
+const textFromJson = (value: Record<string, unknown> | null, key: string) =>
+  rawList(value?.[key]).map(fieldItemText).filter(Boolean).join(", ")
+
+const dimensionText = (value: Record<string, unknown> | null) =>
+  textFromJson(value, "dimensions") || textFromJson(value, "fields") || "-"
+
+const metricText = (
+  fieldsJson: Record<string, unknown> | null,
+  aggregationsJson: Record<string, unknown> | null
+) => textFromJson(aggregationsJson, "aggregations") || textFromJson(fieldsJson, "metrics") || "-"
 
 const hasBusinessLogic = (row: DatasetItem) =>
   countList(row.filters_json, "filters") > 0 ||
   countList(row.aggregations_json, "aggregations") > 0 ||
+  countList(row.fields_json, "metrics") > 0 ||
   countList(row.derived_columns_json, "expressions") > 0 ||
   countList(row.joins_json, "joins") > 0
 
@@ -976,10 +1166,58 @@ const columnsForTable = (tableName: string) =>
 const joinFieldLabel = (tableName: string, columnName: string) =>
   tableName && columnName ? columnKey(tableName, columnName) : ""
 
+const fieldRoleLabel = (role: FieldRole) => {
+  const map: Record<FieldRole, string> = {
+    ignore: "未使用",
+    dimension: "维度",
+    metric: "指标",
+  }
+  return map[role]
+}
+
+const fieldRoleHint = (role: FieldRole) => {
+  if (role === "dimension") return "作为分组、筛选和下钻字段"
+  if (role === "ignore") return "不会进入当前数据集口径"
+  return ""
+}
+
+const metricExpressionLabel = (config: FieldRoleConfig) => `${config.aggregation}(${config.column})`
+
 const firstTableExcept = (tableName: string) =>
   schemaTables.value.find((table) => table.name !== tableName)?.name || tableName
 
 const firstColumnName = (tableName: string) => columnsForTable(tableName)[0]?.name || ""
+
+const isNumericColumn = (column: SchemaColumn) =>
+  /(int|number|decimal|numeric|float|double|real|money|amount|price|qty|quantity)/i.test(
+    `${column.type} ${column.name}`
+  ) && !/(^id$|_id$|code|no|number|phone|year|month|day|date|time)/i.test(column.name)
+
+const defaultAggregationForColumn = (column: SchemaColumn) => (isNumericColumn(column) ? "SUM" : "COUNT")
+
+const defaultMetricAlias = (config: FieldRoleConfig) =>
+  `${config.aggregation.toLowerCase()}_${config.column}`
+
+const suggestedRoleForColumn = (column: SchemaColumn, index: number): FieldRole => {
+  if (index >= 12) return "ignore"
+  return isNumericColumn(column) ? "metric" : "dimension"
+}
+
+const createFieldRoleConfig = (
+  tableName: string,
+  column: SchemaColumn,
+  index: number,
+  role?: FieldRole
+): FieldRoleConfig => ({
+  key: columnKey(tableName, column.name),
+  table: tableName,
+  column: column.name,
+  type: column.type,
+  description: column.description || "",
+  role: role || suggestedRoleForColumn(column, index),
+  alias: column.name,
+  aggregation: defaultAggregationForColumn(column),
+})
 
 const uniquePush = (list: string[], value: string) => {
   const normalized = value.trim()
@@ -1041,6 +1279,89 @@ const fetchDatasets = async () => {
   }
 }
 
+const syncFieldRoleConfigs = (roleMode: "suggest" | "ignore" = "suggest") => {
+  const previous = new Map(fieldRoleConfigs.value.map((config) => [config.key, config]))
+  fieldRoleConfigs.value = currentColumns.value.map((column, index) => {
+    const key = columnKey(form.table, column.name)
+    const old = previous.get(key)
+    if (old) {
+      return {
+        ...old,
+        table: form.table,
+        column: column.name,
+        type: column.type,
+        description: column.description || "",
+      }
+    }
+    return createFieldRoleConfig(
+      form.table,
+      column,
+      index,
+      roleMode === "ignore" ? "ignore" : undefined
+    )
+  })
+}
+
+const parseMetricConfig = (item: unknown) => {
+  if (typeof item === "object" && item !== null) {
+    const value = item as Record<string, unknown>
+    const expression = String(value.expression || "").trim()
+    if (expression) {
+      const match = expression.match(/^\s*(SUM|AVG|COUNT|MIN|MAX)\s*\(\s*(.*?)\s*\)\s*$/i)
+      if (match) {
+        return {
+          field: match[2],
+          aggregation: match[1].toUpperCase(),
+          alias: fieldItemAlias(value),
+        }
+      }
+    }
+    return {
+      field: fieldItemName(value),
+      aggregation: String(value.aggregation || value.fn || "SUM").toUpperCase(),
+      alias: fieldItemAlias(value),
+    }
+  }
+  const text = String(item || "").trim()
+  const match = text.match(/^\s*(SUM|AVG|COUNT|MIN|MAX)\s*\(\s*(.*?)\s*\)\s*$/i)
+  if (!match) return null
+  return {
+    field: match[2],
+    aggregation: match[1].toUpperCase(),
+    alias: "",
+  }
+}
+
+const applySavedFieldModel = (dataset: DatasetItem) => {
+  syncFieldRoleConfigs("ignore")
+  const byKey = new Map(fieldRoleConfigs.value.map((config) => [config.key, config]))
+  const savedDimensions = rawList(dataset.fields_json?.dimensions)
+  const legacyFields = rawList(dataset.fields_json?.fields)
+  for (const item of savedDimensions.length ? savedDimensions : legacyFields) {
+    const field = fieldItemName(item)
+    const key = field.includes(".") ? field : columnKey(form.table, field)
+    const config = byKey.get(key)
+    if (config) {
+      config.role = "dimension"
+      config.alias = fieldItemAlias(item) || config.alias || config.column
+    }
+  }
+
+  const savedMetricItems = rawList(dataset.fields_json?.metrics)
+  const legacyMetricItems = rawList(dataset.aggregations_json?.aggregations)
+  for (const item of savedMetricItems.length ? savedMetricItems : legacyMetricItems) {
+    const metric = parseMetricConfig(item)
+    if (!metric?.field) continue
+    const key = metric.field.includes(".") ? metric.field : columnKey(form.table, metric.field)
+    const config = byKey.get(key)
+    if (config) {
+      config.role = "metric"
+      config.aggregation = metric.aggregation
+      config.alias = metric.alias || config.alias || defaultMetricAlias(config)
+    }
+  }
+}
+
 const resetForm = () => {
   editingId.value = null
   activeStep.value = "source"
@@ -1049,9 +1370,8 @@ const resetForm = () => {
   form.datasource_id = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
   form.table = ""
   form.visibility = "private"
-  selectedFieldKeys.value = []
+  fieldRoleConfigs.value = []
   filters.value = []
-  aggregations.value = []
   derivedColumns.value = []
   joins.value = []
   logicTab.value = "filters"
@@ -1066,8 +1386,6 @@ const resetForm = () => {
   joinRightColumn.value = ""
   joinType.value = "LEFT JOIN"
   joinOperator.value = "="
-  aggregationField.value = ""
-  aggregationFn.value = "SUM"
   fieldKeyword.value = ""
   previewRows.value = []
   rawPreviewColumns.value = []
@@ -1102,11 +1420,8 @@ const openEdit = async (dataset: DatasetItem) => {
 
   const savedTable = typeof dataset.fields_json?.table === "string" ? dataset.fields_json.table : ""
   form.table = savedTable || inferTableFromFields(dataset.fields_json) || schemaTables.value[0]?.name || ""
-  selectedFieldKeys.value = normalizeList(dataset.fields_json?.fields).map((field) =>
-    field.includes(".") ? field : columnKey(form.table, field)
-  )
+  applySavedFieldModel(dataset)
   filters.value = normalizeList(dataset.filters_json?.filters)
-  aggregations.value = normalizeList(dataset.aggregations_json?.aggregations)
   derivedColumns.value = normalizeList(dataset.derived_columns_json?.expressions)
   joins.value = normalizeList(dataset.joins_json?.joins)
   activeStep.value = "source"
@@ -1114,16 +1429,15 @@ const openEdit = async (dataset: DatasetItem) => {
 }
 
 const inferTableFromFields = (fieldsJson: Record<string, unknown> | null) => {
-  const firstField = normalizeList(fieldsJson?.fields)[0]
+  const firstField = normalizeList(fieldsJson?.dimensions)[0] || normalizeList(fieldsJson?.fields)[0]
   if (!firstField?.includes(".")) return ""
   return firstField.split(".")[0]
 }
 
 const handleDatasourceChange = async () => {
   form.table = ""
-  selectedFieldKeys.value = []
+  fieldRoleConfigs.value = []
   filterField.value = ""
-  aggregationField.value = ""
   previewRows.value = []
   rawPreviewColumns.value = []
   await ensureDatasourceReady()
@@ -1131,12 +1445,8 @@ const handleDatasourceChange = async () => {
 
 const selectTable = (tableName: string) => {
   form.table = tableName
-  selectedFieldKeys.value = selectedFieldKeys.value.filter((key) => key.startsWith(`${tableName}.`))
-  if (selectedFieldKeys.value.length === 0) {
-    selectedFieldKeys.value = currentColumns.value.slice(0, 8).map((column) => columnKey(tableName, column.name))
-  }
+  syncFieldRoleConfigs("suggest")
   filterField.value = currentFieldOptions.value[0]?.key || ""
-  aggregationField.value = selectedFieldKeys.value[0] || ""
   joinLeftTable.value = tableName
   joinLeftColumn.value = firstColumnName(tableName)
   joinRightTable.value = firstTableExcept(tableName)
@@ -1173,36 +1483,23 @@ const detectSchema = async () => {
   }
 }
 
-const removeField = (key: string) => {
-  selectedFieldKeys.value = selectedFieldKeys.value.filter((item) => item !== key)
-  if (aggregationField.value === key) {
-    aggregationField.value = selectedFieldKeys.value[0] || ""
-  }
+const setFieldRole = (key: string, role: FieldRole) => {
+  const config = fieldRoleConfigs.value.find((item) => item.key === key)
+  if (!config) return
+  config.role = role
+  handleRoleChange(config)
 }
 
-const isFieldSelected = (key: string) => selectedFieldKeys.value.includes(key)
-
-const setFieldSelected = (key: string, selected: boolean) => {
-  if (selected && !selectedFieldKeys.value.includes(key)) {
-    selectedFieldKeys.value = [...selectedFieldKeys.value, key]
+const handleRoleChange = (config: FieldRoleConfig) => {
+  if (config.role === "metric") {
+    const column = currentColumns.value.find((item) => item.name === config.column)
+    if (column && config.aggregation === "SUM" && !isNumericColumn(column)) {
+      config.aggregation = "COUNT"
+    }
   }
-  if (!selected) {
-    selectedFieldKeys.value = selectedFieldKeys.value.filter((item) => item !== key)
+  if (!config.alias.trim()) {
+    config.alias = config.role === "metric" ? defaultMetricAlias(config) : config.column
   }
-  if (aggregationField.value && !selectedFieldKeys.value.includes(aggregationField.value)) {
-    aggregationField.value = selectedFieldKeys.value[0] || ""
-  }
-  if (!aggregationField.value && selectedFieldKeys.value.length > 0) {
-    aggregationField.value = selectedFieldKeys.value[0]
-  }
-}
-
-const toggleField = (key: string) => {
-  setFieldSelected(key, !isFieldSelected(key))
-}
-
-const onFieldCheckboxChange = (key: string, event: Event) => {
-  setFieldSelected(key, (event.target as HTMLInputElement).checked)
 }
 
 const addFilter = () => {
@@ -1225,19 +1522,6 @@ const addFilter = () => {
 
 const removeFilter = (filter: string) => {
   filters.value = filters.value.filter((item) => item !== filter)
-}
-
-const addAggregation = () => {
-  if (!aggregationField.value) {
-    ElMessage.warning("请选择聚合字段")
-    return
-  }
-  const field = selectedColumns.value.find((item) => item.key === aggregationField.value)
-  uniquePush(aggregations.value, `${aggregationFn.value}(${field?.label || aggregationField.value})`)
-}
-
-const removeAggregation = (aggregation: string) => {
-  aggregations.value = aggregations.value.filter((item) => item !== aggregation)
 }
 
 const appendDerivedToken = (field: string) => {
@@ -1286,8 +1570,9 @@ const fetchPreview = async () => {
   }
   previewLoading.value = true
   try {
-    const response = await axios.get(`/api/datasources/${form.datasource_id}/preview`, {
-      params: { table: form.table, limit: 30 },
+    const response = await axios.post("/api/datasets/preview-draft", {
+      ...buildPayload(),
+      limit: 30,
     })
     rawPreviewColumns.value = response.data.columns || []
     previewRows.value = response.data.rows || []
@@ -1395,8 +1680,8 @@ const validateSourceStep = () => {
 }
 
 const validateFieldsStep = () => {
-  if (selectedFieldKeys.value.length === 0) {
-    ElMessage.warning("请至少选择一个字段")
+  if (dimensionConfigs.value.length === 0 && metricConfigs.value.length === 0) {
+    ElMessage.warning("请至少选择一个维度字段或指标")
     return false
   }
   return true
@@ -1418,13 +1703,16 @@ const buildPayload = () => ({
   datasource_id: form.datasource_id,
   fields_json: {
     table: form.table,
-    fields: selectedFieldKeys.value,
+    dimensions: dimensionPayloads.value,
+    fields: dimensionPayloads.value.map((item) => item.field),
+    dimension_labels: selectedColumns.value,
     field_labels: selectedColumns.value,
+    metrics: metricPayloads.value,
   },
   filters_json: { filters: filters.value },
   derived_columns_json: { expressions: derivedColumns.value },
   joins_json: { joins: joins.value },
-  aggregations_json: { aggregations: aggregations.value },
+  aggregations_json: { aggregations: metricExpressions.value },
   visibility: form.visibility,
   status: saveAndPublish.value ? "published" : "draft",
 })
@@ -1551,7 +1839,8 @@ onMounted(async () => {
 .muted,
 .panel-title small,
 .step-item small,
-.dataset-name-cell span {
+.dataset-name-cell span,
+.dataset-model-cell span {
   color: var(--app-text-muted);
 }
 
@@ -1576,6 +1865,13 @@ onMounted(async () => {
 .dataset-name-cell strong {
   color: var(--app-text);
   font-size: 14px;
+}
+
+.dataset-model-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.35;
 }
 
 .logic-tags,
@@ -1748,15 +2044,301 @@ onMounted(async () => {
   line-height: 1.45;
 }
 
+.fields-section-head {
+  align-items: flex-start;
+}
+
+.fields-section-head p {
+  max-width: 680px;
+}
+
+.fields-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.fields-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 999px;
+  background: var(--app-surface);
+}
+
+.fields-health-pill span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--app-text-muted);
+  background: var(--app-surface-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .field-layout,
 .publish-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.88fr) minmax(360px, 1.12fr);
+  grid-template-columns: minmax(420px, 1.04fr) minmax(420px, 0.96fr);
   gap: 16px;
 }
 
+.field-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field-panel-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: var(--app-radius-sm);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.05)),
+    var(--app-surface);
+}
+
+.field-panel-hero strong,
+.field-panel-hero small {
+  display: block;
+}
+
+.field-panel-hero strong {
+  margin-top: 3px;
+  color: var(--app-text);
+  font-size: 17px;
+}
+
+.field-panel-hero small {
+  margin-top: 4px;
+  color: var(--app-text-muted);
+  line-height: 1.45;
+}
+
+.eyebrow {
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.field-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.field-mode-tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-surface-muted);
+  color: var(--app-text-muted);
+  cursor: pointer;
+  transition: background var(--app-transition), border-color var(--app-transition), color var(--app-transition), transform var(--app-transition);
+}
+
+.field-mode-tab:hover {
+  color: var(--app-text);
+  background: var(--app-surface);
+}
+
+.field-mode-tab.active {
+  border-color: rgba(15, 118, 110, 0.3);
+  color: var(--app-primary);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.field-mode-tab strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .field-search {
-  margin-bottom: 12px;
+  margin-bottom: 0;
+}
+
+.field-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.field-config-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 132px;
+  padding: 14px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  overflow: hidden;
+  transition: border-color var(--app-transition), box-shadow var(--app-transition), transform var(--app-transition);
+}
+
+.field-config-row:hover {
+  border-color: rgba(15, 118, 110, 0.24);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.field-config-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: #cbd5e1;
+}
+
+.field-config-row.role-dimension {
+  border-color: rgba(15, 118, 110, 0.28);
+}
+
+.field-config-row.role-metric {
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.field-config-row.role-dimension::before {
+  background: var(--app-primary);
+}
+
+.field-config-row.role-metric::before {
+  background: #2563eb;
+}
+
+.field-config-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.field-config-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+
+.role-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.role-dimension .role-dot {
+  background: var(--app-primary);
+}
+
+.role-metric .role-dot {
+  background: #2563eb;
+}
+
+.field-config-main strong,
+.field-config-main small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-config-main strong {
+  color: var(--app-text);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.field-config-main small {
+  margin-top: 3px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.field-config-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.role-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--app-text-muted);
+  background: var(--app-surface-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.role-dimension .role-label {
+  color: var(--app-primary);
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.role-metric .role-label {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.field-config-controls {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.85fr) minmax(170px, 1fr) minmax(132px, 0.72fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.control-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.control-field > span,
+.field-role-hint {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.field-role-hint {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px dashed var(--app-border-light);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-surface-muted);
+}
+
+.role-segmented,
+.alias-input,
+.aggregation-select {
+  width: 100%;
 }
 
 .field-list {
@@ -1844,11 +2426,78 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.model-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.model-overview-item {
+  position: relative;
+  padding: 13px 14px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  overflow: hidden;
+}
+
+.model-overview-item::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: #94a3b8;
+}
+
+.model-overview-item.tone-dimension::before {
+  background: var(--app-primary);
+}
+
+.model-overview-item.tone-metric::before {
+  background: #2563eb;
+}
+
+.model-overview-item.tone-filter::before {
+  background: #d97706;
+}
+
+.model-overview-item span,
+.model-overview-item small {
+  display: block;
+}
+
+.model-overview-item span {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.model-overview-item strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--app-text);
+  font-size: 24px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-overview-item small {
+  margin-top: 7px;
+  color: var(--app-text-muted);
+  line-height: 1.35;
+}
+
 .logic-card {
   padding: 14px;
   border: 1px solid var(--app-border-light);
   border-radius: var(--app-radius-sm);
   background: var(--app-surface-muted);
+}
+
+.model-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .selected-summary {
@@ -1858,18 +2507,80 @@ onMounted(async () => {
   background: var(--app-surface);
 }
 
+.dimension-summary {
+  border-color: rgba(15, 118, 110, 0.18);
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.055), rgba(15, 118, 110, 0)), var(--app-surface);
+}
+
+.metric-summary {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.055), rgba(37, 99, 235, 0)), var(--app-surface);
+}
+
 .selected-summary-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
   font-weight: 700;
 }
 
+.selected-summary-head span,
+.selected-summary-head small {
+  display: block;
+}
+
+.selected-summary-head div small {
+  margin-top: 3px;
+  color: var(--app-text-muted);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
 .selected-field-list.compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   max-height: 76px;
   overflow: auto;
+}
+
+.selected-field-chip {
+  min-height: 28px;
+  border-radius: 999px;
+}
+
+.selected-field-chip code {
+  margin-left: 6px;
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.dimension-chip {
+  border-color: rgba(15, 118, 110, 0.28);
+  color: var(--app-primary);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.metric-chip {
+  border-color: rgba(37, 99, 235, 0.28);
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.empty-inline {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px dashed var(--app-border-light);
+  border-radius: 999px;
+  color: var(--app-text-muted);
+  background: var(--app-surface-muted);
+  font-size: 12px;
 }
 
 .logic-tabs {
@@ -2175,8 +2886,13 @@ onMounted(async () => {
   }
 
   .hero-actions,
+  .fields-head-actions,
   .search-input {
     width: 100%;
+  }
+
+  .fields-head-actions {
+    justify-content: flex-start;
   }
 
   .summary-grid {
@@ -2186,7 +2902,9 @@ onMounted(async () => {
   .designer-shell,
   .field-layout,
   .publish-layout,
+  .field-config-controls,
   .advanced-builder-grid,
+  .model-summary-grid,
   .join-sides {
     grid-template-columns: 1fr;
   }
@@ -2199,8 +2917,23 @@ onMounted(async () => {
 
 @media (max-width: 680px) {
   .summary-grid,
+  .field-mode-tabs,
+  .model-overview,
   .step-rail {
     grid-template-columns: 1fr;
+  }
+
+  .field-panel-hero,
+  .field-config-top,
+  .fields-head-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fields-health-pill {
+    width: 100%;
+    justify-content: space-between;
+    border-radius: var(--app-radius-sm);
   }
 
   .aggregation-builder,

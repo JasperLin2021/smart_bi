@@ -67,7 +67,7 @@ def _source_table(dataset: Any) -> str:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
     table = _clean_text(fields_json.get("table"))
     if not table:
-        for field in _as_list(fields_json.get("fields")):
+        for field in _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields")):
             name = _field_name(field)
             if "." in name:
                 table = name.split(".", 1)[0]
@@ -78,8 +78,14 @@ def _source_table(dataset: Any) -> str:
 def _field_name(field: Any) -> str:
     """Extract field name from either a string or a dict with a 'name' key."""
     if isinstance(field, dict):
-        return _clean_text(field.get("name"))
+        return _clean_text(field.get("field") or field.get("name") or field.get("key"))
     return _clean_text(field)
+
+
+def _field_label(field: Any, fallback: str) -> str:
+    if isinstance(field, dict):
+        return _clean_text(field.get("alias") or field.get("label") or field.get("display_name")) or fallback
+    return fallback
 
 
 def _infer_table(dataset: Any) -> str:
@@ -87,7 +93,7 @@ def _infer_table(dataset: Any) -> str:
     table = _clean_text(fields_json.get("table"))
     if table:
         return table
-    for field in _as_list(fields_json.get("fields")):
+    for field in _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields")):
         name = _field_name(field)
         if "." in name:
             return name.split(".", 1)[0]
@@ -216,17 +222,29 @@ def infer_semantic_model(dataset: Any) -> dict[str, Any]:
     dimensions: list[dict[str, Any]] = []
     metrics: list[dict[str, Any]] = []
 
-    for field in _as_list(fields_json.get("fields")):
+    dimension_fields = _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields"))
+    for field in dimension_fields:
         clean = _field_name(field)
         if not clean or clean.endswith(".*"):
             continue
-        label = _clean_text(field.get("label") if isinstance(field, dict) else clean) or clean
+        label = _field_label(field, clean)
         column = _column_name(clean, table) if table else _field_column_name(clean)
         item_id = _unique_id(column, seen)
         dimensions.append({"id": item_id, "field": _assert_field(clean, "字段"), "label": label})
 
-    for expression in _as_list(aggregations_json.get("aggregations")):
-        match = AGGREGATION_RE.match(_clean_text(expression))
+    metric_expressions = _as_list(fields_json.get("metrics")) or _as_list(aggregations_json.get("aggregations"))
+    for expression in metric_expressions:
+        metric_alias = None
+        if isinstance(expression, dict):
+            metric_alias = _field_label(expression, "")
+            raw_expression = _clean_text(expression.get("expression"))
+            if not raw_expression:
+                metric_field = _field_name(expression)
+                metric_fn = _clean_text(expression.get("aggregation") or expression.get("fn") or "SUM").upper()
+                raw_expression = f"{metric_fn}({metric_field})" if metric_field and metric_fn else ""
+        else:
+            raw_expression = _clean_text(expression)
+        match = AGGREGATION_RE.match(raw_expression)
         if not match:
             continue
         fn = match.group("fn").lower()
@@ -237,7 +255,7 @@ def infer_semantic_model(dataset: Any) -> dict[str, Any]:
             {
                 "id": item_id,
                 "field": _assert_field(field, "指标字段", allow_star=fn == "count"),
-                "label": item_id,
+                "label": metric_alias or item_id,
                 "aggregation": fn,
             }
         )

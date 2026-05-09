@@ -73,6 +73,10 @@ class DatasetPreviewRequest(BaseModel):
     limit: int = 100
 
 
+class DatasetDraftPreviewRequest(DatasetCreate):
+    limit: int = 100
+
+
 class DatasetMaterializeRequest(BaseModel):
     mode: str = "full"
     incremental_key: Optional[str] = None

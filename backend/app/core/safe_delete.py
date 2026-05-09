@@ -10,15 +10,19 @@ from sqlalchemy.orm import Session
 from app.models.access_request import AccessRequest
 from app.models.action_item import ActionItem
 from app.models.alert import Alert
+from app.models.analysis_view import AnalysisView
 from app.models.big_screen import BigScreen
 from app.models.catalog import AssetLineage, AssetNotification, AssetSubscription, DataAsset
 from app.models.dashboard_config import Dashboard
+from app.models.data_pipeline import DataPipeline
 from app.models.dataset import Dataset
 from app.models.datasource import DataSource
 from app.models.embed_token import EmbedToken
 from app.models.integration import ExternalIdentity, ExternalOrgBinding, ExternalPermissionMapping
 from app.models.metric import Metric
+from app.models.organization import Department
 from app.models.pinned_chart import PinnedChart
+from app.models.report_template import ReportTemplate
 from app.models.scheduled_report import ScheduledReport
 from app.models.user import User
 
@@ -188,6 +192,9 @@ def assert_datasource_can_delete(db: Session, datasource: DataSource) -> None:
 def assert_dataset_can_delete(db: Session, dataset: Dataset) -> None:
     refs = [
         _model_ref(db, "指标", Metric, Metric.dataset_id == dataset.id),
+        _model_ref(db, "复杂报表", ReportTemplate, ReportTemplate.dataset_id == dataset.id),
+        _model_ref(db, "数据集成管道", DataPipeline, DataPipeline.dataset_id == dataset.id),
+        _model_ref(db, "自助分析", AnalysisView, AnalysisView.dataset_id == dataset.id),
         _model_ref(db, "行动项", ActionItem, ActionItem.linked_dataset_id == dataset.id, name_attr="title"),
         _model_ref(
             db,
@@ -290,6 +297,7 @@ def assert_user_can_delete(db: Session, user: User) -> None:
 def assert_organization_can_delete(db: Session, org: Any) -> None:
     refs = [
         _model_ref(db, "用户", User, User.org_id == org.id, name_attr="username"),
+        _model_ref(db, "部门", Department, Department.org_id == org.id),
         _model_ref(db, "数据源", DataSource, DataSource.org_id == org.id),
         _model_ref(db, "数据集", Dataset, Dataset.org_id == org.id),
         _model_ref(db, "看板", Dashboard, Dashboard.org_id == org.id, name_attr="title"),

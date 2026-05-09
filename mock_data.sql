@@ -1,23 +1,71 @@
 -- MOCK DATA
 -- Smart BI System - Comprehensive PostgreSQL Mock Data
 -- Generated: 2026-05-08
--- DO NOT modify existing records (users id=1-7, orgs id=1-2, datasources id=1-5,
+-- DO NOT modify existing business records (orgs id=1-2, datasources id=1-5,
 --   metrics id=1-10, dashboards id=1-4, catalog_categories id=1-4, data_assets id=1-17)
 
 BEGIN;
 
 -- ============================================================
--- 1. ADDITIONAL USERS (Nexteer org_id=1)
+-- 1. ORGANIZATION DEPARTMENT TREE
 -- ============================================================
 
-INSERT INTO users (id, username, hashed_password, role, org_id, data_scope, permission_override_enabled, menu_permissions, action_permissions)
+INSERT INTO departments (id, name, org_id, parent_id, sort_order)
 VALUES
-  (8,  'nexteer_analyst', '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', 'user', 1, 'org', false, NULL, NULL),
-  (9,  'nexteer_viewer',  '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', 'user', 1, 'self', false, NULL, NULL)
+  (1,  '管理层',          1, NULL, 1),
+  (2,  '生产运营部',      1, NULL, 2),
+  (3,  '质量管理部',      1, NULL, 3),
+  (4,  '数据分析部',      1, NULL, 4),
+  (5,  'REPS3 产线组',   1, 2,    1),
+  (6,  'RACK 产线组',    1, 2,    2),
+  (7,  '管理层',          2, NULL, 1),
+  (8,  '封测制造部',      2, NULL, 2),
+  (9,  '质量工程部',      2, NULL, 3),
+  (10, '数据平台部',      2, NULL, 4),
+  (11, 'Die Attach 班组', 2, 8,    1),
+  (12, 'Wire Bond 班组',  2, 8,    2)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  org_id = EXCLUDED.org_id,
+  parent_id = EXCLUDED.parent_id,
+  sort_order = EXCLUDED.sort_order;
+
+UPDATE users
+SET
+  department_id = CASE username
+    WHEN 'nexteer_admin' THEN 1
+    WHEN 'nexteer_certifier' THEN 3
+    WHEN 'nexteer' THEN 4
+    WHEN 'carsem_admin' THEN 7
+    WHEN 'carsem_certifier' THEN 9
+    WHEN 'carsem' THEN 10
+    ELSE department_id
+  END,
+  department = CASE username
+    WHEN 'nexteer_admin' THEN '管理层'
+    WHEN 'nexteer_certifier' THEN '质量管理部'
+    WHEN 'nexteer' THEN '数据分析部'
+    WHEN 'carsem_admin' THEN '管理层'
+    WHEN 'carsem_certifier' THEN '质量工程部'
+    WHEN 'carsem' THEN '数据平台部'
+    ELSE department
+  END
+WHERE username IN ('nexteer_admin','nexteer_certifier','nexteer','carsem_admin','carsem_certifier','carsem');
+
+SELECT setval(pg_get_serial_sequence('departments', 'id'), GREATEST((SELECT MAX(id) FROM departments), 12), true);
+
+-- ============================================================
+-- 2. ADDITIONAL USERS (Nexteer org_id=1)
+-- ============================================================
+
+INSERT INTO users (id, username, hashed_password, role, org_id, department_id, department, data_scope, permission_override_enabled, menu_permissions, action_permissions)
+VALUES
+  (8,  'nexteer_analyst', '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', 'user', 1, 4, '数据分析部', 'org', false, NULL, NULL),
+  (9,  'nexteer_viewer',  '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', 'user', 1, 4, '数据分析部', 'self', false, NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 2. NOTIFICATION SETTINGS
+-- 3. NOTIFICATION SETTINGS
 -- ============================================================
 
 INSERT INTO notification_settings
@@ -32,7 +80,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 3. ALERTS (Nexteer, org context)
+-- 4. ALERTS (Nexteer, org context)
 -- ============================================================
 
 INSERT INTO alerts
@@ -110,7 +158,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 4. ALERT HISTORY (15 records, last 30 days)
+-- 5. ALERT HISTORY (15 records, last 30 days)
 -- ============================================================
 
 INSERT INTO alert_history
@@ -134,7 +182,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 5. ACTION ITEMS (12 items)
+-- 6. ACTION ITEMS (12 items)
 -- ============================================================
 
 INSERT INTO action_items
@@ -248,7 +296,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 6. SCHEDULED REPORTS (4 reports)
+-- 7. SCHEDULED REPORTS (4 reports)
 -- ============================================================
 
 INSERT INTO scheduled_reports
@@ -290,7 +338,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 7. REPORT EXECUTION LOGS (20 logs, last 14 days)
+-- 8. REPORT EXECUTION LOGS (20 logs, last 14 days)
 -- ============================================================
 
 INSERT INTO report_execution_logs
@@ -390,7 +438,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 8. QUERY HISTORY (20 queries)
+-- 9. QUERY HISTORY (20 queries)
 -- ============================================================
 
 INSERT INTO query_history
@@ -585,7 +633,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 9. PINNED CHARTS (8 charts for Nexteer users)
+-- 10. PINNED CHARTS (8 charts for Nexteer users)
 -- ============================================================
 
 INSERT INTO pinned_charts
@@ -651,7 +699,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 10. DASHBOARD COMMENTS (8 comments on dashboards id=1-4)
+-- 11. DASHBOARD COMMENTS (8 comments on dashboards id=1-4)
 -- ============================================================
 
 INSERT INTO dashboard_comments
@@ -691,7 +739,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 11. RLS RULES (3 rules for Nexteer)
+-- 12. RLS RULES (3 rules for Nexteer)
 -- ============================================================
 
 INSERT INTO rls_rules
@@ -708,7 +756,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 12. ACCESS REQUESTS (5 requests)
+-- 13. ACCESS REQUESTS (5 requests)
 -- ============================================================
 
 INSERT INTO access_requests
@@ -748,7 +796,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 13. CATALOG CATEGORIES (4 subcategories under existing ones)
+-- 14. CATALOG CATEGORIES (4 subcategories under existing ones)
 -- ============================================================
 
 INSERT INTO catalog_categories
@@ -764,7 +812,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 14. DATA ASSETS (6 new assets)
+-- 15. DATA ASSETS (6 new assets)
 -- ============================================================
 
 INSERT INTO data_assets
@@ -840,7 +888,7 @@ ON CONFLICT (id) DO UPDATE SET
   updated_at = EXCLUDED.updated_at;
 
 -- ============================================================
--- 15. ASSET LINEAGE (4 lineage relationships)
+-- 16. ASSET LINEAGE (4 lineage relationships)
 -- ============================================================
 
 INSERT INTO asset_lineage
@@ -861,7 +909,7 @@ ON CONFLICT (id) DO UPDATE SET
   org_id = EXCLUDED.org_id;
 
 -- ============================================================
--- 16. ASSET SUBSCRIPTIONS (5 subscriptions)
+-- 17. ASSET SUBSCRIPTIONS (5 subscriptions)
 -- ============================================================
 
 INSERT INTO asset_subscriptions
@@ -875,7 +923,7 @@ VALUES
 ON CONFLICT ON CONSTRAINT uq_asset_subscription DO NOTHING;
 
 -- ============================================================
--- 17. ASSET NOTIFICATIONS (6 notifications, some unread)
+-- 18. ASSET NOTIFICATIONS (6 notifications, some unread)
 -- ============================================================
 
 INSERT INTO asset_notifications
@@ -905,6 +953,339 @@ VALUES
    '【mainrecord 班次主数据表】字段元数据已更新至v2.1版本，新增STAFFNUM字段取值规范说明。',
    true, NOW() - INTERVAL '30 days')
 ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- 19. P1 ENTERPRISE CAPABILITIES: COMPLEX REPORTS
+-- ============================================================
+
+INSERT INTO report_templates
+  (id, name, description, dataset_id, report_type, layout_json, parameter_schema_json,
+   binding_json, style_json, permission_json, fill_schema_json, distribution_json,
+   status, visibility, version, org_id, owner_id, created_by, created_at, updated_at)
+VALUES
+  (1, 'Nexteer OEE 分页周报',
+   '面向工厂管理层的分页报表，按产线、班次和日期展示 OEE、RTY、产出与异常说明，可导出 Excel/PDF。',
+   1, 'paginated',
+   '{"paper":"A4","cells":[{"row":1,"col":"A","value":"Nexteer OEE 周报","bold":true,"merge":true},{"row":3,"col":"A","value":"产线","bold":true},{"row":3,"col":"B","value":"班次","bold":true},{"row":3,"col":"C","value":"OEE","bold":true},{"row":3,"col":"D","value":"RTY","bold":true},{"row":3,"col":"E","value":"产出","bold":true},{"row":4,"col":"A","value":"{{ LINE }}"},{"row":4,"col":"B","value":"{{ SHIFTNAME }}"},{"row":4,"col":"C","value":"{{ OEE }}"},{"row":4,"col":"D","value":"{{ RTY }}"},{"row":4,"col":"E","value":"{{ TOTALCOUNT }}"}]}',
+   '{"date_range":{"type":"date_range","label":"日期范围"},"line":{"type":"select","label":"产线","options":["REPS3 Final","REPS3 BSI","REPS3 RACK"]}}',
+   '{"bands":[{"dataset_id":1,"name":"明细区","repeat":"detail","start_row":4}],"summary":{"group_by":["LINE","SHIFTNAME"]}}',
+   '{"font":"Microsoft YaHei","density":"compact","print_margin":"12mm"}',
+   '{"cell_permissions":[{"range":"C:E","roles":["org_admin","dept_admin"]}]}',
+   NULL,
+   '{"channels":["email","wechat"],"dynamic_recipients":[{"field":"LINE","mapping":"line_owner"}]}',
+   'published', 'org', 2, 1, 2, 2, NOW() - INTERVAL '20 days', NOW() - INTERVAL '2 days'),
+
+  (2, 'RTY 质量填报月报',
+   '质量部门用于月度 RTY 复盘的填报报表，包含失效模式确认、改善措施、责任人和完成日期。',
+   1, 'fill_form',
+   '{"paper":"A4","cells":[{"row":1,"col":"A","value":"RTY 质量填报月报","bold":true,"merge":true},{"row":3,"col":"A","value":"失效模式"},{"row":3,"col":"B","value":"占比"},{"row":3,"col":"C","value":"改善措施"},{"row":3,"col":"D","value":"责任人"}]}',
+   '{"month":{"type":"month","label":"月份"},"line":{"type":"select","label":"产线"}}',
+   '{"bands":[{"dataset_id":1,"name":"质量明细","repeat":"group","start_row":5}]}',
+   '{"font":"Microsoft YaHei","density":"standard"}',
+   '{"fill_roles":["org_admin","dept_admin"]}',
+   '{"fields":[{"name":"failure_mode","label":"失效模式","required":true},{"name":"countermeasure","label":"改善措施","required":true},{"name":"owner","label":"责任人","required":true},{"name":"due_date","label":"完成日期","type":"date","required":true}],"writeback":{"target_table":"quality_monthly_actions","mode":"append"}}',
+   '{"channels":["email"],"recipients":["quality@nexteer-cn.com"]}',
+   'published', 'org', 1, 1, 6, 6, NOW() - INTERVAL '16 days', NOW() - INTERVAL '6 days'),
+
+  (3, '蓝途销售经营 Word 报告',
+   '销售团队月度经营复盘模板，组合指标表、趋势图说明和管理层摘要，可导出 Word。',
+   4, 'word',
+   '{"paper":"A4","cells":[{"row":1,"col":"A","value":"蓝途销售经营报告","bold":true},{"row":2,"col":"A","value":"{{ executive_summary }}"}]}',
+   '{"month":{"type":"month","label":"月份"},"customer_segment":{"type":"select","label":"客户分层"}}',
+   '{"bands":[{"dataset_id":4,"name":"销售汇总","repeat":"summary","start_row":4}]}',
+   '{"font":"Microsoft YaHei","density":"presentation"}',
+   '{"view_roles":["org_admin","dept_admin","user"]}',
+   NULL,
+   '{"channels":["email"],"recipients":["sales@nexteer-cn.com"]}',
+   'draft', 'org', 1, 1, 8, 8, NOW() - INTERVAL '7 days', NOW() - INTERVAL '7 days')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  dataset_id = EXCLUDED.dataset_id,
+  report_type = EXCLUDED.report_type,
+  layout_json = EXCLUDED.layout_json,
+  parameter_schema_json = EXCLUDED.parameter_schema_json,
+  binding_json = EXCLUDED.binding_json,
+  style_json = EXCLUDED.style_json,
+  permission_json = EXCLUDED.permission_json,
+  fill_schema_json = EXCLUDED.fill_schema_json,
+  distribution_json = EXCLUDED.distribution_json,
+  status = EXCLUDED.status,
+  visibility = EXCLUDED.visibility,
+  version = EXCLUDED.version,
+  org_id = EXCLUDED.org_id,
+  owner_id = EXCLUDED.owner_id,
+  updated_at = EXCLUDED.updated_at;
+
+INSERT INTO report_template_versions
+  (id, template_id, version, snapshot_json, changelog, created_by, created_at)
+VALUES
+  (1, 1, 1, '{"name":"Nexteer OEE 分页周报","version":1,"paper":"A4"}', '初始分页模板', 2, NOW() - INTERVAL '20 days'),
+  (2, 1, 2, '{"name":"Nexteer OEE 分页周报","version":2,"paper":"A4","added":"dynamic_recipients"}', '增加动态收件人与单元格权限', 2, NOW() - INTERVAL '2 days'),
+  (3, 2, 1, '{"name":"RTY 质量填报月报","version":1,"writeback":"quality_monthly_actions"}', '初始填报模板', 6, NOW() - INTERVAL '16 days'),
+  (4, 3, 1, '{"name":"蓝途销售经营 Word 报告","version":1,"export":"word"}', '初始 Word 报告模板', 8, NOW() - INTERVAL '7 days')
+ON CONFLICT (id) DO UPDATE SET
+  snapshot_json = EXCLUDED.snapshot_json,
+  changelog = EXCLUDED.changelog;
+
+INSERT INTO report_runs
+  (id, template_id, version, run_type, export_type, status, parameters_json, output_uri,
+   content_preview, error_message, org_id, created_by, started_at, finished_at)
+VALUES
+  (1, 1, 2, 'export', 'excel', 'success',
+   '{"date_range":["2026-05-01","2026-05-07"],"line":"REPS3 Final"}',
+   'exports/reports/nexteer-oee-weekly-20260507.xlsx',
+   'Nexteer OEE 周报导出完成，共 5 页，覆盖 3 条产线和 2 个班次。',
+   NULL, 1, 2, NOW() - INTERVAL '2 days 09:00', NOW() - INTERVAL '2 days 09:01'),
+  (2, 1, 2, 'export', 'pdf', 'queued',
+   '{"date_range":["2026-05-01","2026-05-07"],"line":"ALL"}',
+   NULL,
+   'Nexteer OEE 周报 PDF 导出任务已排队。',
+   NULL, 1, 2, NOW() - INTERVAL '1 day 10:00', NULL),
+  (3, 3, 1, 'export', 'word', 'success',
+   '{"month":"2026-04","customer_segment":"重点客户"}',
+   'exports/reports/lantu-sales-review-202604.docx',
+   '蓝途销售经营 Word 报告导出完成，包含销售额、客户贡献和渠道表现章节。',
+   NULL, 1, 8, NOW() - INTERVAL '3 days 15:00', NOW() - INTERVAL '3 days 15:02')
+ON CONFLICT (id) DO UPDATE SET
+  status = EXCLUDED.status,
+  output_uri = EXCLUDED.output_uri,
+  content_preview = EXCLUDED.content_preview,
+  finished_at = EXCLUDED.finished_at;
+
+INSERT INTO report_fill_records
+  (id, template_id, payload_json, validation_status, validation_errors_json, writeback_status,
+   org_id, submitted_by, created_at)
+VALUES
+  (1, 2,
+   '{"failure_mode":"打孔毛刺","countermeasure":"更换钻头并调整点检频率","owner":"quality.engineer","due_date":"2026-05-15"}',
+   'valid', NULL, 'pending', 1, 6, NOW() - INTERVAL '5 days'),
+  (2, 2,
+   '{"failure_mode":"螺纹滑牙","countermeasure":"","owner":"process.engineer"}',
+   'error', '{"missing":["countermeasure","due_date"]}', 'blocked', 1, 6, NOW() - INTERVAL '4 days')
+ON CONFLICT (id) DO UPDATE SET
+  payload_json = EXCLUDED.payload_json,
+  validation_status = EXCLUDED.validation_status,
+  validation_errors_json = EXCLUDED.validation_errors_json,
+  writeback_status = EXCLUDED.writeback_status;
+
+-- ============================================================
+-- 20. P1 ENTERPRISE CAPABILITIES: DATA PIPELINES
+-- ============================================================
+
+INSERT INTO data_pipelines
+  (id, name, description, dataset_id, dag_json, schedule_cron, run_mode, status,
+   last_run_status, last_run_at, org_id, owner_id, created_by, created_at, updated_at)
+VALUES
+  (1, 'Nexteer 生产明细日同步',
+   '每天凌晨从生产数据源抽取 mainrecord、ngtype、rtyinfo，完成清洗、质量校验后写入生产数据集。',
+   1,
+   '{"nodes":[{"id":"extract_mainrecord","type":"extract","label":"抽取 mainrecord"},{"id":"clean_shift","type":"transform","label":"班次字段清洗"},{"id":"quality_oee","type":"quality","label":"OEE/RTY 质量校验"},{"id":"load_dataset","type":"load","label":"写入生产数据集"}],"edges":[{"source":"extract_mainrecord","target":"clean_shift"},{"source":"clean_shift","target":"quality_oee"},{"source":"quality_oee","target":"load_dataset"}]}',
+   '0 2 * * *', 'scheduled', 'active', 'success', NOW() - INTERVAL '1 day 02:04',
+   1, 2, 2, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 day'),
+
+  (2, '蓝途销售增量同步',
+   '每小时同步蓝途销售订单增量数据，支持失败重试和月底补数。',
+   4,
+   '{"nodes":[{"id":"extract_sales_api","type":"extract","label":"抽取销售 API"},{"id":"dedupe_order","type":"transform","label":"订单去重"},{"id":"load_sales_dataset","type":"load","label":"写入销售数据集"}],"edges":[{"source":"extract_sales_api","target":"dedupe_order"},{"source":"dedupe_order","target":"load_sales_dataset"}]}',
+   '0 * * * *', 'incremental', 'active', 'success', NOW() - INTERVAL '1 hour',
+   1, 8, 8, NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  dataset_id = EXCLUDED.dataset_id,
+  dag_json = EXCLUDED.dag_json,
+  schedule_cron = EXCLUDED.schedule_cron,
+  run_mode = EXCLUDED.run_mode,
+  status = EXCLUDED.status,
+  last_run_status = EXCLUDED.last_run_status,
+  last_run_at = EXCLUDED.last_run_at,
+  updated_at = EXCLUDED.updated_at;
+
+INSERT INTO data_pipeline_runs
+  (id, pipeline_id, mode, status, reason, node_logs_json, records_read, records_written,
+   records_failed, error_message, org_id, triggered_by_id, started_at, finished_at)
+VALUES
+  (1, 1, 'scheduled', 'success', '每日调度',
+   '{"summary":{"node_count":4,"edge_count":3,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","status":"success","records":4823},{"node_id":"clean_shift","status":"success","records":4823},{"node_id":"quality_oee","status":"success","records":4823},{"node_id":"load_dataset","status":"success","records":4823}]}',
+   4823, 4823, 0, NULL, 1, 2, NOW() - INTERVAL '1 day 02:00', NOW() - INTERVAL '1 day 02:04'),
+  (2, 1, 'backfill', 'success', '补齐五一假期生产记录',
+   '{"summary":{"node_count":4,"edge_count":3,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","status":"success","records":1260},{"node_id":"clean_shift","status":"success","records":1260},{"node_id":"quality_oee","status":"success","records":1260},{"node_id":"load_dataset","status":"success","records":1260}]}',
+   1260, 1260, 0, NULL, 1, 2, NOW() - INTERVAL '3 days 13:00', NOW() - INTERVAL '3 days 13:03'),
+  (3, 2, 'incremental', 'success', '小时级增量同步',
+   '{"summary":{"node_count":3,"edge_count":2,"quality":"passed"},"nodes":[{"node_id":"extract_sales_api","status":"success","records":84},{"node_id":"dedupe_order","status":"success","records":83},{"node_id":"load_sales_dataset","status":"success","records":83}]}',
+   84, 83, 1, NULL, 1, 8, NOW() - INTERVAL '1 hour 5 minutes', NOW() - INTERVAL '1 hour')
+ON CONFLICT (id) DO UPDATE SET
+  status = EXCLUDED.status,
+  node_logs_json = EXCLUDED.node_logs_json,
+  records_read = EXCLUDED.records_read,
+  records_written = EXCLUDED.records_written,
+  records_failed = EXCLUDED.records_failed,
+  finished_at = EXCLUDED.finished_at;
+
+INSERT INTO data_quality_rules
+  (id, pipeline_id, dataset_id, name, rule_type, field, operator, threshold, severity,
+   is_active, last_status, last_checked_at, org_id, created_by, created_at)
+VALUES
+  (1, 1, 1, 'OEE 不为空', 'not_null', 'OEE', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
+  (2, 1, 1, 'RTY 合理范围', 'range', 'RTY', 'between', '0,100', 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
+  (3, 2, 4, '订单号唯一', 'unique', 'order_id', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days'),
+  (4, 2, 4, '销售数据新鲜度', 'freshness', 'order_date', '<=', '2h', 'warning', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  rule_type = EXCLUDED.rule_type,
+  field = EXCLUDED.field,
+  severity = EXCLUDED.severity,
+  last_status = EXCLUDED.last_status,
+  last_checked_at = EXCLUDED.last_checked_at;
+
+-- ============================================================
+-- 21. P1 ENTERPRISE CAPABILITIES: SELF-SERVICE ANALYSIS
+-- ============================================================
+
+UPDATE datasets
+SET
+  name = 'Nexteer 生产 OEE 数据集',
+  description = '基于 ChatBI 生产 Excel 的 mainrecord 班次主数据，提供产线、班次、时间、零件号维度和 OEE/RTY/产出指标。',
+  datasource_id = 2,
+  fields_json = '{
+    "table":"mainrecord",
+    "dimensions":[
+      {"name":"mainrecord.LINE","alias":"产线","type":"string"},
+      {"name":"mainrecord.SHIFTNAME","alias":"班次","type":"string"},
+      {"name":"mainrecord.SHIFTSTARTTIME","alias":"班次开始时间","type":"datetime"},
+      {"name":"mainrecord.PARTNO","alias":"零件号","type":"string"}
+    ],
+    "metrics":[
+      {"name":"mainrecord.OEE","alias":"OEE","type":"decimal","aggregation":"avg"},
+      {"name":"mainrecord.RTY","alias":"RTY","type":"decimal","aggregation":"avg"},
+      {"name":"mainrecord.TOTALCOUNT","alias":"总产出","type":"integer","aggregation":"sum"}
+    ]
+  }',
+  aggregations_json = '{
+    "aggregations":[
+      {"field":"mainrecord.OEE","aggregation":"avg","alias":"平均OEE"},
+      {"field":"mainrecord.RTY","aggregation":"avg","alias":"平均RTY"},
+      {"field":"mainrecord.TOTALCOUNT","aggregation":"sum","alias":"总产出"}
+    ]
+  }',
+  semantic_model_json = '{
+    "dimensions":[
+      {"name":"LINE","label":"产线"},
+      {"name":"SHIFTNAME","label":"班次"},
+      {"name":"PARTNO","label":"零件号"}
+    ],
+    "time_dimensions":[{"name":"SHIFTSTARTTIME","label":"班次开始时间"}],
+    "metrics":[
+      {"name":"OEE","label":"OEE","aggregation":"avg"},
+      {"name":"RTY","label":"RTY","aggregation":"avg"},
+      {"name":"TOTALCOUNT","label":"总产出","aggregation":"sum"}
+    ],
+    "synonyms":{"产线":["LINE"],"班次":["SHIFTNAME"],"产出":["TOTALCOUNT"]}
+  }',
+  status = 'published',
+  visibility = 'org',
+  org_id = 1,
+  owner_id = 2
+WHERE id = 1;
+
+UPDATE datasets
+SET
+  name = '蓝途科技销售明细数据集',
+  description = '基于蓝途销售 Excel 的 order_items 订单明细，提供产品、品类维度和销售额/销量指标。',
+  datasource_id = 4,
+  fields_json = '{
+    "table":"order_items",
+    "dimensions":[
+      {"name":"order_items.product_name","alias":"产品名称","type":"string"},
+      {"name":"order_items.category","alias":"产品品类","type":"string"},
+      {"name":"order_items.product_id","alias":"产品ID","type":"string"}
+    ],
+    "metrics":[
+      {"name":"order_items.subtotal","alias":"销售额","type":"decimal","aggregation":"sum"},
+      {"name":"order_items.quantity","alias":"销量","type":"integer","aggregation":"sum"}
+    ]
+  }',
+  aggregations_json = '{
+    "aggregations":[
+      {"field":"order_items.subtotal","aggregation":"sum","alias":"销售额"},
+      {"field":"order_items.quantity","aggregation":"sum","alias":"销量"}
+    ]
+  }',
+  semantic_model_json = '{
+    "dimensions":[
+      {"name":"product_name","label":"产品名称"},
+      {"name":"category","label":"产品品类"},
+      {"name":"product_id","label":"产品ID"}
+    ],
+    "time_dimensions":[],
+    "metrics":[
+      {"name":"subtotal","label":"销售额","aggregation":"sum"},
+      {"name":"quantity","label":"销量","aggregation":"sum"}
+    ],
+    "synonyms":{"产品":["product_name"],"品类":["category"],"销售额":["subtotal"],"销量":["quantity"]}
+  }',
+  status = 'published',
+  visibility = 'org',
+  org_id = 1,
+  owner_id = 8
+WHERE id = 4;
+
+INSERT INTO analysis_views
+  (id, name, description, dataset_id, chart_type, dimensions, measures, filters, sorts,
+   calculation_fields_json, visual_config_json, interaction_json, status, visibility,
+   org_id, owner_id, created_at, updated_at)
+VALUES
+  (1, '产线 OEE 趋势自助分析',
+   '生产经理按产线和班次查看 OEE 趋势，支持同环比、钻取到失效模式和加入看板。',
+   1, 'line',
+   '["LINE","SHIFTNAME"]',
+   '[{"field":"OEE","aggregation":"avg","alias":"平均OEE"},{"field":"TOTALCOUNT","aggregation":"sum","alias":"总产出"}]',
+   '[{"field":"SHIFTSTARTTIME","operator":">=","value":"2026-05-01"}]',
+   '[{"field":"SHIFTSTARTTIME","direction":"asc"}]',
+   '{"calculations":["yoy","mom","cumulative"]}',
+   '{"palette":"operations","show_target_line":true,"target":85}',
+   '{"drill":true,"linkage":true,"drill_path":["LINE","SHIFTNAME","PARTNO"]}',
+   'published', 'org', 1, 3, NOW() - INTERVAL '12 days', NOW() - INTERVAL '1 day'),
+
+  (2, 'RTY 失效模式 Pareto 分析',
+   '质量工程师用于识别 TOP 失效模式、占比和改善优先级。',
+   1, 'bar',
+   '["LINE"]',
+   '[{"field":"RTY","aggregation":"avg","alias":"平均RTY"}]',
+   '[{"field":"RTY","operator":"<","value":95}]',
+   '[{"field":"RTY","direction":"asc"}]',
+   '{"calculations":["rank","ratio"]}',
+   '{"palette":"quality","pareto":true}',
+   '{"drill":true,"linkage":false,"drill_path":["LINE","PARTNO"]}',
+   'published', 'org', 1, 6, NOW() - INTERVAL '10 days', NOW() - INTERVAL '2 days'),
+
+  (3, '蓝途产品销售贡献分析',
+   '销售分析师按产品和品类分析订单明细销售额贡献，支持数量筛选、排名和占比。',
+   4, 'bar',
+   '["product_name","category"]',
+   '[{"field":"subtotal","aggregation":"sum","alias":"销售额"}]',
+   '[{"field":"quantity","operator":"=","value":5}]',
+   '[{"field":"subtotal","direction":"desc"}]',
+   '{"calculations":["rank","ratio","mom"]}',
+   '{"palette":"sales","show_legend":true}',
+   '{"drill":true,"linkage":true,"drill_path":["category","product_name","product_id"]}',
+   'published', 'org', 1, 8, NOW() - INTERVAL '8 days', NOW() - INTERVAL '1 day')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  dataset_id = EXCLUDED.dataset_id,
+  chart_type = EXCLUDED.chart_type,
+  dimensions = EXCLUDED.dimensions,
+  measures = EXCLUDED.measures,
+  filters = EXCLUDED.filters,
+  sorts = EXCLUDED.sorts,
+  calculation_fields_json = EXCLUDED.calculation_fields_json,
+  visual_config_json = EXCLUDED.visual_config_json,
+  interaction_json = EXCLUDED.interaction_json,
+  status = EXCLUDED.status,
+  visibility = EXCLUDED.visibility,
+  updated_at = EXCLUDED.updated_at;
 
 COMMIT;
 -- END

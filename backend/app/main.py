@@ -14,7 +14,7 @@ from app.db.session import engine, SessionLocal
 from app.models.user import User
 from app.models.llm_setting import LlmSetting
 from app.models.datasource import DataSource
-from app.models.organization import Organization
+from app.models.organization import Department, Organization
 from app.models.pinned_chart import PinnedChart  # noqa: F401
 from app.models.agent_run import AgentRun  # noqa: F401
 from app.models.alert import Alert  # noqa: F401
@@ -33,6 +33,14 @@ from app.models.integration import (  # noqa: F401
     IntegrationConfig,
     MessageDelivery,
 )
+from app.models.report_template import (  # noqa: F401
+    ReportFillRecord,
+    ReportRun,
+    ReportTemplate,
+    ReportTemplateVersion,
+)
+from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule  # noqa: F401
+from app.models.analysis_view import AnalysisView  # noqa: F401
 
 
 @asynccontextmanager
@@ -172,6 +180,7 @@ def _startup():
     # Add permission columns to users table if missing
     for column_definition in [
         "department VARCHAR(64)",
+        "department_id INTEGER",
         "data_scope VARCHAR(32)",
         "permission_override_enabled BOOLEAN DEFAULT 0",
         "menu_permissions TEXT",
@@ -301,6 +310,54 @@ def _startup():
                 role=role,
                 org_id=oid,
             ))
+    db.commit()
+
+    def ensure_department(org_id: int, name: str, parent_id: int | None = None, sort_order: int = 0) -> Department:
+        query = db.query(Department).filter(
+            Department.org_id == org_id,
+            Department.name == name,
+        )
+        if parent_id is None:
+            query = query.filter(Department.parent_id.is_(None))
+        else:
+            query = query.filter(Department.parent_id == parent_id)
+        department = query.first()
+        if department:
+            return department
+        department = Department(name=name, org_id=org_id, parent_id=parent_id, sort_order=sort_order)
+        db.add(department)
+        db.commit()
+        db.refresh(department)
+        return department
+
+    # Seed a realistic enterprise department tree so GitHub/demo startup works out of the box.
+    nexteer_management = ensure_department(org_nexteer.id, "管理层", sort_order=1)
+    nexteer_production = ensure_department(org_nexteer.id, "生产运营部", sort_order=2)
+    nexteer_quality = ensure_department(org_nexteer.id, "质量管理部", sort_order=3)
+    nexteer_analytics = ensure_department(org_nexteer.id, "数据分析部", sort_order=4)
+    ensure_department(org_nexteer.id, "REPS3 产线组", parent_id=nexteer_production.id, sort_order=1)
+    ensure_department(org_nexteer.id, "RACK 产线组", parent_id=nexteer_production.id, sort_order=2)
+
+    carsem_management = ensure_department(org_carsem.id, "管理层", sort_order=1)
+    carsem_manufacturing = ensure_department(org_carsem.id, "封测制造部", sort_order=2)
+    carsem_quality = ensure_department(org_carsem.id, "质量工程部", sort_order=3)
+    carsem_analytics = ensure_department(org_carsem.id, "数据平台部", sort_order=4)
+    ensure_department(org_carsem.id, "Die Attach 班组", parent_id=carsem_manufacturing.id, sort_order=1)
+    ensure_department(org_carsem.id, "Wire Bond 班组", parent_id=carsem_manufacturing.id, sort_order=2)
+
+    user_departments = {
+        "nexteer_admin": nexteer_management,
+        "nexteer_certifier": nexteer_quality,
+        "nexteer": nexteer_analytics,
+        "carsem_admin": carsem_management,
+        "carsem_certifier": carsem_quality,
+        "carsem": carsem_analytics,
+    }
+    for username, department in user_departments.items():
+        user = db.query(User).filter(User.username == username).first()
+        if user and not getattr(user, "department_id", None):
+            user.department_id = department.id
+            user.department = department.name
     db.commit()
 
     # Ensure LLM settings

@@ -185,20 +185,24 @@ def _format_dataset_list(value: object, key: str) -> str:
 def _build_dataset_query_context(dataset: Dataset) -> str:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
     table = str(fields_json.get("table") or "").strip()
-    fields = _format_dataset_list(fields_json, "fields")
+    dimensions = _format_dataset_list(fields_json, "dimensions")
+    if dimensions == "无":
+        dimensions = _format_dataset_list(fields_json, "fields")
     filters = _format_dataset_list(dataset.filters_json, "filters")
     derived_columns = _format_dataset_list(dataset.derived_columns_json, "expressions")
     joins = _format_dataset_list(dataset.joins_json, "joins")
     aggregations = _format_dataset_list(dataset.aggregations_json, "aggregations")
+    if aggregations == "无":
+        aggregations = _format_dataset_list(fields_json, "metrics")
     lines = [
         f"当前选择数据集：{dataset.name}",
         "请优先按照这个数据集已经定义好的业务口径生成 SQL。",
         f"主表：{table or '未配置'}",
-        f"已选字段：{fields}",
+        f"维度字段：{dimensions}",
         f"固定筛选：{filters}",
         f"派生列：{derived_columns}",
         f"Join 关系：{joins}",
-        f"聚合口径：{aggregations}",
+        f"指标口径：{aggregations}",
         "如果用户问题没有明确要求跳出数据集范围，不要使用上述数据集未包含的字段或口径。",
     ]
     if dataset.description:

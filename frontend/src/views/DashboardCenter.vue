@@ -568,6 +568,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from "vue"
+import { useRoute } from "vue-router"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { Plus, Refresh, Search, ArrowDown, ArrowUp, TrendCharts, MagicStick, View, Edit, Delete, Rank } from "@element-plus/icons-vue"
@@ -633,6 +634,7 @@ interface DashboardTemplate {
 }
 
 const datasourceStore = useDatasourceStore()
+const route = useRoute()
 const dashboards = ref<DashboardItem[]>([])
 const pinnedCharts = ref<PinnedChartData[]>([])
 const designerComponents = ref<DashboardComponent[]>([])
@@ -1160,6 +1162,31 @@ const openDesigner = async (dashboard: DashboardItem) => {
   designerVisible.value = true
 }
 
+const openDashboardFromRouteQuery = async () => {
+  const rawId = Array.isArray(route.query.dashboard_id)
+    ? route.query.dashboard_id[0]
+    : route.query.dashboard_id
+  const dashboardId = Number(rawId)
+  if (!Number.isFinite(dashboardId) || dashboardId <= 0) return
+
+  let target = dashboards.value.find((dashboard) => dashboard.id === dashboardId) || null
+  if (!target) {
+    try {
+      const response = await axios.get(`/api/dashboards/${dashboardId}`)
+      target = response.data
+    } catch {
+      ElMessage.error("看板不存在或无权访问")
+      return
+    }
+  }
+
+  if (route.query.mode === "edit") {
+    await openDesigner(target)
+  } else {
+    await preview(target)
+  }
+}
+
 const startLibraryDrag = (chart: PinnedChartData) => {
   draggedChartId.value = chart.id
   draggedComponentIndex.value = null
@@ -1489,6 +1516,7 @@ onMounted(async () => {
     fetchPinnedCharts(),
     datasourceStore.fetchDatasources().catch(() => undefined),
   ])
+  await openDashboardFromRouteQuery()
 })
 </script>
 

@@ -3,7 +3,7 @@ from app.models.user import User
 from app.models.query import QueryHistory
 from app.models.llm_setting import LlmSetting
 from app.models.metric import Metric
-from app.models.organization import Organization  # noqa: F401
+from app.models.organization import Department, Organization  # noqa: F401
 from app.models.alert import Alert  # noqa: F401
 from app.models.notification_setting import NotificationSetting  # noqa: F401
 from app.models.alert_history import AlertHistory  # noqa: F401
@@ -24,11 +24,21 @@ from app.models.integration import (  # noqa: F401
 from app.models.access_request import AccessRequest  # noqa: F401
 from app.models.report_execution_log import ReportExecutionLog  # noqa: F401
 from app.models.data_link import DataLink, DataLinkTask, DataLinkLog  # noqa: F401
+from app.models.report_template import (  # noqa: F401
+    ReportFillRecord,
+    ReportRun,
+    ReportTemplate,
+    ReportTemplateVersion,
+)
+from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule  # noqa: F401
+from app.models.analysis_view import AnalysisView  # noqa: F401
 
 __all__ = [
-    "Base", "User", "QueryHistory", "LlmSetting", "Metric", "Organization",
+    "Base", "User", "QueryHistory", "LlmSetting", "Metric", "Organization", "Department",
     "Alert", "NotificationSetting", "AlertHistory", "ScheduledReport",
     "DataAsset", "Dashboard", "AuditLog", "Dataset", "DatasetRefreshLog", "BigScreen", "ActionItem",
     "IntegrationConfig", "ExternalOrgBinding", "ExternalIdentity", "ExternalPermissionMapping",
-    "MessageDelivery", "AccessRequest", "ReportExecutionLog",
+    "MessageDelivery", "AccessRequest", "ReportExecutionLog", "ReportTemplate",
+    "ReportTemplateVersion", "ReportRun", "ReportFillRecord", "DataPipeline",
+    "DataPipelineRun", "DataQualityRule", "AnalysisView",
 ]

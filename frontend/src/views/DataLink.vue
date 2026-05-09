@@ -3,7 +3,7 @@
     <!-- 左侧连接列表 -->
     <aside class="dl-sidebar">
       <div class="dl-sidebar__header">
-        <span class="dl-sidebar__title">数据接入</span>
+        <span class="dl-sidebar__title">连接器接入</span>
         <el-button type="primary" size="small" :icon="Plus" @click="openCreateLink">新建连接</el-button>
       </div>
       <div class="dl-sidebar__search">

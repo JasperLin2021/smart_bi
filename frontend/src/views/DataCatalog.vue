@@ -342,8 +342,8 @@
             <el-button
               v-if="selectedAsset.asset_type === 'dashboard' && selectedAsset.asset_id"
               type="primary" size="small" round
-              @click="openDashboard(selectedAsset.asset_id!)"
-            >打开看板</el-button>
+              @click="openDashboardPreview(selectedAsset.asset_id!)"
+            >预览看板</el-button>
             <el-button
               v-if="selectedAsset.asset_type === 'dataset' && selectedAsset.asset_id"
               type="primary" size="small" round
@@ -488,7 +488,7 @@
                 <div v-for="r in refs" :key="r.id" class="ref-row">
                   <el-tag size="small" effect="plain">{{ r.type === 'dashboard' ? '看板' : '大屏' }}</el-tag>
                   <span class="ref-name">{{ r.name }}</span>
-                  <el-button v-if="r.type === 'dashboard'" text type="primary" size="small" @click="openDashboard(r.id)">打开</el-button>
+                  <el-button v-if="r.type === 'dashboard'" text type="primary" size="small" @click="openDashboardPreview(r.id)">预览</el-button>
                 </div>
               </div>
             </div>
@@ -533,6 +533,61 @@
       </template>
     </el-dialog>
 
+    <!-- ── Dashboard preview dialog ── -->
+    <el-dialog
+      v-model="dashboardPreviewVisible"
+      width="86vw"
+      top="5vh"
+      append-to-body
+      destroy-on-close
+      class="catalog-dashboard-preview-dialog"
+      @opened="() => window.dispatchEvent(new Event('resize'))"
+    >
+      <template #header>
+        <div class="dashboard-preview-head">
+          <div class="dashboard-preview-title-group">
+            <span class="dashboard-preview-eyebrow">看板预览</span>
+            <h3>{{ dashboardPreview?.title || '看板预览' }}</h3>
+            <p>{{ dashboardPreview?.description || '暂无描述' }}</p>
+          </div>
+          <div class="dashboard-preview-actions">
+            <el-tag v-if="dashboardPreview" effect="plain">
+              {{ dashboardComponentCount(dashboardPreview) }} 个组件
+            </el-tag>
+            <el-button
+              v-if="dashboardPreview"
+              type="primary"
+              :icon="Edit"
+              @click="openDashboardEditorFromPreview"
+            >
+              编辑
+            </el-button>
+          </div>
+        </div>
+      </template>
+
+      <div v-loading="dashboardPreviewLoading" class="dashboard-preview-body">
+        <el-empty
+          v-if="!dashboardPreviewLoading && (!dashboardPreview || dashboardComponentCount(dashboardPreview) === 0)"
+          description="该看板暂无组件"
+          :image-size="72"
+        />
+        <div v-else class="catalog-preview-grid">
+          <div
+            v-for="item in dashboardPreview?.layout_json?.components || []"
+            :key="item.id"
+            class="catalog-preview-component"
+            :style="dashboardComponentStyle(item)"
+          >
+            <PinnedChartCard
+              :chart="chartForDashboardComponent(item)"
+              @delete="noop"
+            />
+          </div>
+        </div>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -550,6 +605,7 @@ import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, Position } from 
 import "@vue-flow/core/dist/style.css"
 import "@vue-flow/core/dist/theme-default.css"
 import { useAuthStore } from "@/store/auth"
+import PinnedChartCard from "@/components/PinnedChartCard.vue"
 
 interface DataAsset {
   id: number
@@ -576,6 +632,35 @@ interface FieldInfo { name: string; type: string; description: string | null }
 interface RefItem { type: string; name: string; id: number }
 interface LineageNodeRaw { id: number; name: string; asset_type: string }
 interface LineageEdgeRaw { source: number; target: number; rel_type: string }
+interface DashboardComponent {
+  id: string
+  pinned_chart_id: number
+  title: string
+  description?: string | null
+  chart_type: string
+  sort_order: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+interface DashboardItem {
+  id: number
+  title: string
+  description: string | null
+  layout_json: { components?: DashboardComponent[] } | null
+  status: string
+  visibility: string
+}
+interface PinnedChartData {
+  id: number
+  title: string
+  description: string | null
+  chart_type: string
+  sort_order: string
+  columns: string[]
+  rows: Array<Record<string, any>>
+}
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -606,6 +691,10 @@ const lineageLoading = ref(false)
 const refs = ref<RefItem[]>([])
 const refsLoading = ref(false)
 const refCount = ref<number | null>(null)
+const dashboardPreviewVisible = ref(false)
+const dashboardPreviewLoading = ref(false)
+const dashboardPreview = ref<DashboardItem | null>(null)
+const dashboardPreviewCharts = ref<PinnedChartData[]>([])
 
 const searchScope = ref<"folder" | "global">("folder")
 const searchFocused = ref(false)
@@ -955,7 +1044,60 @@ const addLineage = async () => {
   } catch { ElMessage.error("添加失败") }
 }
 
-const openDashboard = (id: number) => router.push({ path: "/dashboard-center", query: { dashboard_id: id } })
+const noop = () => {}
+
+const dashboardComponentCount = (dashboard: DashboardItem) => dashboard.layout_json?.components?.length || 0
+
+const dashboardComponentStyle = (component: DashboardComponent) => ({
+  gridColumn: `span ${Math.min(Math.max(component.w || 6, 3), 12)}`,
+  minHeight: `${Math.min(Math.max(component.h || 3, 2), 6) * 96}px`,
+})
+
+const chartForDashboardComponent = (component: DashboardComponent): PinnedChartData => {
+  const chart = dashboardPreviewCharts.value.find((item) => item.id === component.pinned_chart_id)
+  return {
+    id: component.pinned_chart_id,
+    title: component.title || chart?.title || "未命名图表",
+    description: component.description || chart?.description || null,
+    chart_type: component.chart_type || chart?.chart_type || "bar",
+    sort_order: component.sort_order || chart?.sort_order || "desc",
+    columns: chart?.columns || [],
+    rows: chart?.rows || [],
+  }
+}
+
+const fetchDashboardPreviewCharts = async () => {
+  if (dashboardPreviewCharts.value.length) return
+  try {
+    const { data } = await axios.get("/api/pinned-charts/with-data")
+    dashboardPreviewCharts.value = data
+  } catch {
+    dashboardPreviewCharts.value = []
+  }
+}
+
+const openDashboardPreview = async (id: number) => {
+  dashboardPreviewVisible.value = true
+  dashboardPreviewLoading.value = true
+  try {
+    const [{ data }] = await Promise.all([
+      axios.get(`/api/dashboards/${id}`),
+      fetchDashboardPreviewCharts(),
+    ])
+    dashboardPreview.value = data
+  } catch {
+    dashboardPreviewVisible.value = false
+    ElMessage.error("看板预览加载失败")
+  } finally {
+    dashboardPreviewLoading.value = false
+  }
+}
+
+const openDashboardEditorFromPreview = () => {
+  if (!dashboardPreview.value) return
+  dashboardPreviewVisible.value = false
+  router.push({ path: "/dashboard-center", query: { dashboard_id: dashboardPreview.value.id, mode: "edit" } })
+}
 
 onMounted(async () => {
   await fetchCategories()
@@ -1764,6 +1906,73 @@ onMounted(async () => {
   cursor: grab;
 }
 
+.catalog-dashboard-preview-dialog :deep(.el-dialog__body) {
+  padding-top: 0;
+}
+
+.dashboard-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 34px;
+}
+
+.dashboard-preview-title-group {
+  min-width: 0;
+}
+
+.dashboard-preview-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-preview-title-group h3 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.dashboard-preview-title-group p {
+  margin: 4px 0 0;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dashboard-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.dashboard-preview-body {
+  min-height: 360px;
+  max-height: calc(90vh - 108px);
+  overflow-y: auto;
+  padding: 2px 2px 8px;
+}
+
+.catalog-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.catalog-preview-component {
+  min-width: 0;
+}
+
+.catalog-dashboard-preview-dialog :deep(.card-actions) {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .catalog-layout {
     flex-direction: column;
@@ -1836,6 +2045,24 @@ onMounted(async () => {
   .asset-table {
     margin: 0 12px 12px;
     overflow-x: auto;
+  }
+
+  .dashboard-preview-head {
+    flex-direction: column;
+    padding-right: 24px;
+  }
+
+  .dashboard-preview-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .catalog-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-preview-component {
+    grid-column: 1 / -1 !important;
   }
 }
 </style>

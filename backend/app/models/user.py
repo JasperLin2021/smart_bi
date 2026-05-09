@@ -11,6 +11,7 @@ class User(Base):
     hashed_password = Column(String(256), nullable=False)
     role = Column(String(32), default="user")  # user | dept_admin | org_admin | super_admin
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    department_id = Column(Integer, nullable=True, index=True)
     department = Column(String(64), nullable=True)
     data_scope = Column(String(32), nullable=True)
     permission_override_enabled = Column(Boolean, default=False, nullable=False)

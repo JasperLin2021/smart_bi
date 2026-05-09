@@ -33,6 +33,9 @@ from app.api.olap import router as olap_router
 from app.api.integrations import router as integrations_router
 from app.api.access_requests import router as access_requests_router
 from app.api.data_links import router as data_links_router
+from app.api.report_templates import router as report_templates_router
+from app.api.pipelines import router as pipelines_router
+from app.api.analysis_views import router as analysis_views_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -69,3 +72,6 @@ api_router.include_router(olap_router)
 api_router.include_router(integrations_router)
 api_router.include_router(access_requests_router)
 api_router.include_router(data_links_router)
+api_router.include_router(report_templates_router)
+api_router.include_router(pipelines_router)
+api_router.include_router(analysis_views_router)

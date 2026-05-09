@@ -1,0 +1,418 @@
+<template>
+  <div class="page report-center-page">
+    <section class="enterprise-hero">
+      <div>
+        <p class="eyebrow">ENTERPRISE REPORTING</p>
+        <h2>复杂报表中心</h2>
+        <p>沉淀类 Excel 格子报表、参数报表、主子报表、交叉报表和填报模板，统一版本、导出和分发。</p>
+      </div>
+      <div class="hero-actions">
+        <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">新建复杂报表</el-button>
+      </div>
+    </section>
+
+    <section class="report-summary">
+      <div class="summary-tile">
+        <span>报表模板</span>
+        <strong>{{ reports.length }}</strong>
+        <small>{{ publishedCount }} 个已发布</small>
+      </div>
+      <div class="summary-tile">
+        <span>填报模板</span>
+        <strong>{{ fillFormCount }}</strong>
+        <small>支持校验与写回审计</small>
+      </div>
+      <div class="summary-tile">
+        <span>高保真导出</span>
+        <strong>Excel / PDF / Word</strong>
+        <small>导出任务可追踪</small>
+      </div>
+      <div class="summary-tile">
+        <span>版本管理</span>
+        <strong>v{{ latestVersion }}</strong>
+        <small>模板更新自动留痕</small>
+      </div>
+    </section>
+
+    <el-card shadow="never" class="enterprise-workbench">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <el-input v-model="keyword" :prefix-icon="Search" clearable placeholder="搜索报表名称 / 类型" />
+          <el-select v-model="datasetFilter" clearable placeholder="全部数据集">
+            <el-option v-for="dataset in datasets" :key="dataset.id" :label="dataset.name" :value="dataset.id" />
+          </el-select>
+        </div>
+        <span class="muted">共 {{ filteredReports.length }} 个模板</span>
+      </div>
+
+      <el-table :data="filteredReports" v-loading="loading" row-key="id" empty-text="暂无复杂报表模板">
+        <el-table-column label="报表" min-width="260">
+          <template #default="{ row }">
+            <div class="name-cell">
+              <strong>{{ row.name }}</strong>
+              <span>{{ datasetName(row.dataset_id) }} · {{ reportTypeLabel(row.report_type) }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="能力标签" min-width="260">
+          <template #default="{ row }">
+            <div class="tag-row">
+              <el-tag size="small" effect="plain">类 Excel</el-tag>
+              <el-tag v-if="row.parameter_schema_json" size="small" type="success" effect="plain">参数报表</el-tag>
+              <el-tag v-if="row.binding_json" size="small" type="warning" effect="plain">数据绑定</el-tag>
+              <el-tag v-if="row.fill_schema_json" size="small" type="danger" effect="plain">数据填报</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'published' ? 'success' : 'info'" size="small" effect="plain">
+              {{ row.status === "published" ? "已发布" : "草稿" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="版本" width="90">
+          <template #default="{ row }">v{{ row.version }}</template>
+        </el-table-column>
+        <el-table-column label="更新时间" min-width="150">
+          <template #default="{ row }">{{ formatDate(row.updated_at || row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="260" fixed="right">
+          <template #default="{ row }">
+            <div class="icon-actions">
+              <el-tooltip content="预览设计器">
+                <el-button :icon="View" circle @click="openDesigner(row)" />
+              </el-tooltip>
+              <el-tooltip content="编辑模板">
+                <el-button :icon="Edit" circle @click="openDesigner(row)" />
+              </el-tooltip>
+              <el-tooltip content="导出 Excel">
+                <el-button :icon="Download" circle :loading="exportingId === `${row.id}:excel`" @click="exportTemplate(row, 'excel')" />
+              </el-tooltip>
+              <el-tooltip content="导出 PDF">
+                <el-button circle :loading="exportingId === `${row.id}:pdf`" @click="exportTemplate(row, 'pdf')">PDF</el-button>
+              </el-tooltip>
+              <el-tooltip content="导出 Word">
+                <el-button circle :loading="exportingId === `${row.id}:word`" @click="exportTemplate(row, 'word')">W</el-button>
+              </el-tooltip>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-dialog v-model="dialogVisible" title="新建复杂报表" width="min(760px, calc(100vw - 32px))" destroy-on-close>
+      <el-form label-position="top">
+        <el-row :gutter="16">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="报表名称">
+              <el-input v-model="form.name" placeholder="例：Nova OEE 周报" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="绑定数据集">
+              <el-select v-model="form.dataset_id" placeholder="选择数据集" style="width: 100%">
+                <el-option v-for="dataset in datasets" :key="dataset.id" :label="dataset.name" :value="dataset.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="报表类型">
+              <el-select v-model="form.report_type" style="width: 100%">
+                <el-option label="分页报表" value="paginated" />
+                <el-option label="参数报表" value="parameterized" />
+                <el-option label="主子报表" value="master_detail" />
+                <el-option label="交叉报表" value="cross_tab" />
+                <el-option label="填报报表" value="fill_form" />
+                <el-option label="Word 报告" value="word" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="可见范围">
+              <el-segmented v-model="form.visibility" :options="visibilityOptions" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="说明">
+          <el-input v-model="form.description" type="textarea" :rows="3" placeholder="说明报表用途、分发对象或填报场景" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveTemplate">保存并进入设计器</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from "vue"
+import { useRouter } from "vue-router"
+import axios from "axios"
+import { ElMessage } from "element-plus"
+import { Download, Edit, Plus, Refresh, Search, View } from "@element-plus/icons-vue"
+
+type DatasetItem = { id: number; name: string }
+type ReportTemplate = {
+  id: number
+  name: string
+  description?: string | null
+  dataset_id: number
+  report_type: string
+  status: string
+  visibility: string
+  version: number
+  parameter_schema_json?: Record<string, unknown> | null
+  binding_json?: Record<string, unknown> | null
+  fill_schema_json?: Record<string, unknown> | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+const router = useRouter()
+const loading = ref(false)
+const saving = ref(false)
+const exportingId = ref("")
+const dialogVisible = ref(false)
+const keyword = ref("")
+const datasetFilter = ref<number | null>(null)
+const reports = ref<ReportTemplate[]>([])
+const datasets = ref<DatasetItem[]>([])
+const visibilityOptions = [
+  { label: "仅自己", value: "private" },
+  { label: "组织可见", value: "org" },
+]
+
+const form = reactive({
+  name: "",
+  description: "",
+  dataset_id: null as number | null,
+  report_type: "paginated",
+  visibility: "org",
+})
+
+const publishedCount = computed(() => reports.value.filter((item) => item.status === "published").length)
+const fillFormCount = computed(() => reports.value.filter((item) => item.report_type === "fill_form" || item.fill_schema_json).length)
+const latestVersion = computed(() => reports.value.reduce((max, item) => Math.max(max, item.version || 1), 1))
+const filteredReports = computed(() => {
+  const text = keyword.value.trim().toLowerCase()
+  return reports.value.filter((item) => {
+    const matchKeyword = !text || `${item.name} ${item.report_type}`.toLowerCase().includes(text)
+    const matchDataset = !datasetFilter.value || item.dataset_id === datasetFilter.value
+    return matchKeyword && matchDataset
+  })
+})
+
+const reportTypeLabel = (type: string) => {
+  const labels: Record<string, string> = {
+    paginated: "分页报表",
+    parameterized: "参数报表",
+    master_detail: "主子报表",
+    cross_tab: "交叉报表",
+    fill_form: "填报报表",
+    word: "Word 报告",
+  }
+  return labels[type] || type
+}
+
+const datasetName = (id: number) => datasets.value.find((item) => item.id === id)?.name || `数据集 #${id}`
+
+const formatDate = (value?: string | null) => {
+  if (!value) return "-"
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false })
+}
+
+const loadAll = async () => {
+  loading.value = true
+  try {
+    const [reportResp, datasetResp] = await Promise.all([
+      axios.get("/api/report-templates"),
+      axios.get("/api/datasets"),
+    ])
+    reports.value = reportResp.data.items || []
+    datasets.value = datasetResp.data.items || []
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "复杂报表加载失败")
+  } finally {
+    loading.value = false
+  }
+}
+
+const openCreate = () => {
+  form.name = ""
+  form.description = ""
+  form.dataset_id = datasets.value[0]?.id || null
+  form.report_type = "paginated"
+  form.visibility = "org"
+  dialogVisible.value = true
+}
+
+const saveTemplate = async () => {
+  if (!form.name.trim() || !form.dataset_id) {
+    ElMessage.warning("请填写报表名称并选择数据集")
+    return
+  }
+  saving.value = true
+  try {
+    const { data } = await axios.post("/api/report-templates", {
+      ...form,
+      dataset_id: form.dataset_id,
+      layout_json: { paper: "A4", cells: [{ row: 1, col: 1, value: form.name }] },
+      parameter_schema_json: form.report_type === "parameterized" ? { date_range: { type: "date_range", label: "日期范围" } } : null,
+      binding_json: { bands: [{ dataset_id: form.dataset_id, repeat: "detail" }] },
+      fill_schema_json: form.report_type === "fill_form" ? { fields: [{ name: "comment", label: "填报说明", required: true }] } : null,
+    })
+    ElMessage.success("复杂报表已创建")
+    dialogVisible.value = false
+    await loadAll()
+    router.push(`/report-designer/${data.id}`)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "保存失败")
+  } finally {
+    saving.value = false
+  }
+}
+
+const openDesigner = (row: ReportTemplate) => {
+  router.push(`/report-designer/${row.id}`)
+}
+
+const exportTemplate = async (row: ReportTemplate, exportType: "excel" | "pdf" | "word") => {
+  exportingId.value = `${row.id}:${exportType}`
+  try {
+    await axios.post(`/api/report-templates/${row.id}/export`, { export_type: exportType, parameters: {} })
+    ElMessage.success(`${exportType.toUpperCase()} 导出任务已提交`)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "导出失败")
+  } finally {
+    exportingId.value = ""
+  }
+}
+
+onMounted(loadAll)
+</script>
+
+<style scoped>
+.report-center-page {
+  gap: 16px;
+}
+
+.enterprise-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+}
+
+.enterprise-hero h2 {
+  margin: 4px 0 8px;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.enterprise-hero p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
+}
+
+.eyebrow {
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hero-actions,
+.toolbar,
+.toolbar-left,
+.tag-row,
+.icon-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-tile {
+  min-height: 96px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+}
+
+.summary-tile span,
+.summary-tile small,
+.muted,
+.name-cell span {
+  color: var(--app-text-muted);
+}
+
+.summary-tile strong {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 22px;
+  color: var(--app-text);
+}
+
+.enterprise-workbench {
+  min-height: 420px;
+}
+
+.toolbar {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.toolbar-left .el-input {
+  width: 260px;
+}
+
+.toolbar-left .el-select {
+  width: 220px;
+}
+
+.name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.icon-actions :deep(.el-button) {
+  width: 34px;
+  height: 34px;
+}
+
+@media (max-width: 900px) {
+  .enterprise-hero,
+  .toolbar,
+  .toolbar-left {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolbar-left .el-input,
+  .toolbar-left .el-select {
+    width: 100%;
+  }
+}
+</style>

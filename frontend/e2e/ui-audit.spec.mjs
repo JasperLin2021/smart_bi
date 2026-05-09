@@ -35,6 +35,19 @@ const assets = [
   { id: 1201, asset_type: "dataset", asset_id: 301, name: "Nova Sales Fulfillment", description: "已发布销售履约数据集", datasource_id: 101, org_id: 1, owner_id: 11, status: "published", tags: ["销售", "履约"], metadata_json: { fields: { fields: [{ name: "amount", type: "decimal" }] } }, view_count: 128, created_at: now, updated_at: now },
   { id: 1202, asset_type: "metric", asset_id: 901, name: "On Time Shipment Rate", description: "准时发货率指标", datasource_id: 101, org_id: 1, owner_id: 10, status: "published", tags: ["指标"], view_count: 88, created_at: now, updated_at: now },
 ]
+const reportTemplates = [
+  { id: 3101, name: "Nova OEE Weekly Report", description: "OEE 周报", dataset_id: 301, report_type: "paginated", status: "published", visibility: "org", version: 2, layout_json: { paper: "A4", cells: [{ row: 1, col: "A", value: "Nova OEE Weekly Report", bold: true }] }, parameter_schema_json: { date_range: { type: "date_range" } }, binding_json: { bands: [{ dataset_id: 301, repeat: "detail" }] }, fill_schema_json: null, created_at: now, updated_at: now },
+  { id: 3102, name: "Quality Fill Form", description: "质量填报", dataset_id: 302, report_type: "fill_form", status: "draft", visibility: "org", version: 1, layout_json: { paper: "A4", cells: [] }, parameter_schema_json: {}, binding_json: {}, fill_schema_json: { fields: [{ name: "comment", required: true }] }, created_at: now, updated_at: now },
+]
+const pipelines = [
+  { id: 3201, name: "Nova ERP to Sales Fulfillment", dataset_id: 301, status: "active", last_run_status: "success", dag_json: { nodes: [{ id: "extract", type: "extract", label: "抽取 ERP" }, { id: "quality", type: "quality", label: "质量校验" }, { id: "load", type: "load", label: "写入数据集" }], edges: [{ source: "extract", target: "quality" }, { source: "quality", target: "load" }] } },
+]
+const qualityRules = [
+  { id: 3301, pipeline_id: 3201, dataset_id: 301, name: "金额不能为空", rule_type: "not_null", field: "amount", severity: "error", is_active: true },
+]
+const analysisViews = [
+  { id: 3401, name: "Nova Fulfillment Trend", dataset_id: 301, chart_type: "bar", dimensions: ["order_date"], measures: [{ field: "amount", aggregation: "sum" }], filters: [], status: "published", visibility: "org" },
+]
 
 function body(value) {
   return { contentType: "application/json", body: JSON.stringify(value) }
@@ -73,6 +86,7 @@ async function mockApi(page) {
     if (p.includes("/generate-formula")) return ok({ formula: "SUM(on_time) / COUNT(*)" })
     if (p === "/api/alerts") return ok({ items: [{ id: 1001, name: "SLA Risk Alert", datasource_id: 101, metric_id: 901, metric_name: "On Time Shipment Rate", time_range: 1, time_range_unit: "day", check_period: 1, check_period_unit: "hour", notify_system: true, notify_email: false, is_active: true, created_by: 10 }], total: 1 })
     if (p === "/api/scheduled-reports") return ok({ items: [{ id: 1101, name: "Daily Operations Brief", datasource_id: 101, question: "总结昨日订单、库存与风险", cron_expression: "0 9 * * 1-5", notify_email: true, email_recipients: "ops@example.com", is_active: true, created_by: 10, last_run_at: now, created_at: now }], total: 1 })
+    if (p === "/api/users/assignable") return ok([{ department: "运营部", users: users.map(u => ({ id: u.id, username: u.username, role: u.role, role_label: u.role, department: "运营部" })) }])
     if (p === "/api/users") return ok(users)
     if (p === "/api/organizations") return ok(organizations)
     if (p === "/api/action-items") return ok({ items: [{ id: 2001, title: "复核 B 线良率异常", description: "B 线良率连续两天低于阈值", source_type: "alert", linked_metric_id: 902, owner_id: 11, priority: "high", status: "open", org_id: 1, created_by: 10, created_at: now, updated_at: now }], total: 1 })
@@ -84,6 +98,17 @@ async function mockApi(page) {
     if (/^\/api\/catalog\/assets\/\d+\/references$/.test(p)) return ok({ count: 1, references: [{ type: "dashboard", name: "Nova Executive Operations" }] })
     if (/^\/api\/catalog\/assets\/\d+\/subscription$/.test(p)) return ok({ subscribed: false })
     if (p === "/api/data-access/overview") return ok({ datasources: { total: 2, schema_ready: 2, active: 2 }, datasets: { total: 2, published: 1, materialized: 1 }, sync_tasks: { success: 16, failed: 1 }, olap: { enabled: true, healthy: true }, source_types: [{ type: "sqlite", count: 2 }], recent_refresh_logs: [{ id: 1, dataset_id: 301, status: "success", row_count: 12480, message: "刷新成功", created_at: now }] })
+    if (p === "/api/report-templates") return ok({ items: reportTemplates, total: reportTemplates.length })
+    if (/^\/api\/report-templates\/\d+$/.test(p)) return ok(reportTemplates[0])
+    if (/^\/api\/report-templates\/\d+\/versions$/.test(p)) return ok([{ id: 1, template_id: 3101, version: 2, snapshot_json: reportTemplates[0], changelog: "增加动态收件人", created_at: now }])
+    if (/^\/api\/report-templates\/\d+\/export$/.test(p)) return ok({ status: "queued", run_id: 1, export_type: "excel" })
+    if (p === "/api/pipelines") return ok(pipelines)
+    if (/^\/api\/pipelines\/\d+$/.test(p)) return ok(pipelines[0])
+    if (/^\/api\/pipelines\/\d+\/run$/.test(p)) return ok({ id: 1, pipeline_id: 3201, mode: "manual", status: "success", records_read: 360, records_written: 360, records_failed: 0, node_logs_json: { summary: { node_count: 3 } } })
+    if (p === "/api/quality-rules") return ok(qualityRules)
+    if (p === "/api/analysis-views") return ok({ items: analysisViews, total: analysisViews.length })
+    if (/^\/api\/analysis-views\/\d+$/.test(p)) return ok(analysisViews[0])
+    if (/^\/api\/analysis-views\/\d+\/preview$/.test(p)) return ok({ query_plan: { sql: "SELECT order_date, SUM(amount) AS sum_amount FROM sales_orders GROUP BY order_date LIMIT 200" }, chart: { type: "bar" }, dataset: datasets[0] })
     if (p === "/api/access-requests") return ok([{ id: 1401, requester_id: 11, resource_type: "dataset", resource_id: 301, resource_name: "Nova Sales Fulfillment", reason: "月度经营复盘", status: "pending", org_id: 1, created_at: now }])
     if (p === "/api/audit-logs") return ok({ total: 1, items: [{ id: 1, actor_username: "nova.admin", actor_role: "org_admin", action: "dashboard.update", resource_type: "dashboard", resource_name: "Nova Executive Operations", status: "success", message: "看板已更新", created_at: now }] })
     if (p === "/api/operations/summary") return ok({ user_count: 6, org_count: 2, datasource_count: 2, query_count: 128, audit_error_count: 0, asset_count: 12, recent_queries: [], recent_audits: [] })
@@ -121,7 +146,7 @@ async function collectMetrics(page) {
       const style = getComputedStyle(el)
       return rect.width > 1 && rect.height > 1 && style.visibility !== "hidden" && style.display !== "none"
     })
-    const ignoredOverflowSelector = ".el-table, .el-scrollbar, .el-tabs__nav-scroll, .el-tabs__nav-wrap"
+    const ignoredOverflowSelector = ".el-table, .el-scrollbar, .el-tabs__nav-scroll, .el-tabs__nav-wrap, .grid-stage, .vue-flow__transformationpane, .vue-flow__edge-labels, .vue-flow__nodes"
     const ignoredTags = new Set(["svg", "path", "defs", "clipPath", "g", "col", "colgroup", "thead", "tbody", "tr"])
     const badBounds = visibleElements
       .filter((el) => {
@@ -148,13 +173,13 @@ test("UI/UX route audit across desktop tablet and mobile", async ({ page }) => {
   await mockApi(page)
   await page.addInitScript(() => localStorage.setItem("smart-bi-token", "ui-audit-token"))
 
-  const routes = ["/login", "/dashboard", "/dashboard-center", "/big-screen-center", "/data-access", "/data-catalog", "/dataset-center", "/smart-query", "/action-items", "/datasource-settings", "/olap-status", "/user-management", "/org-management", "/metric-settings", "/alert-settings", "/scheduled-reports", "/audit-logs", "/operations", "/llm-settings", "/notification-settings", "/wechat-work-integration", "/embed/mock-token"]
+  const routes = ["/login", "/dashboard", "/dashboard-center", "/big-screen-center", "/data-access", "/data-pipelines", "/data-catalog", "/dataset-center", "/smart-query", "/action-items", "/datasource-settings", "/olap-status", "/user-management", "/org-management", "/metric-settings", "/alert-settings", "/report-center", "/report-designer/3101", "/analysis-workbench", "/scheduled-reports", "/audit-logs", "/operations", "/llm-settings", "/notification-settings", "/wechat-work-integration", "/embed/mock-token"]
   const viewports = [
     { name: "desktop", width: 1440, height: 900 },
     { name: "tablet", width: 768, height: 1024 },
     { name: "mobile", width: 390, height: 844 },
   ]
-  const screenshotRoutes = new Set(["/login", "/dashboard", "/dashboard-center", "/data-catalog", "/dataset-center", "/smart-query", "/metric-settings"])
+  const screenshotRoutes = new Set(["/login", "/dashboard", "/dashboard-center", "/data-catalog", "/dataset-center", "/smart-query", "/metric-settings", "/report-center", "/data-pipelines", "/analysis-workbench"])
   const results = []
 
   for (const vp of viewports) {

@@ -283,7 +283,7 @@ def get_metric_lineage(
     # Build dataset lineage info from fields_json (single source of truth)
     fields_json = (dataset.fields_json or {}) if dataset else {}
     main_table = str(fields_json.get("table") or "")
-    raw_fields = fields_json.get("fields") or []
+    raw_fields = fields_json.get("dimensions") or fields_json.get("fields") or []
     raw_joins = fields_json.get("joins") or []
 
     def _fname(f):

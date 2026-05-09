@@ -3,14 +3,14 @@
     <section class="access-hero">
       <div>
         <p class="eyebrow">DATA INTEGRATION</p>
-        <h2>数据接入中心</h2>
+        <h2>数据准备中心</h2>
         <p class="hero-copy">
-          面向多源异构接入、数据开发、同步与物化、任务运维，把分析前的数据准备能力集中管理。
+          面向连接器接入、数据开发、同步与物化、任务运维，把分析前的数据准备能力集中管理。
         </p>
       </div>
       <div class="hero-actions">
         <el-button :icon="Refresh" :loading="loading" @click="loadOverview">刷新</el-button>
-        <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="go('/datasource-settings')">新增数据源</el-button>
+        <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="go('/data-development?tab=datasources')">新增数据源</el-button>
         <el-button v-else type="primary" @click="requestDialogVisible = true">申请访问权限</el-button>
       </div>
     </section>
@@ -32,7 +32,7 @@
         <small>{{ overview.sync_tasks.failed }} 个失败记录</small>
       </div>
       <div class="metric-tile">
-        <span>Doris 数据平台</span>
+        <span>OLAP 数据平台</span>
         <strong>{{ overview.olap.enabled ? "已启用" : "未启用" }}</strong>
         <small>{{ overview.olap.healthy ? "连接正常" : overview.olap.message || "未连接" }}</small>
       </div>
@@ -59,7 +59,7 @@
         <template #header>
           <div class="card-title-line">
             <span>接入类型分布</span>
-            <el-button text type="primary" @click="go('/datasource-settings')">管理数据源</el-button>
+            <el-button text type="primary" @click="go('/data-development?tab=datasources')">管理数据源</el-button>
           </div>
         </template>
         <div class="source-type-list">
@@ -78,7 +78,7 @@
         <template #header>
           <div class="card-title-line">
             <span>最近任务运维</span>
-            <el-button text type="primary" @click="go('/dataset-center')">查看数据集</el-button>
+            <el-button text type="primary" @click="go('/data-pipelines')">查看加工管道</el-button>
           </div>
         </template>
         <el-table :data="overview.recent_refresh_logs" size="small" empty-text="暂无刷新记录">
@@ -179,15 +179,15 @@ const overview = reactive<Overview>({
 
 const capabilities = [
   {
-    title: "多源异构接入",
-    description: "统一管理数据库、Excel 和后续 API / SaaS 连接器。",
-    path: "/datasource-settings",
+    title: "连接器接入",
+    description: "覆盖多源异构接入，统一管理数据库、Excel 和后续 API / SaaS 连接器。",
+    path: "/data-development?tab=datasources",
     icon: Coin,
   },
   {
     title: "数据开发",
     description: "通过数据集选择字段、筛选、聚合、语义层和刷新策略。",
-    path: "/dataset-center",
+    path: "/data-development?tab=datasets",
     icon: Document,
   },
   {
@@ -198,8 +198,8 @@ const capabilities = [
   },
   {
     title: "任务运维",
-    description: "查看刷新记录、失败原因和接入链路运行状态。",
-    path: "/dataset-center",
+    description: "查看数据加工管道、失败原因和接入链路运行状态。",
+    path: "/data-pipelines",
     icon: Monitor,
   },
   {
@@ -221,7 +221,7 @@ const loadOverview = async () => {
     overview.source_types = data.source_types || []
     overview.recent_refresh_logs = data.recent_refresh_logs || []
   } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "数据接入总览加载失败")
+    ElMessage.error(error.response?.data?.detail || "数据准备总览加载失败")
   } finally {
     loading.value = false
   }

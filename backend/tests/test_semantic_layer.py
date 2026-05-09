@@ -149,6 +149,47 @@ class SemanticLayerTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_inferred_semantic_model_uses_dataset_dimensions_and_metrics(self):
+        from app.api.datasets import get_dataset_semantic_model
+        from app.models.dataset import Dataset
+
+        source_path = self._source_database()
+        try:
+            db, dataset = self._dataset_fixture(source_path)
+            dataset.semantic_model_json = None
+            dataset.fields_json = {"table": "sales", "dimensions": ["sales.region", "sales.status"]}
+            dataset.aggregations_json = {"aggregations": ["SUM(sales.amount)"]}
+            db.commit()
+
+            response = get_dataset_semantic_model(
+                dataset.id,
+                db=db,
+                current_user=SimpleNamespace(id=10, username="owner", role="user", org_id=2),
+            )
+
+            self.assertEqual([item["id"] for item in response["semantic_model"]["dimensions"]], ["region", "status"])
+            self.assertEqual(response["semantic_model"]["metrics"][0]["id"], "sum_amount")
+
+            dataset.fields_json = {
+                "table": "sales",
+                "dimensions": [{"field": "sales.region", "alias": "区域"}],
+                "metrics": [{"field": "sales.amount", "aggregation": "AVG", "alias": "平均销售额"}],
+            }
+            dataset.aggregations_json = None
+            db.commit()
+
+            structured = get_dataset_semantic_model(
+                dataset.id,
+                db=db,
+                current_user=SimpleNamespace(id=10, username="owner", role="user", org_id=2),
+            )
+
+            self.assertEqual(structured["semantic_model"]["dimensions"][0]["label"], "区域")
+            self.assertEqual(structured["semantic_model"]["metrics"][0]["label"], "平均销售额")
+            self.assertEqual(structured["semantic_model"]["metrics"][0]["aggregation"], "avg")
+        finally:
+            os.unlink(source_path)
+
     def test_semantic_query_executes_dataset_scoped_metric(self):
         from app.api.query import semantic_query
         from app.schemas.query import SemanticQueryRequest
