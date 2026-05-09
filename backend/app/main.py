@@ -171,6 +171,7 @@ def _startup():
 
     # Add permission columns to users table if missing
     for column_definition in [
+        "department VARCHAR(64)",
         "data_scope VARCHAR(32)",
         "permission_override_enabled BOOLEAN DEFAULT 0",
         "menu_permissions TEXT",
@@ -240,7 +241,6 @@ def _startup():
         "data_updated_at TIMESTAMP",
         "quality_status VARCHAR(32) DEFAULT 'unknown'",
         "quality_message TEXT",
-        "lineage_json JSON",
     ]:
         try:
             _ensure_column(engine, "metrics", column_definition)

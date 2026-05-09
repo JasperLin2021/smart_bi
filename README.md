@@ -118,6 +118,8 @@ docker compose up -d --build
 open http://localhost:16006
 ```
 
+默认快速预览会在后端健康检查通过后自动运行一次 `demo-seed`，从 `mock_data.sql` 自动导入拟真示例数据。可用 `docker compose logs demo-seed` 查看导入结果。
+
 默认服务：
 
 | 服务 | 默认地址 | 说明 |
@@ -125,6 +127,7 @@ open http://localhost:16006
 | 前端 | `http://localhost:16006` | Nginx 托管的 SPA 和 `/api` 代理。 |
 | 后端 | 容器内部 `8001` | 提供给前端容器访问的 FastAPI 服务。 |
 | PostgreSQL | 容器内部 `5432` | 主数据库。 |
+| 示例数据 | 一次性容器 `demo-seed` | 默认快速预览自动导入 `mock_data.sql`，退出码为 0 表示导入完成。 |
 | Doris | 可选 profile | 仅在需要 OLAP 加速时启动。 |
 
 ### 部署方式
@@ -213,6 +216,8 @@ DORIS_HTTP_PORT=8030
 
 远端仓库已经包含 `mock_data.sql`、`demo_setup.py` 和 `feature_demo_setup.py`。
 其中 `mock_data.sql` 是推荐的 Docker Compose 开箱即用示例数据，因为它可以在后端完成建表后直接导入 PostgreSQL。
+
+默认快速预览命令 `docker compose up -d --build` 会自动导入 `mock_data.sql`，因此从 GitHub 克隆后启动即可看到拟真企业、数据源、数据集、指标、看板、数据目录、预警和待办数据。
 
 开发环境导入完整演示数据：
 
@@ -489,6 +494,10 @@ docker compose up -d --build
 open http://localhost:16006
 ```
 
+The default quick preview automatically imports `mock_data.sql` through the one-shot
+`demo-seed` container after the backend health check passes. Check the result with
+`docker compose logs demo-seed`.
+
 Default services:
 
 | Service | Default | Description |
@@ -496,6 +505,7 @@ Default services:
 | Frontend | `http://localhost:16006` | Nginx-served SPA and `/api` proxy. |
 | Backend | internal `8001` | FastAPI service exposed to the frontend container. |
 | PostgreSQL | internal `5432` | Primary database. |
+| Demo data | one-shot `demo-seed` container | Automatically imports `mock_data.sql` for the default quick preview; exit code 0 means the import completed. |
 | Doris | optional profile | Start only when OLAP acceleration is needed. |
 
 ### Deployment
@@ -586,6 +596,10 @@ The remote repository already includes `mock_data.sql`, `demo_setup.py`, and
 `feature_demo_setup.py`. `mock_data.sql` is the recommended out-of-the-box dataset for
 Docker Compose because it can be imported directly into PostgreSQL after the backend
 has created the application tables.
+
+The default quick-start command, `docker compose up -d --build`, automatically imports
+`mock_data.sql`, so a fresh GitHub clone starts with realistic organizations, data
+sources, datasets, metrics, dashboards, catalog assets, alerts, and action items.
 
 To start the development stack and import the full demo dataset in one flow:
 

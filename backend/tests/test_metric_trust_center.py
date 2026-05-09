@@ -68,7 +68,6 @@ class MetricTrustCenterTests(unittest.TestCase):
                 caliber_version="v2026.04",
                 quality_status="normal",
                 quality_message="与财务月结口径一致",
-                lineage_json={"source_tables": ["payments", "receivables"]},
             ),
             db=db,
             current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
@@ -84,7 +83,6 @@ class MetricTrustCenterTests(unittest.TestCase):
         self.assertEqual(asset.metadata_json["certification_status"], "certified")
         self.assertEqual(asset.metadata_json["quality_status"], "normal")
         self.assertEqual(asset.metadata_json["caliber_version"], "v2026.04")
-        self.assertEqual(asset.metadata_json["lineage"]["source_tables"], ["payments", "receivables"])
 
     def test_metric_lineage_returns_source_and_usage_nodes(self):
         from app.api.metrics import create_metric, get_metric_lineage
@@ -106,7 +104,13 @@ class MetricTrustCenterTests(unittest.TestCase):
         db.add(datasource)
         db.flush()
         db.refresh(datasource)
-        dataset = Dataset(name="Sales Dataset", datasource_id=datasource.id, org_id=2, owner_id=1)
+        dataset = Dataset(
+            name="Sales Dataset",
+            datasource_id=datasource.id,
+            fields_json={"table": "orders", "fields": ["orders.net_amount"]},
+            org_id=2,
+            owner_id=1,
+        )
         db.add(dataset)
         db.commit()
         db.refresh(dataset)
@@ -116,7 +120,6 @@ class MetricTrustCenterTests(unittest.TestCase):
                 name="销售额",
                 definition="成交金额合计",
                 formula="SUM(net_amount)",
-                table_name="orders",
                 column_name="net_amount",
                 certification_status="pending_review",
                 quality_status="stale",

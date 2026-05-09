@@ -53,6 +53,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 VALID_ASSET_STATUSES = {"draft", "published", "archived"}
+VALID_ASSET_TYPE_ORDER = ("metric", "dataset", "table", "dashboard", "big_screen")
+VALID_ASSET_TYPES = set(VALID_ASSET_TYPE_ORDER)
+ASSET_TYPE_LABELS = {
+    "metric": "指标",
+    "dataset": "数据集",
+    "table": "数据表",
+    "dashboard": "看板",
+    "big_screen": "大屏",
+}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -60,6 +69,25 @@ VALID_ASSET_STATUSES = {"draft", "published", "archived"}
 def _ensure_status(status: str) -> None:
     if status not in VALID_ASSET_STATUSES:
         raise HTTPException(status_code=400, detail="无效资产状态")
+
+
+def _asset_type_choices_text() -> str:
+    return "、".join(
+        f"{ASSET_TYPE_LABELS[asset_type]}({asset_type})"
+        for asset_type in VALID_ASSET_TYPE_ORDER
+    )
+
+
+def _ensure_asset_type(asset_type: str) -> None:
+    if asset_type not in VALID_ASSET_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效资产类型 {asset_type}，仅支持：{_asset_type_choices_text()}",
+        )
+
+
+def _supported_asset_query(db: Session):
+    return db.query(DataAsset).filter(DataAsset.asset_type.in_(VALID_ASSET_TYPE_ORDER))
 
 
 def _can_manage_asset(user: User, asset: DataAsset) -> bool:
@@ -254,7 +282,9 @@ def list_assets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = _apply_visibility(db.query(DataAsset), current_user)
+    if asset_type:
+        _ensure_asset_type(asset_type)
+    query = _apply_visibility(_supported_asset_query(db), current_user)
     if q:
         query = query.filter(DataAsset.name.ilike(f"%{q}%"))
     if asset_type:
@@ -274,6 +304,7 @@ def create_asset(
 ):
     if current_user.role not in ("org_admin", "super_admin"):
         raise HTTPException(status_code=403, detail="无权限")
+    _ensure_asset_type(payload.asset_type)
     _ensure_status(payload.status)
     org_id = payload.org_id if current_user.role == "super_admin" else current_user.org_id
     asset = DataAsset(
@@ -293,7 +324,7 @@ def get_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = _apply_visibility(db.query(DataAsset), current_user).filter(DataAsset.id == asset_id).first()
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
     # Increment view count atomically
@@ -313,7 +344,7 @@ def update_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = db.query(DataAsset).filter(DataAsset.id == asset_id).first()
+    asset = _supported_asset_query(db).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
     if not _can_manage_asset(current_user, asset):
@@ -336,7 +367,7 @@ def update_asset_status(
     current_user: User = Depends(get_current_user),
 ):
     _ensure_status(payload.status)
-    asset = db.query(DataAsset).filter(DataAsset.id == asset_id).first()
+    asset = _supported_asset_query(db).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
     if not _can_manage_asset(current_user, asset):
@@ -362,7 +393,7 @@ def update_asset_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = db.query(DataAsset).filter(DataAsset.id == asset_id).first()
+    asset = _supported_asset_query(db).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
     if not _can_manage_asset(current_user, asset):
@@ -381,7 +412,7 @@ def get_asset_fields(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = _apply_visibility(db.query(DataAsset), current_user).filter(DataAsset.id == asset_id).first()
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
 
@@ -433,7 +464,7 @@ def preview_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = _apply_visibility(db.query(DataAsset), current_user).filter(DataAsset.id == asset_id).first()
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
 
@@ -479,7 +510,7 @@ def get_asset_references(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = _apply_visibility(db.query(DataAsset), current_user).filter(DataAsset.id == asset_id).first()
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
 
@@ -517,7 +548,7 @@ def get_asset_lineage(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = _apply_visibility(db.query(DataAsset), current_user).filter(DataAsset.id == asset_id).first()
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
 
@@ -548,9 +579,14 @@ def get_asset_lineage(
 
     # Collect all node IDs
     node_ids = visited_ids
-    assets = db.query(DataAsset).filter(DataAsset.id.in_(node_ids)).all()
+    assets = _supported_asset_query(db).filter(DataAsset.id.in_(node_ids)).all()
+    valid_node_ids = {a.id for a in assets}
     nodes = [LineageNode(id=a.id, name=a.name, asset_type=a.asset_type) for a in assets]
-    edges = [LineageEdge(source=e.source_id, target=e.target_id, rel_type=e.rel_type) for e in edges_raw]
+    edges = [
+        LineageEdge(source=e.source_id, target=e.target_id, rel_type=e.rel_type)
+        for e in edges_raw
+        if e.source_id in valid_node_ids and e.target_id in valid_node_ids
+    ]
 
     return AssetLineageResponse(nodes=nodes, edges=edges)
 
@@ -563,6 +599,14 @@ def create_lineage(
 ):
     if current_user.role not in ("org_admin", "super_admin"):
         raise HTTPException(status_code=403, detail="无权限")
+    asset_ids = {payload.source_id, payload.target_id}
+    supported_count = (
+        _supported_asset_query(db)
+        .filter(DataAsset.id.in_(asset_ids))
+        .count()
+    )
+    if supported_count != len(asset_ids):
+        raise HTTPException(status_code=404, detail="数据资产不存在")
     existing = (
         db.query(AssetLineage)
         .filter(AssetLineage.source_id == payload.source_id, AssetLineage.target_id == payload.target_id)
@@ -607,6 +651,9 @@ def get_subscription_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="数据资产不存在")
     sub = (
         db.query(AssetSubscription)
         .filter(AssetSubscription.user_id == current_user.id, AssetSubscription.asset_id == asset_id)
@@ -621,7 +668,7 @@ def subscribe_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    asset = db.query(DataAsset).filter(DataAsset.id == asset_id).first()
+    asset = _apply_visibility(_supported_asset_query(db), current_user).filter(DataAsset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="数据资产不存在")
     existing = (

@@ -110,22 +110,41 @@ class P0CompletionTests(unittest.TestCase):
         from app.api.alerts import list_alerts
         from app.api.scheduled_reports import list_reports
         from app.models.alert import Alert
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.scheduled_report import ScheduledReport
 
-        db = self._db([DataSource.__table__, Alert.__table__, ScheduledReport.__table__])
+        db = self._db([DataSource.__table__, Dataset.__table__, Alert.__table__, ScheduledReport.__table__])
         same_ds = DataSource(name="Same", slug="same", database_url="sqlite:///:memory:", metadata_prompt="", org_id=2)
         other_ds = DataSource(name="Other", slug="other", database_url="sqlite:///:memory:", metadata_prompt="", org_id=1)
         db.add_all([same_ds, other_ds])
         db.commit()
         db.refresh(same_ds)
         db.refresh(other_ds)
+        same_dataset = Dataset(name="Same Dataset", datasource_id=same_ds.id, org_id=2, owner_id=11)
+        other_dataset = Dataset(name="Other Dataset", datasource_id=other_ds.id, org_id=1, owner_id=12)
+        db.add_all([same_dataset, other_dataset])
+        db.commit()
+        db.refresh(same_dataset)
+        db.refresh(other_dataset)
         db.add_all(
             [
-                Alert(name="same alert", datasource_id=same_ds.id),
-                Alert(name="other alert", datasource_id=other_ds.id),
-                ScheduledReport(name="same report", datasource_id=same_ds.id, question="q", cron_expression="0 9 * * *"),
-                ScheduledReport(name="other report", datasource_id=other_ds.id, question="q", cron_expression="0 9 * * *"),
+                Alert(name="same alert", dataset_id=same_dataset.id, datasource_id=same_ds.id),
+                Alert(name="other alert", dataset_id=other_dataset.id, datasource_id=other_ds.id),
+                ScheduledReport(
+                    name="same report",
+                    dataset_id=same_dataset.id,
+                    datasource_id=same_ds.id,
+                    question="q",
+                    cron_expression="0 9 * * *",
+                ),
+                ScheduledReport(
+                    name="other report",
+                    dataset_id=other_dataset.id,
+                    datasource_id=other_ds.id,
+                    question="q",
+                    cron_expression="0 9 * * *",
+                ),
             ]
         )
         db.commit()

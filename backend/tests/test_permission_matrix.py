@@ -431,14 +431,19 @@ class PermissionMatrixTests(unittest.TestCase):
         self._assert_http(
             403,
             create_alert,
-            AlertCreate(name="Cross Org GMV Alert", datasource_id=201),
+            AlertCreate(name="Cross Org GMV Alert", dataset_id=401, datasource_id=201),
             db=db,
             current_user=data["nova_admin"],
         )
         self._assert_http(
             403,
             create_report,
-            ScheduledReportCreate(name="Cross Org POS Report", datasource_id=201, question="GMV by store"),
+            ScheduledReportCreate(
+                name="Cross Org POS Report",
+                dataset_id=401,
+                datasource_id=201,
+                question="GMV by store",
+            ),
             db=db,
             current_user=data["nova_admin"],
         )

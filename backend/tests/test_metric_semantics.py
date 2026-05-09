@@ -48,7 +48,6 @@ class MetricSemanticsTests(unittest.TestCase):
             name="良率",
             description="质量指标",
             definition="良品数 / 总产出",
-            table_name="production",
             column_name="good_qty",
             formula="SUM(good_qty) / SUM(output_qty)",
             owner_name="质量部",

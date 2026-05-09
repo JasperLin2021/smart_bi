@@ -68,7 +68,6 @@ services:
   demo-seed:
     image: postgres:16-alpine
     restart: "no"
-    profiles: ["demo"]
     depends_on:
       postgres:
         condition: service_healthy

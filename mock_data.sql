@@ -789,13 +789,13 @@ VALUES
    '{"row_count":12847,"columns":["customer_name","product_category","revenue","order_date","salesperson"],"update_frequency":"daily"}',
    128, NOW() - INTERVAL '50 days', NOW() - INTERVAL '2 days'),
 
-  -- Asset 20: RTY失效分析报告
-  (20, 'report', 3, '月度RTY良率分析报告',
-   '每月自动生成的RTY良率分析报告，含失效模式排名、产线对比和改善建议。',
+  -- Asset 20: RTY一次通过率指标
+  (20, 'metric', 2, 'RTY一次通过率指标',
+   '衡量产品一次通过全部工序的质量指标，用于质量趋势监控、班次对比和失效模式改善。',
    2, 1, 6, 7,
    'published',
-   '["RTY","质量","失效分析","月报"]',
-   '{"schedule":"monthly","last_run":"2026-05-01","format":"markdown"}',
+   '["RTY","质量","一次通过率","认证指标"]',
+   '{"formula":"合格流转件数 / 投入件数 * 100%","unit":"%","aggregation":"avg","target":95,"certification_status":"certified"}',
    89, NOW() - INTERVAL '45 days', NOW() - INTERVAL '7 days'),
 
   -- Asset 21: mainrecord 原始数据表
@@ -807,24 +807,37 @@ VALUES
    '{"table_name":"mainrecord","row_count":4823,"columns":["ID","ASI","LINE","SHIFTID","CT","PARTNO","SHIFTSTARTMIN","SHIFTPLAN","SHIFTSTARTTIME","SHIFTENDTIME","SHIFTNAME","OEE","RTY","TOTALCOUNT","STAFFNUM"],"update_frequency":"realtime"}',
    267, NOW() - INTERVAL '55 days', NOW() - INTERVAL '1 day'),
 
-  -- Asset 22: 蓝途销售趋势查询
-  (22, 'query', 4, 'Q1蓝途销售结构分析查询',
-   '分析蓝途Q1各产品线销售额分布，识别主力产品和增长机会点。已标记为洞察。',
+  -- Asset 22: 蓝途销售经营大屏
+  (22, 'big_screen', NULL, '蓝途销售经营大屏',
+   '面向管理层的蓝途销售经营大屏，集中展示销售额、产品结构、客户贡献和渠道表现。',
    4, 1, 8, 5,
    'published',
-   '["销售分析","Q1","产品结构","洞察"]',
-   '{"query_history_id":4,"is_insight":true,"insight_title":"Q1销售结构分析：转向管柱总成独大，需培育第二增长极"}',
+   '["销售分析","经营大屏","产品结构","客户贡献"]',
+   '{"component_count":8,"data_bindings":[{"dataset_id":4,"metric":"revenue"}],"refresh_interval":"15min"}',
    54, NOW() - INTERVAL '22 days', NOW() - INTERVAL '22 days'),
 
-  -- Asset 23: 排班数据说明文档
-  (23, 'document', NULL, 'Nexteer生产数据字段说明',
-   'Nexteer Excel数据源各Sheet字段定义说明，包含mainrecord、ngtype、production等表的字段含义和取值规范。',
-   2, 1, 2, 8,
+  -- Asset 23: OEE综合效率指标
+  (23, 'metric', 1, 'OEE综合效率指标',
+   '综合衡量产线时间开动率、性能效率和质量良率的核心生产效率指标。',
+   2, 1, 2, 6,
    'published',
-   '["文档","字段说明","元数据","数据治理"]',
-   '{"version":"v2.1","last_updated":"2026-03-15","sheets":["mainrecord","ngtype","production","production_ok","rtyinfo"]}',
+   '["OEE","生产效率","KPI","认证指标"]',
+   '{"formula":"时间开动率 * 性能效率 * 质量良率","unit":"%","aggregation":"avg","target":85,"certification_status":"certified"}',
    156, NOW() - INTERVAL '70 days', NOW() - INTERVAL '30 days')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+  asset_type = EXCLUDED.asset_type,
+  asset_id = EXCLUDED.asset_id,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  datasource_id = EXCLUDED.datasource_id,
+  org_id = EXCLUDED.org_id,
+  owner_id = EXCLUDED.owner_id,
+  category_id = EXCLUDED.category_id,
+  status = EXCLUDED.status,
+  tags = EXCLUDED.tags,
+  metadata_json = EXCLUDED.metadata_json,
+  view_count = EXCLUDED.view_count,
+  updated_at = EXCLUDED.updated_at;
 
 -- ============================================================
 -- 15. ASSET LINEAGE (4 lineage relationships)
@@ -835,13 +848,17 @@ INSERT INTO asset_lineage
 VALUES
   -- mainrecord table -> OEE看板 (table drives dashboard)
   (1, 21, 18, 'derives_from', 1, NOW() - INTERVAL '40 days'),
-  -- mainrecord table -> RTY月报 (table drives report)
+  -- mainrecord table -> RTY指标 (table drives metric)
   (2, 21, 20, 'derives_from', 1, NOW() - INTERVAL '38 days'),
-  -- 蓝途销售数据集 -> 蓝途销售趋势查询 (dataset drives query insight)
+  -- 蓝途销售数据集 -> 蓝途销售经营大屏 (dataset drives big screen)
   (3, 19, 22, 'derives_from', 1, NOW() - INTERVAL '22 days'),
-  -- 字段说明文档 describes mainrecord表
-  (4, 23, 21, 'describes', 1, NOW() - INTERVAL '30 days')
-ON CONFLICT ON CONSTRAINT uq_asset_lineage DO NOTHING;
+  -- mainrecord table -> OEE指标 (table drives metric)
+  (4, 21, 23, 'derives_from', 1, NOW() - INTERVAL '30 days')
+ON CONFLICT (id) DO UPDATE SET
+  source_id = EXCLUDED.source_id,
+  target_id = EXCLUDED.target_id,
+  rel_type = EXCLUDED.rel_type,
+  org_id = EXCLUDED.org_id;
 
 -- ============================================================
 -- 16. ASSET SUBSCRIPTIONS (5 subscriptions)
@@ -851,7 +868,7 @@ INSERT INTO asset_subscriptions
   (id, user_id, asset_id, created_at)
 VALUES
   (1, 2, 18, NOW() - INTERVAL '25 days'),   -- nexteer_admin -> OEE看板
-  (2, 2, 20, NOW() - INTERVAL '22 days'),   -- nexteer_admin -> RTY月报
+  (2, 2, 20, NOW() - INTERVAL '22 days'),   -- nexteer_admin -> RTY指标
   (3, 3, 18, NOW() - INTERVAL '20 days'),   -- nexteer user -> OEE看板
   (4, 6, 21, NOW() - INTERVAL '18 days'),   -- nexteer_certifier -> mainrecord表
   (5, 8, 19, NOW() - INTERVAL '10 days')    -- nexteer_analyst -> 蓝途销售数据集
@@ -869,7 +886,7 @@ VALUES
    true, NOW() - INTERVAL '15 days'),
 
   (2, 2, 20,
-   '您订阅的【月度RTY良率分析报告】已生成4月报告，全月均值94.7%，低于95%目标，请重点关注。',
+   '您订阅的【RTY一次通过率指标】已完成本月口径复核，4月均值94.7%，低于95%目标，请重点关注。',
    true, NOW() - INTERVAL '7 days'),
 
   (3, 3, 18,
@@ -885,7 +902,7 @@ VALUES
    false, NOW() - INTERVAL '1 day'),
 
   (6, 2, 21,
-   '【mainrecord 班次主数据表】的字段说明文档已更新至v2.1版本，新增STAFFNUM字段取值规范说明。',
+   '【mainrecord 班次主数据表】字段元数据已更新至v2.1版本，新增STAFFNUM字段取值规范说明。',
    true, NOW() - INTERVAL '30 days')
 ON CONFLICT (id) DO NOTHING;
 
