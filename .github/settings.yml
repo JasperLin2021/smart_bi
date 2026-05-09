@@ -1,0 +1,22 @@
+# Repository metadata for GitHub About.
+# If the repository uses the Settings app, this file can be synced automatically.
+# Otherwise, copy these fields into GitHub's About panel manually.
+
+repository:
+  name: smart_bi
+  description: Enterprise-grade AI-powered BI platform with semantic datasets, trusted metrics, natural-language analytics, dashboards, governance, and safe deletion.
+  homepage: https://github.com/Yuki1999/smart_bi#readme
+  topics:
+    - ai
+    - analytics
+    - business-intelligence
+    - dashboard
+    - data-governance
+    - docker-compose
+    - fastapi
+    - natural-language-query
+    - postgresql
+    - semantic-layer
+    - trusted-metrics
+    - typescript
+    - vue3
