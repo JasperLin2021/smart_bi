@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir uv==0.8.13
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
+COPY alembic.ini ./
+COPY alembic ./alembic
 COPY app ./app
 
 EXPOSE 8001

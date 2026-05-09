@@ -3,11 +3,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-smart_bi}
+      POSTGRES_DB: ${POSTGRES_DB:-smart_bi_dev}
       POSTGRES_USER: ${POSTGRES_USER:-smart_bi}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smart_bi_dev_password}
+    ports:
+      - "${POSTGRES_PORT:-15432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -18,12 +20,14 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://smart_bi:change_me@postgres:5432/smart_bi}
-      JWT_SECRET: ${JWT_SECRET:-change_me}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://smart_bi:smart_bi_dev_password@postgres:5432/smart_bi_dev}
+      JWT_SECRET: ${JWT_SECRET:-dev_only_replace_if_shared}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
       LLM_PROVIDER: ${LLM_PROVIDER:-custom}
       LLM_API_BASE: ${LLM_API_BASE:-http://host.docker.internal:8001/v1}
-      LLM_API_KEY: ${LLM_API_KEY:-change_me}
+      LLM_API_KEY: ${LLM_API_KEY:-change_me_for_local_llm}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       CUBE_API_URL: ${CUBE_API_URL:-http://host.docker.internal:4000/cubejs-api/v1}
       CUBE_API_TOKEN: ${CUBE_API_TOKEN:-change_me}
@@ -35,13 +39,22 @@ services:
       DORIS_PASSWORD: ${DORIS_PASSWORD:-}
       DORIS_DATABASE: ${DORIS_DATABASE:-smart_bi_olap}
       DORIS_MATERIALIZATION_LIMIT: ${DORIS_MATERIALIZATION_LIMIT:-100000}
+      GOVIEW_ENABLED: ${GOVIEW_ENABLED:-false}
+      GOVIEW_BASE_URL: ${GOVIEW_BASE_URL:-http://host.docker.internal:3000}
+      GOVIEW_EMBED_BASE_URL: ${GOVIEW_EMBED_BASE_URL:-http://host.docker.internal:3000}
+      GOVIEW_VIEW_PATH: ${GOVIEW_VIEW_PATH:-/#/project/items}
+      GOVIEW_DESIGN_PATH: ${GOVIEW_DESIGN_PATH:-/#/project/items}
+      GOVIEW_BRIDGE_SECRET: ${GOVIEW_BRIDGE_SECRET:-dev_only_goview_secret}
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8002}:8001"
     volumes:
-      - backend_uploads:/app/uploads
-    expose:
-      - "8001"
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+      - backend_dev_uploads:/app/uploads
     healthcheck:
       test:
         [
@@ -56,14 +69,20 @@ services:
       start_period: 20s
 
   frontend:
-    build:
-      context: ./frontend
+    image: node:20-alpine
     restart: unless-stopped
+    working_dir: /app
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0 --port 16006"]
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8001
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "${FRONTEND_PORT:-16006}:80"
+      - "${FRONTEND_DEV_PORT:-16006}:16006"
+    volumes:
+      - ./frontend:/app
+      - frontend_dev_node_modules:/app/node_modules
 
   demo-seed:
     image: postgres:16-alpine
@@ -77,9 +96,9 @@ services:
     environment:
       PGHOST: postgres
       PGPORT: 5432
-      PGDATABASE: ${POSTGRES_DB:-smart_bi}
+      PGDATABASE: ${POSTGRES_DB:-smart_bi_dev}
       PGUSER: ${POSTGRES_USER:-smart_bi}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-smart_bi_dev_password}
     volumes:
       - ./mock_data.sql:/mock_data.sql:ro
     command:
@@ -89,49 +108,7 @@ services:
         "psql -v ON_ERROR_STOP=1 -f /mock_data.sql && echo 'Smart BI demo data imported.'",
       ]
 
-  doris-fe:
-    image: apache/doris:fe-2.1.11
-    restart: unless-stopped
-    profiles: ["olap"]
-    hostname: doris-fe
-    environment:
-      FE_SERVERS: fe1:doris-fe:9010
-      FE_ID: 1
-    volumes:
-      - doris_fe_meta:/opt/apache-doris/fe/doris-meta
-      - doris_fe_log:/opt/apache-doris/fe/log
-    ports:
-      - "${DORIS_HTTP_PORT:-8030}:8030"
-      - "${DORIS_QUERY_PORT:-9030}:9030"
-    healthcheck:
-      test: ["CMD-SHELL", "bash -lc '</dev/tcp/127.0.0.1/9030'"]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-
-  doris-be:
-    image: apache/doris:be-2.1.11
-    restart: unless-stopped
-    profiles: ["olap"]
-    hostname: doris-be
-    environment:
-      FE_SERVERS: fe1:doris-fe:9010
-      BE_ADDR: doris-be:9050
-    depends_on:
-      doris-fe:
-        condition: service_healthy
-    volumes:
-      - doris_be_storage:/opt/apache-doris/be/storage
-      - doris_be_log:/opt/apache-doris/be/log
-    ports:
-      - "${DORIS_BE_WEB_PORT:-8040}:8040"
-      - "${DORIS_BE_HEARTBEAT_PORT:-9050}:9050"
-
 volumes:
-  postgres_data:
-  backend_uploads:
-  doris_fe_meta:
-  doris_fe_log:
-  doris_be_storage:
-  doris_be_log:
+  postgres_dev_data:
+  backend_dev_uploads:
+  frontend_dev_node_modules:

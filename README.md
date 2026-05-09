@@ -104,7 +104,7 @@ Nginx SPA 代理 -> FastAPI 后端 -> SQLAlchemy / Alembic
 - 主机端口 `16006` 可用于前端容器。
 - 如需启用 AI 问数，需要 OpenAI 兼容的 LLM 服务。
 
-使用 Docker Compose 启动：
+最快本地预览仍可使用默认 Compose 文件：
 
 ```bash
 git clone https://github.com/Yuki1999/smart_bi.git
@@ -127,6 +127,62 @@ open http://localhost:16006
 | PostgreSQL | 容器内部 `5432` | 主数据库。 |
 | Doris | 可选 profile | 仅在需要 OLAP 加速时启动。 |
 
+### 部署方式
+
+#### 开发环境部署
+
+开发环境使用 [docker-compose.dev.yml](docker-compose.dev.yml)，面向本地调试和二次开发：前端 Vite 热更新、后端 Uvicorn reload、PostgreSQL 暴露到宿主机便于调试。
+
+```bash
+cp .env.development.example .env.development
+# 按需修改 .env.development 中的 LLM、GoView 或端口配置。
+
+docker compose --env-file .env.development -f docker-compose.dev.yml up -d --build
+
+open http://localhost:16006
+```
+
+开发环境默认端口：
+
+| 服务 | 默认地址 | 说明 |
+| --- | --- | --- |
+| 前端 Vite | `http://localhost:16006` | 热更新开发界面，`/api` 代理到后端容器。 |
+| 后端 API | `http://localhost:8002` | FastAPI reload 模式，便于调试接口。 |
+| PostgreSQL | `localhost:15432` | 仅用于本地调试的数据库端口。 |
+
+常用开发命令：
+
+```bash
+docker compose --env-file .env.development -f docker-compose.dev.yml logs -f backend frontend
+docker compose --env-file .env.development -f docker-compose.dev.yml down
+```
+
+#### 生产环境部署
+
+生产环境使用 [docker-compose.prod.yml](docker-compose.prod.yml)，面向单机或小规模私有化部署：只暴露前端端口，PostgreSQL 和后端留在 Compose 内部网络，启动前由 `migrate` 一次性服务执行 Alembic 迁移。
+
+```bash
+cp .env.production.example .env.production
+# 必须替换 .env.production 中的数据库密码、JWT_SECRET、LLM Key 和集成密钥。
+
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f backend frontend
+```
+
+生产环境默认只暴露 `FRONTEND_PORT`，默认为 `16006`。建议在它前面放置 HTTPS 反向代理，并在代理层配置域名、证书、访问日志和请求体大小限制。
+
+生产升级流程：
+
+```bash
+git pull --ff-only
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+```
+
+`postgres_prod_data` 和 `backend_prod_uploads` 是生产持久化卷。升级或迁移前请先备份 PostgreSQL 和上传文件。
+
 默认演示账号：
 
 | 角色 | 用户名 | 密码 |
@@ -138,13 +194,13 @@ open http://localhost:16006
 
 在任何共享环境或公网环境使用前，请修改所有默认密码。
 
-可选 OLAP 加速：
+生产环境可选 OLAP 加速：
 
 ```bash
-docker compose --profile olap up -d --build
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile olap up -d --build
 ```
 
-然后在 `.env` 中启用 Doris：
+然后在 `.env.production` 中启用 Doris：
 
 ```env
 DORIS_ENABLED=true
@@ -158,18 +214,18 @@ DORIS_HTTP_PORT=8030
 远端仓库已经包含 `mock_data.sql`、`demo_setup.py` 和 `feature_demo_setup.py`。
 其中 `mock_data.sql` 是推荐的 Docker Compose 开箱即用示例数据，因为它可以在后端完成建表后直接导入 PostgreSQL。
 
-一条命令启动系统并导入完整演示数据：
+开发环境导入完整演示数据：
 
 ```bash
-docker compose --profile demo up -d --build
-docker compose logs demo-seed
+docker compose --env-file .env.development -f docker-compose.dev.yml --profile demo up -d --build
+docker compose --env-file .env.development -f docker-compose.dev.yml logs demo-seed
 ```
 
-`demo-seed` 是一次性容器。它会等待 PostgreSQL 和后端健康检查通过，再导入 `mock_data.sql`，输出 `Smart BI demo data imported.` 后退出。多数插入语句使用 `ON CONFLICT` 做幂等处理，因此可安全重复执行它管理的演示数据。
+生产演示环境也可以使用 `docker compose --env-file .env.production -f docker-compose.prod.yml --profile demo up -d --build` 导入示例数据，但真实生产库不建议导入演示数据。`demo-seed` 是一次性容器。它会等待 PostgreSQL 和后端健康检查通过，再导入 `mock_data.sql`，输出 `Smart BI demo data imported.` 后退出。多数插入语句使用 `ON CONFLICT` 做幂等处理，因此可安全重复执行它管理的演示数据。
 
 ### 配置
 
-仓库提供 `.env.example` 作为部署配置模板。
+仓库提供三类配置模板：`.env.example` 用于默认快速预览，`.env.development.example` 用于开发 Compose，`.env.production.example` 用于生产 Compose。
 
 ```env
 POSTGRES_DB=smart_bi
@@ -279,8 +335,12 @@ smart_bi/
 ├── backend/                 # FastAPI 服务、SQLAlchemy 模型、Alembic 迁移、测试
 ├── frontend/                # Vue 3 单页应用、视图、组件、静态测试、UI 审计
 ├── docs/                    # 产品文档、实施计划、README 图片资产
-├── docker-compose.yml       # 类生产本地部署配置
-├── .env.example             # 部署配置模板
+├── docker-compose.yml       # 默认快速预览部署配置
+├── docker-compose.dev.yml   # 开发环境：热更新、调试端口和本地数据库端口
+├── docker-compose.prod.yml  # 生产环境：迁移任务、内部网络和持久化卷
+├── .env.example             # 默认快速预览配置模板
+├── .env.development.example # 开发环境配置模板
+├── .env.production.example  # 生产环境配置模板
 ├── mock_data.sql            # 拟真演示数据
 ├── LICENSE                  # MIT 许可证
 └── README.md
@@ -415,7 +475,7 @@ Prerequisites:
 - Host port `16006` available for the frontend container.
 - An OpenAI-compatible LLM endpoint if AI query generation is enabled.
 
-Run with Docker Compose:
+For the fastest local preview, use the default Compose file:
 
 ```bash
 git clone https://github.com/Yuki1999/smart_bi.git
@@ -438,6 +498,62 @@ Default services:
 | PostgreSQL | internal `5432` | Primary database. |
 | Doris | optional profile | Start only when OLAP acceleration is needed. |
 
+### Deployment
+
+#### Development Deployment
+
+The development stack uses [docker-compose.dev.yml](docker-compose.dev.yml). It is intended for local debugging and product development: Vite hot reload for the frontend, Uvicorn reload for the backend, and a host-exposed PostgreSQL port for local tools.
+
+```bash
+cp .env.development.example .env.development
+# Edit .env.development if you need custom LLM, GoView, or port settings.
+
+docker compose --env-file .env.development -f docker-compose.dev.yml up -d --build
+
+open http://localhost:16006
+```
+
+Default development ports:
+
+| Service | Default | Description |
+| --- | --- | --- |
+| Frontend Vite | `http://localhost:16006` | Hot-reload UI with `/api` proxied to the backend container. |
+| Backend API | `http://localhost:8002` | FastAPI in reload mode for API debugging. |
+| PostgreSQL | `localhost:15432` | Local-only database port for development tools. |
+
+Useful development commands:
+
+```bash
+docker compose --env-file .env.development -f docker-compose.dev.yml logs -f backend frontend
+docker compose --env-file .env.development -f docker-compose.dev.yml down
+```
+
+#### Production Deployment
+
+The production stack uses [docker-compose.prod.yml](docker-compose.prod.yml). It is intended for single-node or small private deployments: only the frontend port is published, PostgreSQL and backend stay inside the Compose network, and a one-shot `migrate` service runs Alembic migrations before the backend starts.
+
+```bash
+cp .env.production.example .env.production
+# Replace database password, JWT_SECRET, LLM key, and integration secrets in .env.production.
+
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f backend frontend
+```
+
+Production publishes only `FRONTEND_PORT`, defaulting to `16006`. Put an HTTPS reverse proxy in front of it for domain routing, TLS certificates, access logs, and request-size limits.
+
+Production upgrade flow:
+
+```bash
+git pull --ff-only
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+```
+
+`postgres_prod_data` and `backend_prod_uploads` are production persistence volumes. Back up PostgreSQL and uploaded files before upgrades or migrations.
+
 Default demo accounts:
 
 | Role | Username | Password |
@@ -449,13 +565,13 @@ Default demo accounts:
 
 Change every default password before using the system in a shared or public environment.
 
-Optional OLAP acceleration:
+Optional production OLAP acceleration:
 
 ```bash
-docker compose --profile olap up -d --build
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile olap up -d --build
 ```
 
-Then enable Doris in `.env`:
+Then enable Doris in `.env.production`:
 
 ```env
 DORIS_ENABLED=true
@@ -471,21 +587,18 @@ The remote repository already includes `mock_data.sql`, `demo_setup.py`, and
 Docker Compose because it can be imported directly into PostgreSQL after the backend
 has created the application tables.
 
-To start the application and import the full demo dataset in one flow:
+To start the development stack and import the full demo dataset in one flow:
 
 ```bash
-docker compose --profile demo up -d --build
-docker compose logs demo-seed
+docker compose --env-file .env.development -f docker-compose.dev.yml --profile demo up -d --build
+docker compose --env-file .env.development -f docker-compose.dev.yml logs demo-seed
 ```
 
-The `demo-seed` service is a one-shot container. It waits for PostgreSQL and the backend
-health check, imports `mock_data.sql`, prints `Smart BI demo data imported.`, and exits.
-Most inserts are idempotent through `ON CONFLICT`, so rerunning it is safe for the demo
-records it manages.
+Demo production deployments can also use `docker compose --env-file .env.production -f docker-compose.prod.yml --profile demo up -d --build`, but real production databases should not import demo data. The `demo-seed` service is a one-shot container. It waits for PostgreSQL and the backend health check, imports `mock_data.sql`, prints `Smart BI demo data imported.`, and exits. Most inserts are idempotent through `ON CONFLICT`, so rerunning it is safe for the demo records it manages.
 
 ### Configuration
 
-The repository includes `.env.example` as the starting point for deployment.
+The repository includes three configuration templates: `.env.example` for the default quick preview, `.env.development.example` for the development Compose stack, and `.env.production.example` for the production Compose stack.
 
 ```env
 POSTGRES_DB=smart_bi
@@ -598,8 +711,12 @@ smart_bi/
 ├── backend/                 # FastAPI service, SQLAlchemy models, Alembic migrations, tests
 ├── frontend/                # Vue 3 SPA, views, components, static tests, UI audit
 ├── docs/                    # Product docs, implementation plans, README assets
-├── docker-compose.yml       # Production-style local deployment
-├── .env.example             # Deployment configuration template
+├── docker-compose.yml       # Default quick-preview deployment
+├── docker-compose.dev.yml   # Development stack: hot reload, debug ports, local database port
+├── docker-compose.prod.yml  # Production stack: migration job, internal network, persistent volumes
+├── .env.example             # Default quick-preview configuration template
+├── .env.development.example # Development configuration template
+├── .env.production.example  # Production configuration template
 ├── mock_data.sql            # Demo data for realistic evaluation
 ├── LICENSE                  # MIT license
 └── README.md
