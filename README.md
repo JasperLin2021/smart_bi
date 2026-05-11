@@ -2,8 +2,8 @@
 
 # Smart BI
 
-**Enterprise AI-powered business intelligence platform**<br>
-**企业级 AI 驱动商业智能平台**
+**Enterprise AI-Native business intelligence platform**<br>
+**企业级 AI-Native 商业智能平台**
 
 [中文](#chinese) · [English](#english)
 
@@ -17,7 +17,7 @@
 
 <img src="docs/assets/readme-banner.png" alt="Smart BI 中文产品 Banner，展示真实系统界面截图" width="100%" />
 
-<sub>Banner 由当前系统截图和本地渲染文字合成，展示 Smart BI 的智能问数、可信指标和权限管理界面。</sub>
+<sub>Banner 由当前系统截图和本地渲染文字合成，展示 Smart BI 的 AI-Native 问数、可信指标和权限治理界面。</sub>
 
 </div>
 
@@ -29,27 +29,48 @@
 
 ### 项目概览
 
-Smart BI 是一个企业级开源商业智能平台。它将连接器接入、语义数据集、可信指标、AI 问数、看板、大屏、预警、行动闭环、权限和审计整合为一个产品。
+Smart BI 是一个企业级开源 AI-Native 商业智能平台。它将连接器接入、语义数据集、可信指标、AI 问数、看板、大屏、预警、行动闭环、权限和审计整合为一个产品。
 
 Smart BI 面向真实企业 BI 落地场景，而不是简单图表 Demo。它支持连接企业数据、沉淀可复用数据集、认证业务指标、用自然语言问数、发布看板、触发预警，并通过行动项完成业务闭环。
+
+### AI-Native 差异化
+
+Smart BI 的核心卖点不是把一个聊天框放进 BI，而是把 AI 放在数据资产生产、治理、分析和行动闭环的主链路中。传统 BI 往往先要求数据团队建模、业务用户拖拽分析、再由人工解释和分发结果；Smart BI 则围绕“自然语言 -> 语义约束 -> 可信指标 -> 可复用资产 -> 业务行动”设计，让 AI 在每一步都受到权限、口径、血缘和审计约束。
+
+| 差异化维度 | 传统 BI 常见模式 | Smart BI AI-Native 方式 |
+| --- | --- | --- |
+| 分析入口 | 依赖报表目录、拖拽配置和 SQL 能力。 | 自然语言问数作为一等入口，同时保留数据集、指标、看板和报表的结构化生产流程。 |
+| AI 与语义层 | AI 常作为附加问答插件，容易脱离企业口径。 | AI 基于已发布数据集、可信指标、字段语义、权限策略和 SQL 安全护栏生成结果。 |
+| 指标治理 | 指标口径靠文档、会议和人工同步。 | 指标定义、计算口径、血缘、认证状态和提示词同步在同一套治理链路内沉淀。 |
+| 资产生产 | 问答结果通常停留在临时查询。 | 问数、图表、看板、预警、报告和行动项可以沉淀为可复用资产。 |
+| 人机协作 | 用户提出问题，系统返回答案。 | 页面级 Agent 理解当前页面和业务上下文，辅助导航、解释、生成配置和执行受控操作。 |
+| 企业可信 | AI 结果难以审计和复核。 | 通过 RBAC、审计日志、安全删除、质量状态和可信指标认证形成可落地的企业管控闭环。 |
+
+适合使用 Smart BI 的团队：
+
+- 希望让业务人员直接用自然语言探索数据，但又不能绕过企业权限和指标口径。
+- 已经有数据源、报表和看板，但缺少统一语义层、可信指标和 AI 分析入口。
+- 需要把 AI 问数结果继续转化为看板、预警、报告、行动项和运营闭环。
+- 想在开源可控的基础上构建企业内部 AI 数据分析平台，而不是采购一个黑盒 BI 助手。
 
 <a id="screenshots"></a>
 
 ### 界面截图总览
 
-以下截图来自当前 Smart BI 系统界面和仓库演示数据，集中展示核心工作台、治理和运营能力。
+以下截图来自当前 Smart BI 系统界面和仓库演示数据，集中展示 AI-Native 分析、核心工作台、治理和运营能力。
 
-![Smart BI 系统截图总览，集中展示 AI 问数、可信指标、看板中心、数据目录、数据源管理、预警管理和用户与权限](docs/assets/readme-screenshots.png)
+![Smart BI 系统截图总览，集中展示 AI-Native 问数、可信指标、看板中心、数据目录、数据源管理、预警管理和用户与权限](docs/assets/readme-screenshots.png)
 
-<sub>图 1. 系统截图总览：AI 问数、可信指标、看板中心、数据目录、数据源管理、预警管理和用户与权限。</sub>
+<sub>图 1. 系统截图总览：AI-Native 问数、可信指标、看板中心、数据目录、数据源管理、预警管理和用户与权限。</sub>
 
 ### 核心能力
 
 | 模块 | 能力 |
 | --- | --- |
-| AI 问数 | 自然语言提问、SQL 生成、多轮上下文、图表建议和查询历史。 |
+| AI-Native 问数 | 自然语言提问、SQL 生成、多轮上下文、图表建议、查询历史和结果复用。 |
+| 页面智能体 | 右下角 Agent 对话入口，理解当前页面上下文，辅助导航、解释和受控业务操作。 |
 | 语义数据集 | 数据集建模、字段映射、关联关系、预览、发布、刷新日志和可选 OLAP 物化。 |
-| 可信指标 | 指标认证流程、仅绑定数据集、指标血缘、可信信号和提示词同步。 |
+| 可信指标 | 指标认证流程、仅绑定数据集、指标血缘、可信信号、AI 口径助手和提示词同步。 |
 | 看板中心 | 看板管理、图表固钉、评论、模板、分享和嵌入视图。 |
 | 大屏中心 | 集成 GoView，并提供内置大屏中心用于运营可视化。 |
 | 复杂报表 | 类 Excel 设计器、分页/参数/填报模板、版本管理、Excel/PDF/Word 导出任务。 |
@@ -416,14 +437,34 @@ Copyright (c) 2025 Smart BI Contributors
 
 ### Overview
 
-Smart BI is an enterprise-grade, open-source business intelligence platform. It brings
-connector access, semantic datasets, trusted metrics, AI-assisted analysis, dashboards,
+Smart BI is an enterprise-grade, open-source AI-Native business intelligence platform. It brings
+connector access, semantic datasets, trusted metrics, AI-native analysis, dashboards,
 big-screen operations, alerts, actions, permissions, and auditability into one product.
 
 It is built for teams that need a real operational BI workflow instead of a charting
 demo: connect enterprise data, model it as reusable datasets, certify business metrics,
 ask questions in natural language, publish dashboards, trigger alerts, and close the
 loop with follow-up actions.
+
+### AI-Native Differentiation
+
+Smart BI is not a traditional BI suite with a chat box attached. Its product direction is to place AI inside the main workflow for data asset creation, governed analysis, trusted metric management, and operational follow-up. Instead of making AI bypass the semantic model, Smart BI makes AI work through datasets, metric definitions, permissions, lineage, SQL guardrails, and audit trails.
+
+| Dimension | Common traditional BI pattern | Smart BI AI-Native pattern |
+| --- | --- | --- |
+| Analysis entry | Users browse reports, drag fields, or write SQL. | Natural language is a first-class entry point while structured datasets, metrics, dashboards, and reports remain governed assets. |
+| AI and semantics | AI is often an add-on assistant separated from enterprise definitions. | AI uses published datasets, trusted metrics, field semantics, permission policies, and SQL guardrails. |
+| Metric governance | Definitions are synchronized through documents, meetings, and manual review. | Metric definitions, calculation rules, lineage, certification status, and prompt synchronization live in one governance workflow. |
+| Asset creation | AI answers often remain temporary query results. | Query results can become reusable charts, dashboards, alerts, reports, and action items. |
+| Human-AI collaboration | The user asks and the system answers. | A page-level Agent understands the current page and business context, helping with navigation, explanation, configuration, and controlled operations. |
+| Enterprise trust | AI output is hard to review or audit. | RBAC, audit logs, safe deletion, data quality status, and trusted metric certification create an enterprise-ready control loop. |
+
+Smart BI is a strong fit for teams that want:
+
+- Business users to explore data in natural language without bypassing permissions or metric definitions.
+- A unified semantic layer and trusted metrics center on top of existing data sources, reports, and dashboards.
+- AI query results that can become dashboards, alerts, reports, action items, and operational workflows.
+- An open-source, controllable foundation for an internal AI data analysis platform instead of a black-box BI assistant.
 
 ### Screenshots
 
@@ -433,9 +474,10 @@ See the [central screenshot overview](#screenshots) above. It is captured from t
 
 | Area | Capability |
 | --- | --- |
-| AI analysis | Natural-language questions, SQL generation, multi-turn context, chart suggestions, and query history. |
+| AI-native analysis | Natural-language questions, SQL generation, multi-turn context, chart suggestions, query history, and result reuse. |
+| Page Agent | Floating Agent entry that understands page context and assists with navigation, explanation, configuration, and controlled operations. |
 | Semantic datasets | Dataset modeling, field mapping, joins, preview, publishing, refresh logs, and optional OLAP materialization. |
-| Trusted metrics | Certification workflow, dataset-only binding, lineage, trust signals, and prompt synchronization. |
+| Trusted metrics | Certification workflow, dataset-only binding, lineage, trust signals, AI-assisted calculation rules, and prompt synchronization. |
 | Dashboards | Dashboard center, pinned charts, comments, templates, sharing, and embedded views. |
 | Big screens | GoView integration plus an internal big-screen center for operational visualization. |
 | Complex reports | Excel-like report designer, paginated/parameter/fill-form templates, versioning, and Excel/PDF/Word export jobs. |
