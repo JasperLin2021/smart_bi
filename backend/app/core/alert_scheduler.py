@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -52,6 +53,7 @@ def _load_all_jobs() -> None:
     """Load all active alerts and scheduled reports from DB into the scheduler."""
     from app.db.session import SessionLocal
     from app.models.alert import Alert
+    from app.models.data_pipeline import DataPipeline
     from app.models.scheduled_report import ScheduledReport
 
     db = SessionLocal()
@@ -63,6 +65,14 @@ def _load_all_jobs() -> None:
         reports = db.query(ScheduledReport).filter(ScheduledReport.is_active == True).all()  # noqa: E712
         for report in reports:
             _schedule_report(report)
+
+        pipelines = (
+            db.query(DataPipeline)
+            .filter(DataPipeline.run_mode == "scheduled", DataPipeline.status == "active")
+            .all()
+        )
+        for pipeline in pipelines:
+            _schedule_pipeline(pipeline)
     finally:
         db.close()
 
@@ -187,6 +197,107 @@ def remove_report_job(report_id: int) -> None:
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
         logger.info("Removed report job %s", job_id)
+
+
+# ─────────────────────── pipeline jobs ───────────────────────────
+
+
+def _pipeline_job_id(pipeline_id: int) -> str:
+    return f"pipeline_{pipeline_id}"
+
+
+def _cron_trigger(expression: str | None, *, default: str = "0 2 * * *") -> CronTrigger:
+    parts = (expression or default).split()
+    if len(parts) != 5:
+        raise ValueError("cron must have 5 fields")
+    return CronTrigger(
+        minute=parts[0],
+        hour=parts[1],
+        day=parts[2],
+        month=parts[3],
+        day_of_week=parts[4],
+        timezone="Asia/Shanghai",
+    )
+
+
+def _schedule_pipeline(pipeline) -> None:
+    scheduler = get_scheduler()
+    job_id = _pipeline_job_id(pipeline.id)
+    try:
+        trigger = _cron_trigger(pipeline.schedule_cron)
+    except Exception as exc:
+        logger.error("Pipeline %d invalid cron '%s': %s", pipeline.id, pipeline.schedule_cron, exc)
+        return
+    if scheduler.get_job(job_id):
+        scheduler.reschedule_job(job_id, trigger=trigger)
+    else:
+        scheduler.add_job(
+            run_scheduled_pipeline,
+            trigger=trigger,
+            args=[pipeline.id],
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=600,
+        )
+    logger.info("Scheduled pipeline job %s cron='%s'", job_id, pipeline.schedule_cron)
+
+
+def upsert_pipeline_job(pipeline_id: int) -> None:
+    from app.db.session import SessionLocal
+    from app.models.data_pipeline import DataPipeline
+
+    db = SessionLocal()
+    try:
+        pipeline = db.query(DataPipeline).filter(DataPipeline.id == pipeline_id).first()
+        if (
+            not pipeline
+            or pipeline.run_mode != "scheduled"
+            or pipeline.status != "active"
+            or not pipeline.schedule_cron
+        ):
+            remove_pipeline_job(pipeline_id)
+            return
+        _schedule_pipeline(pipeline)
+    finally:
+        db.close()
+
+
+def remove_pipeline_job(pipeline_id: int) -> None:
+    scheduler = get_scheduler()
+    job_id = _pipeline_job_id(pipeline_id)
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+        logger.info("Removed pipeline job %s", job_id)
+
+
+def run_scheduled_pipeline(pipeline_id: int) -> None:
+    from app.api.pipelines import run_pipeline
+    from app.db.session import SessionLocal
+    from app.models.data_pipeline import DataPipeline
+    from app.models.user import User
+    from app.schemas.pipeline import PipelineRunRequest
+
+    db = SessionLocal()
+    try:
+        pipeline = db.query(DataPipeline).filter(DataPipeline.id == pipeline_id).first()
+        if not pipeline or pipeline.run_mode != "scheduled":
+            return
+        user = None
+        if pipeline.owner_id:
+            user = db.query(User).filter(User.id == pipeline.owner_id).first()
+        if user is None and pipeline.created_by:
+            user = db.query(User).filter(User.id == pipeline.created_by).first()
+        actor = user or SimpleNamespace(id=None, username="system", role="super_admin", org_id=pipeline.org_id)
+        run_pipeline(
+            pipeline.id,
+            PipelineRunRequest(mode="scheduled", reason="APScheduler trigger"),
+            db=db,
+            current_user=actor,
+        )
+    except Exception as exc:
+        logger.exception("Pipeline %d scheduled run failed: %s", pipeline_id, exc)
+    finally:
+        db.close()
 
 
 # ─────────────────────── report runner ───────────────────────────

@@ -91,9 +91,6 @@
             <div class="governance-table-name">
               <strong>{{ schemaTablesCount(row) }} 张表</strong>
               <span>{{ schemaFieldsCount(row) }} 个字段 · {{ row.drill_config ? '已配置钻取' : '未配置钻取' }}</span>
-              <div class="governance-progress" :aria-label="`配置完成度 ${datasourceCompletion(row)}%`">
-                <span :style="{ width: `${datasourceCompletion(row)}%` }"></span>
-              </div>
             </div>
           </template>
         </el-table-column>
@@ -152,12 +149,6 @@
         </el-descriptions-item>
         <el-descriptions-item label="表结构">
           {{ schemaTablesCount(detailRow) }} 张表 · {{ schemaFieldsCount(detailRow) }} 个字段
-        </el-descriptions-item>
-        <el-descriptions-item label="配置完成度" :span="2">
-          <div style="display:flex;align-items:center;gap:10px">
-            <el-progress :percentage="datasourceCompletion(detailRow)" :stroke-width="8" style="flex:1" />
-            <span style="font-size:12px;color:var(--app-text-muted)">{{ datasourceCompletion(detailRow) }}%</span>
-          </div>
         </el-descriptions-item>
         <el-descriptions-item label="钻取规则">{{ detailRow.drill_config ? '已配置' : '未配置' }}</el-descriptions-item>
         <el-descriptions-item label="推荐问题">{{ recommendationCount(detailRow) }} 个</el-descriptions-item>
@@ -787,15 +778,6 @@ const schemaFieldsCount = (row: DataSourceDetail) =>
 
 const recommendationCount = (row: DataSourceDetail) =>
   Array.isArray(row.recommend_questions) ? row.recommend_questions.length : 0
-
-const datasourceCompletion = (row: DataSourceDetail) => {
-  let score = 20
-  if (row.is_active) score += 20
-  if (schemaTablesCount(row) > 0) score += 25
-  if (row.drill_config) score += 20
-  if (row.metrics_prompt || recommendationCount(row) > 0) score += 15
-  return Math.min(score, 100)
-}
 
 const openCreate = () => {
   isEdit.value = false

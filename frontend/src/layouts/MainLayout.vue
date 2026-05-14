@@ -171,6 +171,8 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <FloatingAgent />
   </el-container>
 </template>
 
@@ -178,6 +180,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, type Component } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import axios from "axios"
+import FloatingAgent from "@/components/FloatingAgent.vue"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import {
@@ -287,9 +290,10 @@ const menuEntries: MenuEntry[] = [
     label: "工作台",
     icon: DataLine,
     items: [
-      { path: "/dashboard", label: "Dashboard", icon: DataLine },
+      { path: "/dashboard", label: "仪表盘", icon: DataLine },
       { path: "/smart-query", label: "智能问数", icon: ChatDotRound },
       { path: "/analysis-workbench", label: "自助分析", icon: TrendCharts },
+      { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
@@ -315,7 +319,6 @@ const menuEntries: MenuEntry[] = [
     icon: Grid,
     items: [
       { path: "/dashboard-center", label: "看板中心", icon: Grid },
-      { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/metric-settings", label: "可信指标", icon: TrendCharts },
       { path: "/alert-settings", label: "预警管理", icon: Bell },
       { path: "/scheduled-reports", label: "定时报告", icon: AlarmClock },
@@ -382,6 +385,7 @@ const roleLabel = computed(() => {
   const labels: Record<string, string> = {
     super_admin: '超级管理员',
     org_admin: '企业管理员',
+    dept_admin: '部门管理员',
     user: '普通用户',
   }
   return labels[authStore.profile?.role || ''] || authStore.profile?.role
@@ -391,6 +395,7 @@ const roleTagType = computed(() => {
   const types: Record<string, string> = {
     super_admin: 'danger',
     org_admin: 'warning',
+    dept_admin: 'warning',
     user: 'info',
   }
   return types[authStore.profile?.role || ''] || 'info'

@@ -1,14 +1,11 @@
 <template>
   <div class="dataset-page">
-    <section class="dataset-hero">
-      <div>
-        <p class="eyebrow">DATASET CENTER</p>
-        <h2>数据集中心</h2>
-        <p class="hero-copy">
-          {{ datasourceStore.datasources.length }} 个数据源，{{ datasetStats.published }} 个已发布数据集
-        </p>
+    <section class="dataset-toolbar" aria-label="数据集工具栏">
+      <div class="dataset-toolbar-title">
+        <strong>数据集中心</strong>
+        <span>{{ filteredDatasets.length }} / {{ datasets.length }} 个数据集</span>
       </div>
-      <div class="hero-actions">
+      <div class="dataset-toolbar-actions">
         <el-input
           v-model="keyword"
           :prefix-icon="Search"
@@ -16,27 +13,13 @@
           clearable
           placeholder="搜索数据集 / 数据源"
         />
-        <el-segmented v-model="statusFilter" :options="statusOptions" @change="fetchDatasets" />
+        <el-segmented
+          class="page-segmented-tabs"
+          v-model="statusFilter"
+          :options="statusOptions"
+          @change="fetchDatasets"
+        />
         <el-button type="primary" :icon="Plus" @click="openCreate">新建数据集</el-button>
-      </div>
-    </section>
-
-    <section class="summary-grid">
-      <div class="summary-card">
-        <span class="summary-label">全部数据集</span>
-        <strong>{{ datasetStats.total }}</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">已发布</span>
-        <strong>{{ datasetStats.published }}</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">草稿</span>
-        <strong>{{ datasetStats.draft }}</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">可用数据源</span>
-        <strong>{{ datasourceStore.datasources.length }}</strong>
       </div>
     </section>
 
@@ -84,8 +67,8 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'published' ? 'success' : 'info'" effect="plain">
-              {{ row.status === "published" ? "已发布" : "草稿" }}
+            <el-tag :type="datasetStatusTagType(row.status)" effect="plain">
+              {{ datasetStatusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -123,7 +106,15 @@
             <el-button text type="primary" @click.stop="openEdit(row)">编辑</el-button>
             <el-button text type="primary" :icon="EditPen" @click.stop="openSemanticModel(row)">语义层</el-button>
             <el-button
-              v-if="row.status !== 'published'"
+              v-if="row.status === 'pending_review' && canApproveDatasets"
+              text
+              type="success"
+              @click.stop="approveDataset(row)"
+            >
+              审批发布
+            </el-button>
+            <el-button
+              v-else-if="row.status !== 'published' && row.status !== 'pending_review'"
               text
               type="success"
               @click.stop="publishDataset(row)"
@@ -501,15 +492,26 @@
                               </button>
                             </div>
 
-                            <div v-if="selectedColumns.length" class="field-token-panel">
-                              <button
-                                v-for="field in selectedColumns"
-                                :key="field.key"
-                                type="button"
-                                @click="appendDerivedToken(field.key)"
-                              >
-                                {{ field.alias || field.column }}
-                              </button>
+                            <div class="candidate-section">
+                              <div class="candidate-section-head">
+                                <span>可插入指标</span>
+                                <small>{{ derivedMetricCandidates.length ? "点击插入聚合表达式" : "请先配置指标字段" }}</small>
+                              </div>
+                              <div v-if="derivedMetricCandidates.length" class="field-token-panel metric-token-panel">
+                                <button
+                                  v-for="metric in derivedMetricCandidates"
+                                  :key="metric.key"
+                                  type="button"
+                                  :title="metric.expression"
+                                  @click="appendDerivedToken(metric.expression)"
+                                >
+                                  <strong>{{ metric.label }}</strong>
+                                  <small>{{ metric.expression }}</small>
+                                </button>
+                              </div>
+                              <div v-else class="metric-token-empty">
+                                在字段配置中把可计算字段标记为指标后，可在这里插入。
+                              </div>
                             </div>
 
                             <el-button type="primary" class="builder-primary" @click="addDerivedColumn">
@@ -670,8 +672,22 @@
                   <el-radio-button value="private">仅自己</el-radio-button>
                   <el-radio-button value="org">组织内</el-radio-button>
                 </el-radio-group>
+                <el-alert
+                  v-if="form.visibility === 'org'"
+                  class="visibility-approval-alert"
+                  :type="orgVisibilityApprovalRequired ? 'warning' : 'success'"
+                  :closable="false"
+                  show-icon
+                >
+                  <template #title>
+                    {{ orgVisibilityApprovalRequired ? "待部门管理员审批" : "你具备组织内发布权限" }}
+                  </template>
+                  <template #default>
+                    {{ orgVisibilityApprovalRequired ? "提交后状态会变为待审批，审批通过前仅创建者和管理员可见。" : "保存发布后会直接组织内可见。" }}
+                  </template>
+                </el-alert>
                 <el-checkbox v-model="saveAndPublish" class="publish-check">
-                  保存后立即发布
+                  {{ orgVisibilityApprovalRequired ? "保存后提交审批" : "保存后立即发布" }}
                 </el-checkbox>
               </section>
 
@@ -782,6 +798,7 @@ import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { EditPen, Plus, Refresh, Search, View as ViewIcon } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
+import { useAuthStore } from "@/store/auth"
 
 interface SchemaColumn {
   name: string
@@ -843,6 +860,7 @@ interface FieldRoleConfig {
 }
 
 const datasourceStore = useDatasourceStore()
+const authStore = useAuthStore()
 const datasets = ref<DatasetItem[]>([])
 const datasourceDetails = ref<Record<number, DataSourceDetail>>({})
 const loading = ref(false)
@@ -900,6 +918,7 @@ const steps: { key: StepKey; title: string; subtitle: string }[] = [
 const statusOptions = [
   { label: "全部", value: "all" },
   { label: "已发布", value: "published" },
+  { label: "待审批", value: "pending_review" },
   { label: "草稿", value: "draft" },
 ]
 
@@ -941,12 +960,12 @@ const form = reactive({
 })
 
 const currentStepIndex = computed(() => stepIndex(activeStep.value))
-
-const datasetStats = computed(() => ({
-  total: datasets.value.length,
-  published: datasets.value.filter((dataset) => dataset.status === "published").length,
-  draft: datasets.value.filter((dataset) => dataset.status !== "published").length,
-}))
+const canApproveDatasets = computed(() =>
+  ["dept_admin", "org_admin", "super_admin"].includes(authStore.profile?.role || "")
+)
+const orgVisibilityApprovalRequired = computed(() =>
+  form.visibility === "org" && saveAndPublish.value && !canApproveDatasets.value
+)
 
 const filteredDatasets = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -1063,6 +1082,14 @@ const metricExpressions = computed(() =>
   metricConfigs.value.map((config) => `${config.aggregation}(${config.key})`)
 )
 
+const derivedMetricCandidates = computed(() =>
+  metricConfigs.value.map((config) => ({
+    key: `${config.aggregation}:${config.key}`,
+    label: config.alias.trim() || defaultMetricAlias(config),
+    expression: `${config.aggregation}(${config.key})`,
+  }))
+)
+
 const aggregations = metricExpressions
 
 const previewColumns = computed(() => {
@@ -1106,6 +1133,26 @@ const datasourceName = (id: number) =>
   datasourceDetails.value[id]?.name ||
   datasourceStore.datasources.find((datasource) => datasource.id === id)?.name ||
   `数据源 #${id}`
+
+const datasetStatusLabel = (status: string) => {
+  const map: Record<string, string> = {
+    published: "已发布",
+    pending_review: "待审批",
+    draft: "草稿",
+    archived: "已归档",
+  }
+  return map[status] || status
+}
+
+const datasetStatusTagType = (status: string) => {
+  const map: Record<string, "success" | "warning" | "info"> = {
+    published: "success",
+    pending_review: "warning",
+    draft: "info",
+    archived: "info",
+  }
+  return map[status] || "info"
+}
 
 const normalizeList = (value: unknown) => (Array.isArray(value) ? value.map(String).filter(Boolean) : [])
 const rawList = (value: unknown) => (Array.isArray(value) ? value : [])
@@ -1727,7 +1774,9 @@ const saveDataset = async () => {
     } else {
       await axios.post("/api/datasets", payload)
     }
-    if (saveAndPublish.value) {
+    if (orgVisibilityApprovalRequired.value) {
+      ElMessage.success("数据集已保存并提交审批")
+    } else if (saveAndPublish.value) {
       ElMessage.success("数据集已保存并发布")
     } else {
       ElMessage.success("数据集已保存")
@@ -1742,8 +1791,14 @@ const saveDataset = async () => {
 }
 
 const publishDataset = async (dataset: DatasetItem) => {
-  await axios.post(`/api/datasets/${dataset.id}/publish`)
-  ElMessage.success("数据集已发布")
+  const response = await axios.post(`/api/datasets/${dataset.id}/publish`)
+  ElMessage.success(response.data?.status === "pending_review" ? "数据集已提交审批" : "数据集已发布")
+  await fetchDatasets()
+}
+
+const approveDataset = async (dataset: DatasetItem) => {
+  await axios.post(`/api/datasets/${dataset.id}/approve`)
+  ElMessage.success("数据集已审批发布")
   await fetchDatasets()
 }
 
@@ -1765,19 +1820,36 @@ onMounted(async () => {
 .dataset-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.dataset-hero {
+.dataset-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 20px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  background: var(--app-surface);
-  box-shadow: var(--app-shadow-soft);
+  gap: 12px;
+  min-height: 36px;
+}
+
+.dataset-toolbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dataset-toolbar-title strong {
+  color: var(--app-text);
+  font-size: 16px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.dataset-toolbar-title span {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .eyebrow {
@@ -1787,55 +1859,23 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-.dataset-hero h2 {
-  margin: 0;
-  color: var(--app-text);
-  font-size: 24px;
-  line-height: 1.3;
-}
-
-.hero-copy {
-  max-width: 640px;
-  margin: 8px 0 0;
-  color: var(--app-text-muted);
-  line-height: 1.6;
-}
-
-.hero-actions {
+.dataset-toolbar-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.dataset-toolbar-actions .page-segmented-tabs {
+  flex-shrink: 0;
 }
 
 .search-input {
-  width: 260px;
+  width: 240px;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.summary-card {
-  min-height: 88px;
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  background: var(--app-surface);
-}
-
-.summary-card strong {
-  display: block;
-  margin-top: 8px;
-  color: var(--app-text);
-  font-size: 28px;
-  line-height: 1;
-}
-
-.summary-label,
 .muted,
 .panel-title small,
 .step-item small,
@@ -2704,6 +2744,34 @@ onMounted(async () => {
   gap: 6px;
 }
 
+.candidate-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.candidate-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.candidate-section-head span {
+  color: var(--app-text);
+  font-weight: 700;
+}
+
+.candidate-section-head small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .field-token-panel {
   grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   max-height: 96px;
@@ -2733,6 +2801,56 @@ onMounted(async () => {
 .field-token-panel button:hover {
   border-color: var(--app-primary);
   color: var(--app-primary);
+}
+
+.metric-token-panel {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  max-height: 132px;
+}
+
+.metric-token-panel button {
+  display: flex;
+  min-height: 50px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  text-align: left;
+  white-space: normal;
+}
+
+.metric-token-panel strong,
+.metric-token-panel small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-token-panel strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.metric-token-panel small {
+  color: var(--app-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.metric-token-empty {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-surface-muted);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .builder-primary {
@@ -2863,6 +2981,10 @@ onMounted(async () => {
   align-self: flex-start;
 }
 
+.visibility-approval-alert {
+  max-width: 560px;
+}
+
 .publish-check {
   margin-top: 4px;
 }
@@ -2880,23 +3002,28 @@ onMounted(async () => {
 }
 
 @media (max-width: 1100px) {
-  .dataset-hero,
   .section-head {
     flex-direction: column;
   }
 
-  .hero-actions,
+  .dataset-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dataset-toolbar-actions,
   .fields-head-actions,
   .search-input {
     width: 100%;
   }
 
+  .dataset-toolbar-actions,
   .fields-head-actions {
     justify-content: flex-start;
   }
 
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .dataset-toolbar-actions .page-segmented-tabs {
+    max-width: 100%;
   }
 
   .designer-shell,
@@ -2916,11 +3043,19 @@ onMounted(async () => {
 }
 
 @media (max-width: 680px) {
-  .summary-grid,
   .field-mode-tabs,
   .model-overview,
   .step-rail {
     grid-template-columns: 1fr;
+  }
+
+  .dataset-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dataset-toolbar-actions :deep(.el-button) {
+    width: 100%;
   }
 
   .field-panel-hero,

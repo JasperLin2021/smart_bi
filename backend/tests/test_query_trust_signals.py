@@ -31,6 +31,7 @@ class QueryTrustSignalsTests(unittest.TestCase):
         from app.api.query import ask, get_history_detail
         from app.core.cache import init_cache
         from app.models.audit_log import AuditLog
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.metric import Metric
         from app.models.query import QueryHistory
@@ -38,7 +39,7 @@ class QueryTrustSignalsTests(unittest.TestCase):
 
         source_path = self._source_database()
         try:
-            db = self._db([DataSource.__table__, Metric.__table__, QueryHistory.__table__, AuditLog.__table__])
+            db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, QueryHistory.__table__, AuditLog.__table__])
             datasource = DataSource(
                 name="Finance",
                 slug="finance",
@@ -49,8 +50,20 @@ class QueryTrustSignalsTests(unittest.TestCase):
             )
             db.add(datasource)
             db.flush()
+            dataset = Dataset(
+                name="Receivable Dataset",
+                datasource_id=datasource.id,
+                fields_json={"table": "receivables", "metrics": ["received_amount", "receivable_amount"]},
+                status="published",
+                visibility="org",
+                org_id=2,
+                owner_id=99,
+            )
+            db.add(dataset)
+            db.flush()
             metric = Metric(
                 datasource_id=datasource.id,
+                dataset_id=dataset.id,
                 name="回款率",
                 definition="已回款金额 / 应回款金额",
                 formula="SUM(received_amount) / SUM(receivable_amount)",
@@ -94,7 +107,7 @@ class QueryTrustSignalsTests(unittest.TestCase):
 
                 response = asyncio.run(
                     ask(
-                        QueryAskRequest(question="查询回款率", mode="text2sql", datasource_id=datasource.id),
+                        QueryAskRequest(question="查询回款率", mode="business", dataset_id=dataset.id),
                         db=db,
                         current_user=SimpleNamespace(id=99, username="analyst", role="user", org_id=2),
                     )

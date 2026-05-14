@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi_cache.decorator import cache
 
 from app.api.auth import get_current_user
-from app.core.llm import generate_sql_query, generate_summary, chat, get_llm_config, normalize_llm_config
+from app.core.llm import generate_sql_query, generate_summary, get_llm_config, normalize_llm_config
 from app.core.audit import try_record_audit_log
 from app.core.metric_binding import match_metric_from_question, sql_uses_metric_formula
 from app.core.query_planner import plan_query
@@ -28,6 +28,35 @@ from app.core.drill_suggester import suggest_drill_actions
 from app.core.rls_enforcer import get_rls_clauses, apply_rls_to_sql
 
 router = APIRouter(prefix="/query", tags=["query"])
+
+QUERY_MODES = {"business", "explore"}
+EXPLORE_ROLES = {"dept_admin", "department_admin", "org_admin", "super_admin"}
+
+
+def _normalize_query_mode(mode: str | None, dataset_id: int | None = None) -> str:
+    normalized = (mode or "business").strip().lower()
+    if normalized == "text2sql":
+        return "business" if dataset_id else "explore"
+    if normalized not in QUERY_MODES:
+        raise HTTPException(status_code=400, detail="不支持的问数模式，请使用业务问数或探索模式")
+    return normalized
+
+
+def _ensure_query_mode_allowed(mode: str, dataset_id: int | None, current_user: User) -> None:
+    if mode == "business" and not dataset_id:
+        raise HTTPException(status_code=400, detail="业务问数必须选择数据集")
+    if mode == "explore" and getattr(current_user, "role", None) not in EXPLORE_ROLES:
+        raise HTTPException(status_code=403, detail="探索模式仅部门管理员及以上可用")
+
+
+def _query_mode_label(mode: str) -> str:
+    return "探索问数" if mode == "explore" else "业务问数"
+
+
+def _normalize_history_mode(mode: str | None) -> str:
+    if mode == "explore":
+        return "explore"
+    return "business"
 
 
 @router.post("/semantic", response_model=SemanticQueryResponse)
@@ -333,13 +362,16 @@ async def ask(
     current_user: User = Depends(get_current_user),
 ):
     question = payload.question.strip()
-    mode = payload.mode or "text2sql"
+    mode = payload.mode or "business"
     datasource_id = getattr(payload, "datasource_id", None)
     dataset_id = getattr(payload, "dataset_id", None)
     drill_context = payload.drill_context
     parent_history_id = payload.parent_history_id
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
+
+    mode = _normalize_query_mode(mode, dataset_id)
+    _ensure_query_mode_allowed(mode, dataset_id, current_user)
 
     dataset = None
     dataset_context = ""
@@ -351,61 +383,7 @@ async def ask(
         datasource = _get_datasource(db, datasource_id, current_user)
     runtime_llm_model = normalize_llm_config(await get_llm_config()).get("model")
 
-    # 闲聊模式
-    if mode == "chat":
-        try:
-            answer = await chat(question)
-        except Exception as exc:
-            try_record_audit_log(
-                db,
-                actor=current_user,
-                action="query.ask",
-                resource_type="query",
-                resource_name=datasource.name if datasource else None,
-                org_id=datasource.org_id if datasource else current_user.org_id,
-                status="error",
-                message=f"闲聊失败: {exc}",
-                detail={"mode": "chat", "question": question, "llm_model": runtime_llm_model},
-            )
-            raise HTTPException(status_code=502, detail=f"闲聊失败: {exc}")
-
-        history = QueryHistory(
-            user_id=current_user.id,
-            datasource_id=datasource.id if datasource else None,
-            parent_history_id=parent_history_id,
-            question=f"[闲聊] {question}",
-            summary=answer,
-            mode="chat",
-            drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
-            llm_model=runtime_llm_model,
-        )
-        db.add(history)
-        db.commit()
-        db.refresh(history)
-        try_record_audit_log(
-            db,
-            actor=current_user,
-            action="query.ask",
-            resource_type="query",
-            resource_id=history.id,
-            resource_name=datasource.name if datasource else None,
-            org_id=datasource.org_id if datasource else current_user.org_id,
-            message="智能问数已完成",
-            detail={"mode": "chat", "question": question, "llm_model": runtime_llm_model},
-        )
-
-        return {
-            "answer": answer,
-            "result": {"columns": [], "rows": []},
-            "summary": "",
-            "llm_model": runtime_llm_model,
-            "history_id": history.id,
-            "recommendations": [],
-            "mode": "chat",
-            "trust_signals": [],
-        }
-
-    # Text2SQL 模式
+    # 问数模式
     if not datasource:
         raise HTTPException(status_code=400, detail="请先选择或配置数据源")
 
@@ -493,11 +471,11 @@ async def ask(
         user_id=current_user.id,
         datasource_id=datasource.id,
         parent_history_id=parent_history_id,
-        question=f"[SQL] {question}",
+        question=f"[{_query_mode_label(mode)}] {question}",
         sql_query=sql_query,
         result_json=json.dumps(stored_result, ensure_ascii=False, default=str),
         summary=summary,
-        mode="text2sql",
+        mode=mode,
         drill_context=json.dumps(drill_context, ensure_ascii=False) if drill_context else None,
         llm_model=runtime_llm_model,
     )
@@ -514,7 +492,7 @@ async def ask(
         org_id=datasource.org_id,
         message="智能问数已完成",
         detail={
-            "mode": "text2sql",
+            "mode": mode,
             "question": question,
             "datasource_id": datasource.id,
             "dataset_id": dataset.id if dataset else None,
@@ -531,7 +509,7 @@ async def ask(
         "llm_model": runtime_llm_model,
         "history_id": history.id,
         "recommendations": recommendations,
-        "mode": "text2sql",
+        "mode": mode,
         "trust_signals": trust_signals,
     }
 
@@ -640,7 +618,7 @@ def get_history_detail(
         "result": result,
         "summary": item.summary or "",
         "llm_model": item.llm_model or _get_persisted_llm_model(db),
-        "mode": item.mode or "text2sql",
+        "mode": _normalize_history_mode(item.mode),
         "drill_context": json.loads(item.drill_context) if item.drill_context else None,
         "parent_history_id": item.parent_history_id,
         "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),

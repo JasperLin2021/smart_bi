@@ -15,6 +15,8 @@ SUPPORTED_EVENT_TYPES = {
     "dashboard.comment.created",
     "dashboard.shared",
     "approval.requested",
+    "pipeline.run_failed",
+    "pipeline.quality_failed",
 }
 
 

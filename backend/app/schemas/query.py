@@ -4,7 +4,7 @@ from typing import Any, List, Dict, Optional
 
 class QueryAskRequest(BaseModel):
     question: str
-    mode: Optional[str] = "text2sql"
+    mode: Optional[str] = "business"
     datasource_id: Optional[int] = None
     dataset_id: Optional[int] = None
     drill_context: Optional[Dict[str, Any]] = None

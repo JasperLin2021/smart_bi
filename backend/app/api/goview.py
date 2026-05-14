@@ -788,7 +788,7 @@ async def smartbi_query(
     sql = (payload.get("sql") or "").strip()
     if question:
         response = await query_api.ask(
-            QueryAskRequest(question=question, mode="text2sql", datasource_id=datasource.id),
+            QueryAskRequest(question=question, mode="explore", datasource_id=datasource.id),
             db=db,
             current_user=current_user,
         )

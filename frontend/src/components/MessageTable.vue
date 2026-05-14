@@ -112,7 +112,7 @@ const handleRowClick = async (row: Record<string, any>) => {
 }
 
 const runDrill = async (action: DrillAction) => {
-  await queryStore.ask(action.question, "text2sql", {
+  await queryStore.ask(action.question, props.message.mode || "business", {
     pathLabel: action.label,
     sourceLabel: action.source_dimension_label,
     sourceValue: action.source_value,

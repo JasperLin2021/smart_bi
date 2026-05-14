@@ -40,6 +40,21 @@ test("dataset builder persists explicit dimensions separately from aggregate met
   assert.match(buildPayloadBlock, /aggregations: metricExpressions\.value/)
 })
 
+test("organization-visible dataset publishing requires department admin approval", () => {
+  const view = read("src/views/DatasetCenter.vue")
+
+  assert.match(view, /pending_review/)
+  assert.match(view, /待审批/)
+  assert.match(view, /待部门管理员审批/)
+  assert.match(view, /approveDataset/)
+  assert.match(view, /\/api\/datasets\/\$\{dataset\.id\}\/approve/)
+  assert.match(view, /审批发布/)
+  assert.match(view, /datasetStatusLabel/)
+  assert.match(view, /datasetStatusTagType/)
+  assert.match(view, /orgVisibilityApprovalRequired/)
+  assert.match(view, /保存后提交审批/)
+})
+
 test("dataset field modeling UI is optimized for role-based configuration", () => {
   const view = read("src/views/DatasetCenter.vue")
 
@@ -52,4 +67,31 @@ test("dataset field modeling UI is optimized for role-based configuration", () =
   assert.match(view, /metricExpressionLabel/)
   assert.match(view, /从左侧字段卡片切换为维度/)
   assert.match(view, /从左侧字段卡片切换为指标/)
+})
+
+test("derived column expression candidates come from all configured metrics", () => {
+  const view = read("src/views/DatasetCenter.vue")
+  const derivedBuilderBlock = view.match(/<section class="advanced-section">[\s\S]*?添加派生列/)?.[0] || ""
+
+  assert.match(view, /derivedMetricCandidates/)
+  assert.match(derivedBuilderBlock, /v-if="derivedMetricCandidates\.length"/)
+  assert.match(derivedBuilderBlock, /v-for="metric in derivedMetricCandidates"/)
+  assert.match(derivedBuilderBlock, /appendDerivedToken\(metric\.expression\)/)
+  assert.match(derivedBuilderBlock, /metric\.label/)
+  assert.doesNotMatch(derivedBuilderBlock, /v-for="field in selectedColumns"/)
+})
+
+test("dataset center uses a compact top-right toolbar instead of hero and summary cards", () => {
+  const view = read("src/views/DatasetCenter.vue")
+
+  assert.match(view, /class="dataset-toolbar"/)
+  assert.match(view, /class="dataset-toolbar-actions"/)
+  assert.match(view, /class="search-input"/)
+  assert.match(view, /新建数据集/)
+  assert.doesNotMatch(view, /class="dataset-hero"/)
+  assert.doesNotMatch(view, /class="hero-actions"/)
+  assert.doesNotMatch(view, /class="summary-grid"/)
+  assert.doesNotMatch(view, /\.dataset-hero\s*\{/)
+  assert.doesNotMatch(view, /\.hero-actions\s*\{/)
+  assert.doesNotMatch(view, /\.summary-grid\s*\{/)
 })

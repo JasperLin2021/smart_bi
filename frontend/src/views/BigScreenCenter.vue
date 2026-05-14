@@ -1,8 +1,11 @@
 <template>
   <div class="bigscreen-page">
     <div class="toolbar">
-      <el-segmented v-model="statusFilter" :options="statusOptions" @change="fetchScreens" />
-      <el-button type="primary" @click="openCreate">新建大屏</el-button>
+      <el-segmented class="page-segmented-tabs" v-model="statusFilter" :options="statusOptions" @change="fetchScreens" />
+      <div class="toolbar-actions">
+        <el-button @click="openGoViewDesigner">GoView 设计器</el-button>
+        <el-button type="primary" @click="openCreate">新建大屏</el-button>
+      </div>
     </div>
 
     <el-table v-loading="loading" :data="screens" @row-click="openDesigner">
@@ -116,6 +119,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue"
+import { useRouter } from "vue-router"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 
@@ -139,6 +143,7 @@ interface BigScreenItem {
 }
 
 const screens = ref<BigScreenItem[]>([])
+const router = useRouter()
 const widgets = ref<ScreenWidget[]>([])
 const loading = ref(false)
 const saving = ref(false)
@@ -199,6 +204,10 @@ const resetForm = () => {
 const openCreate = () => {
   resetForm()
   dialogVisible.value = true
+}
+
+const openGoViewDesigner = () => {
+  router.push("/goview")
 }
 
 const openEdit = (screen: BigScreenItem) => {
@@ -306,12 +315,18 @@ onMounted(fetchScreens)
 }
 
 .toolbar,
+.toolbar-actions,
 .designer-topbar,
 .widget-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.toolbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .bigscreen-designer :deep(.el-drawer__body) {

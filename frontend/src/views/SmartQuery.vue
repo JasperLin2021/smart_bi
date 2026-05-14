@@ -8,8 +8,8 @@
               <span class="card-header-title">智能问数助手</span>
               <div class="header-actions">
                 <el-radio-group v-model="queryStore.mode" size="small">
-                  <el-radio-button label="text2sql">智能问数</el-radio-button>
-                  <el-radio-button label="chat">闲聊模式</el-radio-button>
+                  <el-radio-button label="business">业务问数</el-radio-button>
+                  <el-radio-button v-if="canUseExploreMode" label="explore">探索模式</el-radio-button>
                 </el-radio-group>
                 <el-button size="small" text @click="clearChat">
                   <el-icon><Delete /></el-icon>
@@ -19,13 +19,18 @@
             </div>
           </template>
 
-          <div v-if="queryStore.mode === 'text2sql'" class="query-scope-panel">
+          <div class="query-scope-panel" :class="{ 'is-explore': queryStore.mode === 'explore' }">
             <div class="scope-mode">
-              <span class="scope-label">问数范围</span>
-              <el-segmented v-model="queryStore.scopeMode" :options="scopeOptions" />
+              <span class="scope-label">{{ queryStore.mode === "business" ? "业务数据集" : "探索范围" }}</span>
+              <el-segmented
+                v-if="queryStore.mode === 'explore'"
+                v-model="queryStore.scopeMode"
+                :options="scopeOptions"
+              />
+              <el-tag v-else size="small" effect="plain" type="success">默认使用可信指标和数据集语义层</el-tag>
             </div>
             <el-select
-              v-if="queryStore.scopeMode === 'datasource'"
+              v-if="queryStore.mode === 'explore' && queryStore.scopeMode === 'datasource'"
               v-model="queryStore.selectedDatasourceId"
               class="scope-select"
               filterable
@@ -74,7 +79,7 @@
                 <el-icon :size="48"><ChatDotRound /></el-icon>
               </div>
               <h3>欢迎使用智能问数助手</h3>
-              <p>您可以用自然语言提问，我会帮您查询数据并生成分析结果</p>
+              <p>{{ welcomeDescription }}</p>
               <div class="welcome-examples">
                 <span class="example-label">试试这样问：</span>
                 <el-tag
@@ -123,14 +128,14 @@
               </template>
             </el-input>
             <div class="input-tips">
-              <span v-if="queryStore.mode === 'text2sql' && queryContextReady">
-                当前使用{{ queryStore.scopeMode === "dataset" ? "数据集" : "数据源" }}：{{ activeScopeText }}
+              <span v-if="queryContextReady">
+                {{ queryStore.mode === "business" ? "业务问数" : "探索模式" }}当前使用{{ activeScopeTypeText }}：{{ activeScopeText }}
               </span>
-              <span v-else-if="queryStore.mode === 'text2sql'">
-                请先选择问数范围
+              <span v-else-if="queryStore.mode === 'business'">
+                业务问数必须选择数据集
               </span>
               <span v-else>
-                提示：闲聊模式下可以进行自由对话
+                请先选择探索范围
               </span>
             </div>
           </div>
@@ -207,9 +212,11 @@ import {
 import ChatBubble from "@/components/ChatBubble.vue"
 import { useQueryStore } from "@/store/query"
 import { useDatasourceStore } from "@/store/datasource"
+import { useAuthStore } from "@/store/auth"
 
 const queryStore = useQueryStore()
 const datasourceStore = useDatasourceStore()
+const authStore = useAuthStore()
 const question = ref("")
 const chatContainerRef = ref<HTMLDivElement | null>(null)
 const datasetsLoading = ref(false)
@@ -230,16 +237,33 @@ const scopeOptions = [
   { label: "数据集", value: "dataset" },
 ]
 
-const examples = [
-  "产出最高的前5个单元",
-  "在“1001/OP100 - Failed Hall Cal test”这一不良类型下，各工位的NG数量分布是怎样的？",
-  "查询各单元的异常分布"
+const canUseExploreMode = computed(() => authStore.canUseExploreMode)
+
+const businessExamples = [
+  "最近 30 天各渠道销售额趋势",
+  "华东区毛利率为什么下降？",
+  "蓝途科技订单量 TOP10 商品"
 ]
 
+const exploreExamples = [
+  "检查订单表最近 7 天的异常字段分布",
+  "按原始表探索退款金额和订单状态的关系",
+  "查看当前数据源里可分析的主表和关键字段"
+]
+
+const examples = computed(() => queryStore.mode === "explore" ? exploreExamples : businessExamples)
+
+const welcomeDescription = computed(() => {
+  if (queryStore.mode === "explore") {
+    return "探索结果会标记为非认证口径，适合管理员基于授权数据资产做临时分析"
+  }
+  return "您可以用自然语言提问，我会优先使用可信指标、数据集指标和维度生成分析结果"
+})
+
 const inputPlaceholder = computed(() => {
-  if (queryStore.mode === "chat") return "输入您想聊的内容..."
   if (!queryContextReady.value) return "请先选择问数范围..."
-  return `基于${queryStore.scopeMode === "dataset" ? "数据集" : "数据源"}提问...`
+  if (queryStore.mode === "business") return "基于数据集、可信指标和维度提问..."
+  return `基于${queryStore.scopeMode === "dataset" ? "数据集" : "数据源"}探索提问...`
 })
 
 const selectedDataset = computed(() =>
@@ -251,15 +275,20 @@ const activeDatasource = computed(() =>
 )
 
 const queryContextReady = computed(() => {
-  if (queryStore.mode === "chat") return true
+  if (queryStore.mode === "business") return Boolean(queryStore.selectedDatasetId)
   if (queryStore.scopeMode === "dataset") return Boolean(queryStore.selectedDatasetId)
   return Boolean(queryStore.selectedDatasourceId)
 })
 
 const activeScopeText = computed(() => {
-  if (queryStore.mode === "chat") return "闲聊模式"
+  if (queryStore.mode === "business") return selectedDataset.value?.name || "未选择数据集"
   if (queryStore.scopeMode === "dataset") return selectedDataset.value?.name || "未选择数据集"
   return activeDatasource.value?.name || "未选择数据源"
+})
+
+const activeScopeTypeText = computed(() => {
+  if (queryStore.mode === "business") return "数据集"
+  return queryStore.scopeMode === "dataset" ? "数据集" : "数据源"
 })
 
 const datasourceName = (id: number) =>
@@ -278,6 +307,12 @@ const fetchDatasets = async () => {
 }
 
 const ensureScopeDefaults = () => {
+  if (!canUseExploreMode.value && queryStore.mode === "explore") {
+    queryStore.mode = "business"
+  }
+  if (queryStore.mode === "business") {
+    queryStore.scopeMode = "dataset"
+  }
   if (!queryStore.selectedDatasourceId) {
     queryStore.selectedDatasourceId = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
   }
@@ -334,7 +369,7 @@ const deleteAllHistoryItems = async () => {
 }
 
 const cleanHistoryText = (text: string) => {
-  return text.replace(/^\[(SQL|闲聊)\]\s*/, "")
+  return text.replace(/^\[(SQL|闲聊|业务问数|探索问数)\]\s*/, "")
 }
 
 const clearChat = () => {
@@ -353,6 +388,11 @@ watch(() => queryStore.messages.length, () => {
 })
 
 watch(() => queryStore.scopeMode, () => {
+  ensureScopeDefaults()
+  queryStore.fetchHistory()
+})
+
+watch(() => queryStore.mode, () => {
   ensureScopeDefaults()
   queryStore.fetchHistory()
 })

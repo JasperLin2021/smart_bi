@@ -348,6 +348,75 @@ class DatasetPipelineTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_org_visible_dataset_requires_department_admin_approval(self):
+        from app.api.datasets import approve_dataset, create_dataset
+        from app.models.audit_log import AuditLog
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.organization import Department, Organization
+        from app.models.user import User
+        from app.schemas.dataset import DatasetCreate
+
+        db = self._db([
+            Organization.__table__,
+            Department.__table__,
+            User.__table__,
+            DataSource.__table__,
+            Dataset.__table__,
+            AuditLog.__table__,
+        ])
+        org = Organization(id=2, name="蓝途科技", slug="blueway")
+        department = Department(id=21, name="销售运营部", org_id=2)
+        owner = User(
+            id=10,
+            username="dataset_owner",
+            hashed_password="x",
+            role="user",
+            org_id=2,
+            department_id=21,
+            department="销售运营部",
+        )
+        approver = User(
+            id=11,
+            username="dept_admin",
+            hashed_password="x",
+            role="dept_admin",
+            org_id=2,
+            department_id=21,
+            department="销售运营部",
+        )
+        datasource = DataSource(
+            name="Sales DB",
+            slug="sales-db-approval",
+            source_type="database",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add_all([org, department, owner, approver, datasource])
+        db.commit()
+        db.refresh(datasource)
+
+        dataset = create_dataset(
+            DatasetCreate(
+                name="组织共享销售数据集",
+                datasource_id=datasource.id,
+                fields_json={"table": "sales", "fields": ["sales.region"]},
+                visibility="org",
+                status="published",
+            ),
+            db=db,
+            current_user=owner,
+        )
+
+        self.assertEqual(dataset.visibility, "org")
+        self.assertEqual(dataset.status, "pending_review")
+
+        approved = approve_dataset(dataset.id, db=db, current_user=approver)
+
+        self.assertEqual(approved.status, "published")
+        self.assertEqual(approved.visibility, "org")
+
 
 if __name__ == "__main__":
     unittest.main()

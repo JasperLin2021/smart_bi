@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 
 
@@ -12,6 +12,7 @@ class MetricBase(BaseModel):
     definition: str
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    calculation_config: Optional[dict[str, Any]] = None
     owner_name: Optional[str] = None
     unit: Optional[str] = None
     aggregation: str = "sum"
@@ -41,6 +42,7 @@ class MetricUpdate(BaseModel):
     definition: Optional[str] = None
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    calculation_config: Optional[dict[str, Any]] = None
     owner_name: Optional[str] = None
     unit: Optional[str] = None
     aggregation: Optional[str] = None
@@ -68,6 +70,7 @@ class MetricOut(BaseModel):
     definition: str
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    calculation_config: Optional[dict[str, Any]] = None
     owner_name: Optional[str] = None
     unit: Optional[str] = None
     aggregation: str = "sum"

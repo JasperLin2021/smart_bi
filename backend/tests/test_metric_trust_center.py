@@ -84,6 +84,81 @@ class MetricTrustCenterTests(unittest.TestCase):
         self.assertEqual(asset.metadata_json["quality_status"], "normal")
         self.assertEqual(asset.metadata_json["caliber_version"], "v2026.04")
 
+    def test_enterprise_calculation_config_syncs_to_metric_and_catalog(self):
+        from app.api.metrics import create_metric, get_metric_lineage
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricCreate
+
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource = DataSource(
+            name="Sales",
+            slug="sales-enterprise-caliber",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add(datasource)
+        db.flush()
+        dataset = Dataset(
+            name="Sales Dataset",
+            datasource_id=datasource.id,
+            fields_json={"table": "orders", "fields": ["orders.received_amount", "orders.receivable_amount"]},
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        calculation_config = {
+            "calculation_mode": "ratio",
+            "numerator_expression": "SUM(received_amount)",
+            "denominator_expression": "SUM(receivable_amount)",
+            "statistical_window": "自然月",
+            "time_field": "order_date",
+            "time_grain": "month",
+            "filters": [
+                {"logic": "AND", "field": "order_status", "operator": "=", "value": "已完成"}
+            ],
+            "null_handling": "金额为空按 0 处理",
+            "dedup_key": "order_id",
+            "denominator_zero_policy": "返回空值并标记风险",
+            "decimal_precision": 4,
+            "exception_handling": "排除退款与测试订单",
+            "validation_rule": "与财务月结报表差异 <= 0.5%",
+        }
+
+        metric = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="企业级回款率",
+                definition="已完成订单的回款金额 / 应回款金额",
+                formula="SUM(received_amount) / NULLIF(SUM(receivable_amount), 0)",
+                aggregation="ratio",
+                calculation_config=calculation_config,
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        self.assertEqual(metric.calculation_config["calculation_mode"], "ratio")
+        self.assertEqual(metric.calculation_config["filters"][0]["field"], "order_status")
+        asset = db.query(DataAsset).filter(DataAsset.asset_type == "metric", DataAsset.asset_id == metric.id).one()
+        self.assertEqual(asset.metadata_json["calculation_config"]["time_grain"], "month")
+        self.assertEqual(asset.metadata_json["calculation_config"]["denominator_zero_policy"], "返回空值并标记风险")
+
+        lineage = get_metric_lineage(
+            metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=2, username="analyst", role="org_admin", org_id=2),
+        )
+        self.assertEqual(lineage["metric"]["calculation_config"]["statistical_window"], "自然月")
+        self.assertEqual(lineage["metric"]["calculation_config"]["filters"][0]["value"], "已完成")
+
     def test_metric_lineage_returns_source_and_usage_nodes(self):
         from app.api.metrics import create_metric, get_metric_lineage
         from app.models.audit_log import AuditLog

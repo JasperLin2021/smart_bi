@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 VALID_METRIC_STATUSES = {"draft", "published", "archived"}
 VALID_CERTIFICATION_STATUSES = {"draft", "pending_review", "certified", "deprecated"}
 VALID_QUALITY_STATUSES = {"unknown", "normal", "stale", "error"}
+FILTER_OPERATORS = {"=", "!=", ">", ">=", "<", "<=", "LIKE", "NOT LIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL"}
 
 
 def ensure_admin(user: User):
@@ -56,6 +58,57 @@ def _ensure_metric_values(status: str | None = None, certification_status: str |
         raise HTTPException(status_code=400, detail="无效指标认证状态")
     if quality_status is not None and quality_status not in VALID_QUALITY_STATUSES:
         raise HTTPException(status_code=400, detail="无效指标质量状态")
+
+
+def _safe_column_ref(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", text):
+        return None
+    return text
+
+
+def _sql_literal(value: object) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    text = str(value).replace("'", "''")
+    return f"'{text}'"
+
+
+def _render_calculation_filters(calculation_config: dict | None) -> str:
+    if not isinstance(calculation_config, dict):
+        return ""
+    clauses: list[str] = []
+    for raw_rule in calculation_config.get("filters") or []:
+        if not isinstance(raw_rule, dict):
+            continue
+        field = _safe_column_ref(raw_rule.get("field"))
+        operator = str(raw_rule.get("operator") or "=").strip().upper()
+        if not field or operator not in FILTER_OPERATORS:
+            continue
+        if operator in {"IS NULL", "IS NOT NULL"}:
+            clause = f"{field} {operator}"
+        elif operator in {"IN", "NOT IN"}:
+            raw_value = raw_rule.get("value")
+            values = raw_value if isinstance(raw_value, list) else str(raw_value or "").split(",")
+            rendered_values = [_sql_literal(item) for item in values if str(item).strip()]
+            if not rendered_values:
+                continue
+            clause = f"{field} {operator} ({', '.join(rendered_values)})"
+        else:
+            clause = f"{field} {operator} {_sql_literal(raw_rule.get('value'))}"
+        logic = str(raw_rule.get("logic") or "AND").upper()
+        if clauses and logic == "OR":
+            clauses.append(f"OR {clause}")
+        elif clauses:
+            clauses.append(f"AND {clause}")
+        else:
+            clauses.append(clause)
+    return " ".join(clauses)
+
 
 def _apply_metric_visibility(query, user: User):
     if user.role == "super_admin":
@@ -126,6 +179,7 @@ def _sync_metric_catalog_asset(db: Session, metric: Metric, datasource: DataSour
     asset.metadata_json = {
         "definition": metric.definition,
         "formula": metric.formula,
+        "calculation_config": metric.calculation_config,
         "column_name": metric.column_name,
         "owner_name": metric.owner_name,
         "unit": metric.unit,
@@ -311,6 +365,7 @@ def get_metric_lineage(
             "name": metric.name,
             "definition": metric.definition,
             "formula": metric.formula,
+            "calculation_config": metric.calculation_config,
             "unit": metric.unit,
             "aggregation": metric.aggregation,
             "caliber_version": metric.caliber_version,
@@ -504,13 +559,18 @@ def compute_metric(
     else:
         raise HTTPException(status_code=400, detail="指标缺少计算口径：请配置 column_name 或 formula，并确保数据集已设置主表")
 
+    filters_sql = _render_calculation_filters(metric.calculation_config)
+    if filters_sql:
+        connector = "AND" if re.search(r"\bwhere\b", sql, flags=re.I) else "WHERE"
+        sql = f"{sql} {connector} {filters_sql}"
+
     try:
         source_type = getattr(datasource, "source_type", "database")
         if source_type == "excel":
             from app.core.excel_executor import execute_excel_query
             from app.core.excel_uploads import resolve_excel_source_path
             file_path = resolve_excel_source_path(datasource.database_url)
-            result = execute_excel_query(file_path, f"SELECT {formula or metric.column_name} AS _val FROM {table}")
+            result = execute_excel_query(file_path, sql)
             rows = result.get("rows", [])
             val = float(rows[0][0]) if rows and rows[0][0] is not None else None
         else:

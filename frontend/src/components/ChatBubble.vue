@@ -58,6 +58,10 @@
             <code class="model-chip-value">{{ message.llmModel }}</code>
           </div>
 
+          <div v-if="message.mode === 'explore'" class="explore-warning">
+            探索结果，非认证口径
+          </div>
+
           <div v-if="message.trustSignals?.length" class="trust-panel">
             <div class="trust-panel-title">
               <span>可信指标</span>
@@ -84,7 +88,7 @@
           
           <!-- SQL 查询 (可折叠) -->
           <el-collapse v-if="message.sqlQuery" class="sql-collapse">
-            <el-collapse-item title="SQL 查询语句" name="sql">
+            <el-collapse-item title="技术细节 / SQL 查询语句" name="sql">
               <pre class="sql-code">{{ message.sqlQuery }}</pre>
             </el-collapse-item>
           </el-collapse>
@@ -361,7 +365,7 @@ const breadcrumbText = computed(() => buildBreadcrumb(props.message.drillContext
 const goBackOneLevel = async () => {
   const drillContext = props.message.drillContext
   if (!drillContext?.parentQuestion) return
-  await queryStore.ask(drillContext.parentQuestion, "text2sql", drillContext.parentContext)
+  await queryStore.ask(drillContext.parentQuestion, "business", drillContext.parentContext)
 }
 
 const openActionDialog = () => {
@@ -687,6 +691,18 @@ const formatTime = (date: Date) => {
   font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
   font-size: 12px;
   color: #0f172a;
+}
+
+.explore-warning {
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: 10px;
+  background: rgba(217, 119, 6, 0.08);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .trust-panel {

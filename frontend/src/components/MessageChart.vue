@@ -88,7 +88,7 @@
       class="chart-creator-dialog pin-chart-creator-dialog"
       body-class="pin-chart-dialog-body"
       footer-class="pin-chart-dialog-footer"
-      @opened="() => window.dispatchEvent(new Event('resize'))"
+      @opened="dispatchResize"
     >
       <el-form :model="pinChartForm" label-position="top" class="chart-creator-form">
         <el-tabs v-model="pinDialogTab" class="modal-tabs">
@@ -260,6 +260,7 @@ interface PinnedChartPreviewCard {
 const chartRef = ref<HTMLDivElement | null>(null)
 const queryStore = useQueryStore()
 const datasourceStore = useDatasourceStore()
+const dispatchResize = () => globalThis.dispatchEvent(new Event("resize"))
 const chartType = ref<"line" | "bar" | "pie">("line")
 const sortOrder = ref<"none" | "desc" | "asc">("none")
 const showDimensionConfig = ref(false)
@@ -638,7 +639,7 @@ const renderChart = async () => {
 }
 
 const runDrill = async (action: DrillAction) => {
-  await queryStore.ask(action.question, "text2sql", {
+  await queryStore.ask(action.question, props.message.mode || "business", {
     pathLabel: action.label,
     sourceLabel: action.source_dimension_label,
     sourceValue: action.source_value,
@@ -713,9 +714,9 @@ const previewPinChartDraft = async () => {
     if (pinCreateMode.value === "nl") {
       const response = await axios.post("/api/query/ask", {
         question: pinChartForm.question.trim(),
-        mode: "text2sql",
+        mode: queryStore.mode,
         datasource_id: pinChartForm.datasource_id,
-        dataset_id: queryStore.scopeMode === "dataset" ? queryStore.selectedDatasetId : null,
+        dataset_id: queryStore.mode === "business" || queryStore.scopeMode === "dataset" ? queryStore.selectedDatasetId : null,
       })
       pinChartForm.sql_query = response.data.sql_query || ""
       pinPreviewResult.value = response.data.result || { columns: [], rows: [] }

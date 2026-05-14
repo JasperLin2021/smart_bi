@@ -30,7 +30,7 @@ from app.models.report_template import (  # noqa: F401
     ReportTemplate,
     ReportTemplateVersion,
 )
-from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule  # noqa: F401
+from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataPipelineVersion, DataQualityRule  # noqa: F401
 from app.models.analysis_view import AnalysisView  # noqa: F401
 
 __all__ = [
@@ -40,5 +40,5 @@ __all__ = [
     "IntegrationConfig", "ExternalOrgBinding", "ExternalIdentity", "ExternalPermissionMapping",
     "MessageDelivery", "AccessRequest", "ReportExecutionLog", "ReportTemplate",
     "ReportTemplateVersion", "ReportRun", "ReportFillRecord", "DataPipeline",
-    "DataPipelineRun", "DataQualityRule", "AnalysisView",
+    "DataPipelineRun", "DataPipelineVersion", "DataQualityRule", "AnalysisView",
 ]

@@ -1,32 +1,26 @@
 <template>
   <div class="data-development-page">
     <section class="development-tabs-shell" aria-label="数据源与数据集工作台">
-      <el-tabs v-model="activeTab" class="development-tabs" @tab-change="handleTabChange">
-        <el-tab-pane name="datasources">
-          <template #label>
-            <span class="tab-label">
-              <el-icon><Coin /></el-icon>
-              <span>
-                <strong>数据源管理</strong>
-                <small>连接、凭证、表结构</small>
-              </span>
-            </span>
-          </template>
-          <DataSourceSettings />
-        </el-tab-pane>
-        <el-tab-pane name="datasets">
-          <template #label>
-            <span class="tab-label">
-              <el-icon><Document /></el-icon>
-              <span>
-                <strong>数据集开发</strong>
-                <small>维度指标、预览发布</small>
-              </span>
-            </span>
-          </template>
-          <DatasetCenter />
-        </el-tab-pane>
-      </el-tabs>
+      <div class="page-tabbar development-tabbar">
+        <button
+          v-for="tab in workbenchTabs"
+          :key="tab.key"
+          class="page-tab page-tab--stacked"
+          :class="{ 'is-active': activeTab === tab.key }"
+          type="button"
+          @click="activeTab = tab.key"
+        >
+          <el-icon><component :is="tab.icon" /></el-icon>
+          <span class="page-tab-text">
+            <strong>{{ tab.label }}</strong>
+            <small>{{ tab.description }}</small>
+          </span>
+        </button>
+      </div>
+      <div class="development-tab-content">
+        <DataSourceSettings v-show="activeTab === 'datasources'" />
+        <DatasetCenter v-show="activeTab === 'datasets'" />
+      </div>
     </section>
   </div>
 </template>
@@ -48,6 +42,10 @@ const tabRouteQueries: Record<WorkbenchTab, { tab: WorkbenchTab }> = {
   datasources: { tab: "datasources" },
   datasets: { tab: "datasets" },
 }
+const workbenchTabs = [
+  { key: "datasources" as const, label: "数据源管理", description: "连接、凭证、表结构", icon: Coin },
+  { key: "datasets" as const, label: "数据集开发", description: "维度指标、预览发布", icon: Document },
+]
 
 const activeTab = computed<WorkbenchTab>({
   get: () => normalizeTab(route.query.tab),
@@ -61,9 +59,6 @@ const activeTab = computed<WorkbenchTab>({
   },
 })
 
-const handleTabChange = (tab: string | number) => {
-  activeTab.value = normalizeTab(tab)
-}
 </script>
 
 <style scoped>
@@ -74,63 +69,18 @@ const handleTabChange = (tab: string | number) => {
 }
 
 .development-tabs-shell {
-  padding: 0 16px 16px;
+  padding: 14px 16px 16px;
   border: 1px solid #dbe3ef;
   border-radius: 8px;
   background: #fff;
 }
 
-.development-tabs {
-  --el-color-primary: #0f766e;
+.development-tabbar {
+  margin-bottom: 12px;
 }
 
-.tab-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 154px;
-}
-
-.tab-label span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.2;
-}
-
-.tab-label strong {
-  color: #0f172a;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.tab-label small {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-:deep(.el-tabs__header) {
-  margin: 0;
-}
-
-:deep(.el-tabs__nav-wrap::after) {
-  height: 1px;
-  background: #e2e8f0;
-}
-
-:deep(.el-tabs__item) {
-  height: 58px;
-  padding: 0 18px;
-  color: #475569;
-}
-
-:deep(.el-tabs__item.is-active) {
-  color: #0f766e;
-}
-
-:deep(.el-tabs__content) {
-  padding-top: 12px;
+.development-tab-content {
+  padding-top: 0;
 }
 
 :deep(.datasource-page),
@@ -140,14 +90,10 @@ const handleTabChange = (tab: string | number) => {
 
 @media (max-width: 720px) {
   .development-tabs-shell {
-    padding: 0 10px 12px;
+    padding: 12px 10px;
   }
 
-  .tab-label {
-    min-width: 0;
-  }
-
-  .tab-label small {
+  .development-tabbar :deep(.page-tab-text small) {
     display: none;
   }
 }

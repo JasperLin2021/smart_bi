@@ -17,7 +17,7 @@ USER_SKILLS_DIR = Path.home() / ".codex" / "skills"
 BUILTIN_SKILLS = [
     {
         "name": "navigation",
-        "description": "Use for page navigation and datasource switching.",
+        "description": "Use for page navigation across the current workspace, data preparation, BI analysis and system admin menus.",
         "source": "builtin",
         "path": None,
         "allowed_actions": ["navigate", "switch_datasource"],
@@ -31,7 +31,7 @@ BUILTIN_SKILLS = [
     },
     {
         "name": "datasource_admin",
-        "description": "Use for datasource creation, testing, schema detection and drill config generation.",
+        "description": "Use for connector and datasource creation, testing, schema detection and drill config generation.",
         "source": "builtin",
         "path": None,
         "allowed_actions": [
@@ -43,6 +43,55 @@ BUILTIN_SKILLS = [
             "detect_schema",
             "generate_drill_config",
         ],
+    },
+    {
+        "name": "dataset_admin",
+        "description": "Use for dataset development, semantic modeling, publishing and refresh workflows.",
+        "source": "builtin",
+        "path": None,
+        "allowed_actions": [
+            "navigate",
+            "create_dataset",
+            "update_dataset",
+            "publish_dataset",
+            "refresh_dataset",
+            "delete_dataset",
+        ],
+    },
+    {
+        "name": "dashboard_admin",
+        "description": "Use for dashboard center creation, update, publishing and deletion workflows.",
+        "source": "builtin",
+        "path": None,
+        "allowed_actions": ["navigate", "create_dashboard", "update_dashboard", "publish_dashboard", "delete_dashboard"],
+    },
+    {
+        "name": "analysis_workbench",
+        "description": "Use for self-service analysis views, reusable analysis and publishing to BI assets.",
+        "source": "builtin",
+        "path": None,
+        "allowed_actions": ["navigate", "create_analysis_view", "update_analysis_view", "publish_analysis_view"],
+    },
+    {
+        "name": "pipeline_admin",
+        "description": "Use for data processing pipelines, scheduling, backfill and operational runs.",
+        "source": "builtin",
+        "path": None,
+        "allowed_actions": ["navigate", "create_pipeline", "run_pipeline", "delete_pipeline"],
+    },
+    {
+        "name": "report_admin",
+        "description": "Use for complex report templates, paginated reports and fill-form report maintenance.",
+        "source": "builtin",
+        "path": None,
+        "allowed_actions": ["navigate", "create_report_template", "update_report_template", "delete_report_template"],
+    },
+    {
+        "name": "action_item",
+        "description": "Use for creating and maintaining action items from analysis, alerts, dashboards or manual follow-ups.",
+        "source": "builtin",
+        "path": None,
+        "allowed_actions": ["navigate", "create_action_item", "update_action_item", "delete_action_item"],
     },
     {
         "name": "user_admin",

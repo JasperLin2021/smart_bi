@@ -14,6 +14,15 @@ class DataPipeline(Base):
     schedule_cron = Column(String(64), nullable=True)
     run_mode = Column(String(32), default="manual", nullable=False, index=True)
     status = Column(String(32), default="draft", nullable=False, index=True)
+    environment = Column(String(32), default="prod", nullable=False, index=True)
+    priority = Column(String(16), default="medium", nullable=False, index=True)
+    sla_minutes = Column(Integer, default=120, nullable=False)
+    retry_count = Column(Integer, default=2, nullable=False)
+    timeout_minutes = Column(Integer, default=60, nullable=False)
+    alert_policy_json = Column(JSON, nullable=True)
+    state_json = Column(JSON, nullable=True)
+    current_version = Column(Integer, default=0, nullable=False)
+    published_version = Column(Integer, default=0, nullable=False)
     last_run_status = Column(String(32), nullable=True, index=True)
     last_run_at = Column(DateTime, nullable=True)
     org_id = Column(Integer, nullable=True, index=True)
@@ -36,10 +45,28 @@ class DataPipelineRun(Base):
     records_written = Column(Integer, default=0, nullable=False)
     records_failed = Column(Integer, default=0, nullable=False)
     error_message = Column(Text, nullable=True)
+    notify_result_json = Column(JSON, nullable=True)
+    scheduled_job_id = Column(String(128), nullable=True, index=True)
+    duration_ms = Column(Integer, nullable=True)
     org_id = Column(Integer, nullable=True, index=True)
     triggered_by_id = Column(Integer, nullable=True, index=True)
     started_at = Column(DateTime, server_default=func.now())
     finished_at = Column(DateTime, nullable=True)
+
+
+class DataPipelineVersion(Base):
+    __tablename__ = "data_pipeline_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pipeline_id = Column(Integer, nullable=False, index=True)
+    version = Column(Integer, nullable=False, index=True)
+    status = Column(String(32), default="published", nullable=False, index=True)
+    dag_json = Column(JSON, nullable=False)
+    config_json = Column(JSON, nullable=True)
+    comment = Column(Text, nullable=True)
+    org_id = Column(Integer, nullable=True, index=True)
+    created_by = Column(Integer, nullable=True, index=True)
+    published_at = Column(DateTime, server_default=func.now())
 
 
 class DataQualityRule(Base):

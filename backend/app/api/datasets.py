@@ -38,7 +38,19 @@ from app.schemas.dataset import (
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
-VALID_DATASET_STATUSES = {"draft", "published", "archived"}
+DATASET_STATUS_DRAFT = "draft"
+DATASET_STATUS_PENDING_REVIEW = "pending_review"
+DATASET_STATUS_PUBLISHED = "published"
+DATASET_STATUS_ARCHIVED = "archived"
+DATASET_VISIBILITY_ORG = "org"
+DATASET_VISIBILITY_PRIVATE = "private"
+DATASET_APPROVER_ROLES = {"dept_admin", "org_admin", "super_admin"}
+VALID_DATASET_STATUSES = {
+    DATASET_STATUS_DRAFT,
+    DATASET_STATUS_PENDING_REVIEW,
+    DATASET_STATUS_PUBLISHED,
+    DATASET_STATUS_ARCHIVED,
+}
 VALID_VISIBILITIES = {"private", "org"}
 SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 FILTER_RE = re.compile(
@@ -101,13 +113,63 @@ def _can_manage_dataset(user: User, dataset: Dataset) -> bool:
     return dataset.owner_id == user.id
 
 
+def _can_approve_dataset(db: Session, user: User, dataset: Dataset) -> bool:
+    if user.role == "super_admin":
+        return True
+    if user.org_id != dataset.org_id:
+        return False
+    if user.role == "org_admin":
+        return True
+    if user.role != "dept_admin":
+        return False
+
+    owner = db.query(User).filter(User.id == dataset.owner_id).first() if dataset.owner_id else None
+    owner_department_id = getattr(owner, "department_id", None)
+    approver_department_id = getattr(user, "department_id", None)
+    if owner_department_id and approver_department_id:
+        return owner_department_id == approver_department_id
+    return True
+
+
+def _requires_org_visibility_approval(user: User, visibility: str | None, status: str | None) -> bool:
+    return (
+        visibility == DATASET_VISIBILITY_ORG
+        and status == DATASET_STATUS_PUBLISHED
+        and user.role not in DATASET_APPROVER_ROLES
+    )
+
+
+def _apply_dataset_publication_workflow(values: dict[str, Any], user: User, dataset: Dataset | None = None) -> bool:
+    next_visibility = values.get("visibility", dataset.visibility if dataset else DATASET_VISIBILITY_PRIVATE)
+    next_status = values.get("status", dataset.status if dataset else DATASET_STATUS_DRAFT)
+    if not _requires_org_visibility_approval(user, next_visibility, next_status):
+        return False
+    values["visibility"] = DATASET_VISIBILITY_ORG
+    values["status"] = DATASET_STATUS_PENDING_REVIEW
+    return True
+
+
+def _sync_dataset_publication_state(db: Session, dataset: Dataset) -> None:
+    if dataset.status == DATASET_STATUS_PUBLISHED:
+        _sync_dataset_asset(db, dataset)
+    else:
+        delete_catalog_asset(db, "dataset", dataset.id)
+
+
 def _apply_visibility(query, user: User):
     if user.role == "super_admin":
         return query
     query = query.filter(Dataset.org_id == user.org_id)
     if user.role == "org_admin":
         return query
-    return query.filter(or_(Dataset.status == "published", Dataset.owner_id == user.id))
+    if user.role == "dept_admin":
+        return query.filter(
+            or_(
+                Dataset.status.in_([DATASET_STATUS_PUBLISHED, DATASET_STATUS_PENDING_REVIEW]),
+                Dataset.owner_id == user.id,
+            )
+        )
+    return query.filter(or_(Dataset.status == DATASET_STATUS_PUBLISHED, Dataset.owner_id == user.id))
 
 
 def _get_dataset_for_user(db: Session, dataset_id: int, user: User) -> Dataset:
@@ -725,6 +787,7 @@ def create_dataset(
     org_id = payload.org_id if current_user.role == "super_admin" and payload.org_id else datasource.org_id
     values = payload.model_dump(exclude={"org_id", "owner_id"})
     values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
+    approval_required = _apply_dataset_publication_workflow(values, current_user)
     dataset = Dataset(
         **values,
         org_id=org_id,
@@ -732,8 +795,7 @@ def create_dataset(
     )
     db.add(dataset)
     db.flush()
-    if dataset.status == "published":
-        _sync_dataset_asset(db, dataset)
+    _sync_dataset_publication_state(db, dataset)
     db.commit()
     db.refresh(dataset)
     try_record_audit_log(
@@ -744,8 +806,13 @@ def create_dataset(
         resource_id=dataset.id,
         resource_name=dataset.name,
         org_id=dataset.org_id,
-        message="数据集已创建",
-        detail={"datasource_id": dataset.datasource_id, "status": dataset.status},
+        message="数据集已提交审批" if approval_required else "数据集已创建",
+        detail={
+            "datasource_id": dataset.datasource_id,
+            "status": dataset.status,
+            "visibility": dataset.visibility,
+            "approval_required": approval_required,
+        },
     )
     return dataset
 
@@ -1096,10 +1163,10 @@ def update_dataset(
         datasource = _get_datasource_for_user(db, values["datasource_id"], current_user)
         if current_user.role != "super_admin":
             dataset.org_id = datasource.org_id
+    approval_required = _apply_dataset_publication_workflow(values, current_user, dataset)
     for key, value in values.items():
         setattr(dataset, key, value)
-    if dataset.status == "published":
-        _sync_dataset_asset(db, dataset)
+    _sync_dataset_publication_state(db, dataset)
     db.commit()
     db.refresh(dataset)
     try_record_audit_log(
@@ -1110,8 +1177,8 @@ def update_dataset(
         resource_id=dataset.id,
         resource_name=dataset.name,
         org_id=dataset.org_id,
-        message="数据集已更新",
-        detail={"fields": list(values.keys())},
+        message="数据集已提交审批" if approval_required else "数据集已更新",
+        detail={"fields": list(values.keys()), "approval_required": approval_required},
     )
     return dataset
 
@@ -1127,9 +1194,14 @@ def publish_dataset(
         raise HTTPException(status_code=404, detail="数据集不存在")
     if not _can_manage_dataset(current_user, dataset):
         raise HTTPException(status_code=403, detail="无权限")
-    dataset.status = "published"
-    dataset.visibility = "org"
-    _sync_dataset_asset(db, dataset)
+    dataset.visibility = DATASET_VISIBILITY_ORG
+    approval_required = _requires_org_visibility_approval(
+        current_user,
+        dataset.visibility,
+        DATASET_STATUS_PUBLISHED,
+    )
+    dataset.status = DATASET_STATUS_PENDING_REVIEW if approval_required else DATASET_STATUS_PUBLISHED
+    _sync_dataset_publication_state(db, dataset)
     db.commit()
     db.refresh(dataset)
     try_record_audit_log(
@@ -1140,7 +1212,40 @@ def publish_dataset(
         resource_id=dataset.id,
         resource_name=dataset.name,
         org_id=dataset.org_id,
-        message="数据集已发布",
+        message="数据集已提交审批" if approval_required else "数据集已发布",
+        detail={"approval_required": approval_required},
+    )
+    return dataset
+
+
+@router.post("/{dataset_id}/approve", response_model=DatasetOut)
+def approve_dataset(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not _can_approve_dataset(db, current_user, dataset):
+        raise HTTPException(status_code=403, detail="需要同部门部门管理员或以上权限")
+    if dataset.visibility != DATASET_VISIBILITY_ORG:
+        raise HTTPException(status_code=400, detail="仅组织内可见的数据集需要审批")
+
+    dataset.status = DATASET_STATUS_PUBLISHED
+    dataset.visibility = DATASET_VISIBILITY_ORG
+    _sync_dataset_publication_state(db, dataset)
+    db.commit()
+    db.refresh(dataset)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dataset.approve",
+        resource_type="dataset",
+        resource_id=dataset.id,
+        resource_name=dataset.name,
+        org_id=dataset.org_id,
+        message="数据集已审批发布",
     )
     return dataset
 

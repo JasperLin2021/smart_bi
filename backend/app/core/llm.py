@@ -278,15 +278,3 @@ async def generate_summary(question: str, result: dict) -> str:
         {"role": "user", "content": f"问题:{question}\n结果:{result}"},
     ]
     return await chat_completion(messages, temperature=0.3)
-
-
-async def chat(question: str) -> str:
-    """闲聊模式，直接与AI对话"""
-    messages = [
-        {
-            "role": "system",
-            "content": "你是一个友好的AI助手，可以帮助用户回答问题、聊天。请用中文简洁回复。",
-        },
-        {"role": "user", "content": question},
-    ]
-    return await chat_completion(messages)

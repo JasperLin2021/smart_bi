@@ -1,17 +1,17 @@
 <template>
   <div class="ac-page">
     <!-- ── Top Tab Bar ─────────────────────────────────────────────── -->
-    <div class="ac-tabbar">
+    <div class="page-tabbar ac-tabbar">
       <button
         v-for="t in visibleTabs"
         :key="t.key"
-        class="ac-tab"
-        :class="{ active: activeTab === t.key }"
+        class="page-tab ac-tab"
+        :class="{ active: activeTab === t.key, 'is-active': activeTab === t.key }"
         @click="activeTab = t.key"
       >
         <el-icon><component :is="t.icon" /></el-icon>
         {{ t.label }}
-        <span v-if="t.badge" class="tab-badge">{{ t.badge }}</span>
+        <span v-if="t.badge" class="page-tab-badge tab-badge">{{ t.badge }}</span>
       </button>
     </div>
 

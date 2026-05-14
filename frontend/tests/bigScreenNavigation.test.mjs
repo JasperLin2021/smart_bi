@@ -17,3 +17,12 @@ test("big screen center is a standalone top-level sidebar entry", () => {
   assert.match(biAssetsBlock, /path:\s*"\/dashboard-center",\s*label:\s*"看板中心"/)
   assert.doesNotMatch(biAssetsBlock, /path:\s*"\/big-screen-center"/)
 })
+
+test("big screen center uses the built-in system page and keeps GoView as an external designer entry", () => {
+  const router = read("src/router/index.ts")
+
+  assert.match(router, /path:\s*"\/big-screen-center",\s*component:\s*\(\)\s*=>\s*import\("@\/views\/BigScreenCenter\.vue"\)/)
+  assert.match(router, /path:\s*"\/goview",\s*component:\s*\(\)\s*=>\s*import\("@\/views\/GoViewCenter\.vue"\)/)
+  assert.doesNotMatch(router, /path:\s*"\/internal-big-screen-center"/)
+  assert.doesNotMatch(router, /path:\s*"\/big-screen-center",\s*component:\s*\(\)\s*=>\s*import\("@\/views\/GoViewCenter\.vue"\)/)
+})

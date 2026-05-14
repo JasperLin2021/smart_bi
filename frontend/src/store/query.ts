@@ -4,6 +4,7 @@ import { ElMessage } from "element-plus"
 import { useDatasourceStore } from "@/store/datasource"
 
 export type QueryScopeMode = "datasource" | "dataset"
+export type QueryMode = "business" | "explore"
 
 export interface QueryResult {
   columns: string[]
@@ -84,7 +85,7 @@ export interface ChatMessage {
   llmModel?: string
   recommendations?: string[]
   trustSignals?: MetricTrustSignal[]
-  mode?: "text2sql" | "chat"
+  mode?: QueryMode
   error?: string
   sourceQuestion?: string
   drillContext?: DrillContext
@@ -103,8 +104,8 @@ export const useQueryStore = defineStore("query", {
     loading: false,
     messages: [] as ChatMessage[],
     history: [] as QueryHistoryItem[],
-    mode: "text2sql" as "text2sql" | "chat",
-    scopeMode: "datasource" as QueryScopeMode,
+    mode: "business" as QueryMode,
+    scopeMode: "dataset" as QueryScopeMode,
     selectedDatasourceId: null as number | null,
     selectedDatasetId: null as number | null,
   }),
@@ -115,7 +116,7 @@ export const useQueryStore = defineStore("query", {
     
     async ask(
       question: string,
-      queryMode?: "text2sql" | "chat",
+      queryMode?: QueryMode,
       drillContext?: DrillContext,
       parentHistoryId?: number | null
     ) {
@@ -148,7 +149,7 @@ export const useQueryStore = defineStore("query", {
       try {
         const dsStore = useDatasourceStore()
         const datasourceId = this.selectedDatasourceId || dsStore.currentId
-        const datasetId = this.scopeMode === "dataset" ? this.selectedDatasetId : null
+        const datasetId = mode === "business" || this.scopeMode === "dataset" ? this.selectedDatasetId : null
         const response = await axios.post("/api/query/ask", {
           question,
           mode,
@@ -258,7 +259,8 @@ export const useQueryStore = defineStore("query", {
         this.messages = []
         
         // 添加用户消息
-        const cleanQuestion = data.question.replace(/^\[(SQL|闲聊)\]\s*/, "")
+        const cleanQuestion = data.question.replace(/^\[(SQL|闲聊|业务问数|探索问数)\]\s*/, "")
+        const historyMode = (data.mode === "explore" ? "explore" : "business") as QueryMode
         const userMessage: ChatMessage = {
           id: this.generateId(),
           role: "user",
@@ -272,7 +274,7 @@ export const useQueryStore = defineStore("query", {
         const assistantMessage: ChatMessage = {
           id: this.generateId(),
           role: "assistant",
-          content: data.mode === "chat" ? data.summary : "已加载历史查询结果。",
+          content: "已加载历史查询结果。",
           timestamp: new Date(data.created_at),
           status: "success",
           historyId: data.id,
@@ -280,14 +282,14 @@ export const useQueryStore = defineStore("query", {
           result: data.result,
           summary: data.summary,
           llmModel: data.llm_model,
-          mode: data.mode,
+          mode: historyMode,
           trustSignals: data.trust_signals || [],
           sourceQuestion: cleanQuestion,
           drillContext: data.drill_context || undefined,
         }
         this.messages.push(assistantMessage)
         
-        this.mode = data.mode || "text2sql"
+        this.mode = historyMode
       } catch (error) {
         ElMessage.error("加载历史记录失败")
       } finally {

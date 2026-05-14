@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard-center-page">
     <div class="toolbar">
-      <el-segmented v-model="statusFilter" :options="statusOptions" @change="fetchDashboards" />
+      <el-segmented class="page-segmented-tabs" v-model="statusFilter" :options="statusOptions" @change="fetchDashboards" />
       <div class="toolbar-actions">
         <el-button @click="openTemplateDialog">模板创建</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建看板</el-button>
@@ -132,7 +132,7 @@
       </el-tabs>
     </el-dialog>
 
-    <el-drawer v-model="previewVisible" title="看板预览" size="82%" @close="onPreviewClose" @opened="() => window.dispatchEvent(new Event('resize'))" class="preview-drawer">
+    <el-drawer v-model="previewVisible" title="看板预览" size="82%" @close="onPreviewClose" @opened="dispatchResize" class="preview-drawer">
       <template v-if="selectedDashboard">
         <div class="preview-header">
           <div>
@@ -235,7 +235,7 @@
       </template>
     </el-drawer>
 
-    <el-drawer v-model="designerVisible" :with-header="false" size="92%" class="designer-drawer" @opened="() => window.dispatchEvent(new Event('resize'))">
+    <el-drawer v-model="designerVisible" :with-header="false" size="92%" class="designer-drawer" @opened="dispatchResize">
       <div v-if="designingDashboard" class="designer-shell">
         <aside class="designer-sidebar">
           <div class="sidebar-header">
@@ -539,7 +539,7 @@
       :title="chartLibraryPreviewChart?.title || '图表预览'"
       width="760px"
       append-to-body
-      @opened="() => window.dispatchEvent(new Event('resize'))"
+      @opened="dispatchResize"
     >
       <div style="height: 340px; padding: 4px">
         <PinnedChartCard
@@ -650,6 +650,9 @@ const designerVisible = ref(false)
 const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.profile?.id)
 const isAdmin = computed(() => ["super_admin", "org_admin"].includes(authStore.profile?.role || ""))
+const canUseExploreMode = computed(() => authStore.canUseExploreMode)
+const defaultChartCreateMode = () => canUseExploreMode.value ? "nl" : "sql"
+const dispatchResize = () => globalThis.dispatchEvent(new Event("resize"))
 
 // 导出
 const previewGridRef = ref<HTMLElement | null>(null)
@@ -764,7 +767,7 @@ const editingId = ref<number | null>(null)
 const statusFilter = ref("all")
 const chartKeyword = ref("")
 const libraryChartType = ref("auto")
-const chartCreateMode = ref("nl")
+const chartCreateMode = ref<"nl" | "sql">(defaultChartCreateMode())
 const chartPreviewResult = ref<ChartPreviewResult | null>(null)
 const templates = ref<DashboardTemplate[]>([])
 const sharePublic = ref(false)
@@ -839,10 +842,12 @@ const statusOptions = [
   { label: "已发布", value: "published" },
   { label: "草稿", value: "draft" },
 ]
-const chartCreateModeOptions = [
-  { label: "自然语言", value: "nl" },
-  { label: "SQL", value: "sql" },
-]
+const chartCreateModeOptions = computed(() => {
+  const options = [{ label: "SQL", value: "sql" }]
+  return canUseExploreMode.value
+    ? [{ label: "自然语言", value: "nl" }, ...options]
+    : options
+})
 const chartTypeOptions = [
   { label: "指标卡", value: "kpi" },
   { label: "明细表", value: "table" },
@@ -1181,8 +1186,10 @@ const openDashboardFromRouteQuery = async () => {
   }
 
   if (route.query.mode === "edit") {
+    if (!target) return
     await openDesigner(target)
   } else {
+    if (!target) return
     await preview(target)
   }
 }
@@ -1219,7 +1226,7 @@ const addChartToCanvas = (chart: PinnedChartData, chartTypeOverride?: string) =>
 
 const resetChartForm = () => {
   editingChartId.value = null
-  chartCreateMode.value = "nl"
+  chartCreateMode.value = defaultChartCreateMode()
   chartForm.title = ""
   chartForm.description = ""
   chartForm.question = ""
@@ -1301,6 +1308,10 @@ const deleteLibraryChart = async (chart: PinnedChartData) => {
 }
 
 const generateChartFromQuestion = async () => {
+  if (!canUseExploreMode.value) {
+    ElMessage.warning("自然语言探索仅部门管理员及以上可用")
+    return false
+  }
   const question = chartForm.question.trim()
   if (!question) {
     ElMessage.warning("请输入问题")
@@ -1313,7 +1324,7 @@ const generateChartFromQuestion = async () => {
 
   const response = await axios.post("/api/query/ask", {
     question,
-    mode: "text2sql",
+    mode: "explore",
     datasource_id: chartForm.datasource_id,
   })
   chartForm.sql_query = response.data.sql_query || ""
