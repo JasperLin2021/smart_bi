@@ -482,16 +482,8 @@
           </el-tabs>
         </section>
       </main>
-    </section>
 
-    <el-drawer
-      v-model="nodeDrawerVisible"
-      class="node-config-drawer"
-      size="min(520px, calc(100vw - 24px))"
-      direction="rtl"
-      :with-header="false"
-    >
-      <div class="node-config-panel node-config-panel--drawer" aria-label="节点配置">
+      <aside class="node-config-panel node-config-panel--inspector" aria-label="节点配置">
         <div class="section-heading">
           <div>
             <span>节点配置</span>
@@ -501,8 +493,8 @@
             <el-tag v-if="selectedNode" :type="selectedNodeStatus === 'failed' || selectedNodeStatus === 'blocked' ? 'danger' : selectedNodeStatus === 'warning' ? 'warning' : 'success'" effect="plain">
               {{ selectedNodeStatusText }}
             </el-tag>
-            <el-button v-if="selectedNode" size="small" :loading="inspecting" @click="inspectSelectedNode">Inspect</el-button>
-            <el-button size="small" text @click="nodeDrawerVisible = false">收起</el-button>
+            <el-button v-if="selectedNode" size="small" :loading="previewing" @click="previewSelectedNode">预览</el-button>
+            <el-button v-if="selectedNode" size="small" :loading="inspecting" @click="inspectSelectedNode">画像</el-button>
           </div>
         </div>
 
@@ -810,8 +802,8 @@
             </div>
           </template>
         </div>
-      </div>
-    </el-drawer>
+      </aside>
+    </section>
 
     <el-dialog v-model="dialogVisible" title="新建数据加工管道" width="min(860px, calc(100vw - 32px))" destroy-on-close>
       <el-form label-position="top" class="pipeline-form">
@@ -3203,7 +3195,7 @@ onMounted(loadAll)
 
 .etl-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
   align-items: start;
   gap: 12px;
 }
@@ -3468,6 +3460,8 @@ onMounted(loadAll)
 }
 
 .section-heading--canvas {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: flex-start;
   gap: 12px;
 }
@@ -3490,11 +3484,12 @@ onMounted(loadAll)
 
 .canvas-commandbar {
   flex: 1;
-  min-width: min(100%, 560px);
+  width: 100%;
+  min-width: 0;
 }
 
 .canvas-commandbar .toolbar-group {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .node-search-input {
@@ -4032,11 +4027,10 @@ onMounted(loadAll)
   overflow: auto;
 }
 
-.node-config-panel--drawer {
-  max-height: none;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
+.node-config-panel--inspector {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
 }
 
 .node-state-panel {
@@ -4062,15 +4056,9 @@ onMounted(loadAll)
 .node-config-heading__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
-}
-
-:deep(.node-config-drawer) {
-  --el-drawer-padding-primary: 18px;
-}
-
-:deep(.node-config-drawer .el-drawer__body) {
-  padding: 18px;
 }
 
 .mapping-row,
@@ -4096,7 +4084,13 @@ onMounted(loadAll)
 
 @media (max-width: 1280px) {
   .etl-shell {
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .node-config-panel--inspector {
+    grid-column: 1 / -1;
+    position: static;
+    max-height: none;
   }
 
   .pipeline-action-toolbar {

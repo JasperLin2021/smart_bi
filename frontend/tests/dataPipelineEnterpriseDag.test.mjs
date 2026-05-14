@@ -28,13 +28,14 @@ test("data pipeline workbench exposes SQL, scale pushdown, and reverse ETL opera
   assert.match(pipelines, /反向 ETL/)
 })
 
-test("data pipeline workbench uses a left operator console and drawer node editing", () => {
+test("data pipeline workbench uses a left operator console and pinned node inspector", () => {
   const pipelines = read("src/views/DataPipelines.vue")
 
   assert.match(pipelines, /etl-shell--composer/)
   assert.match(pipelines, /操作台/)
-  assert.match(pipelines, /class="node-config-drawer"/)
-  assert.match(pipelines, /v-model="nodeDrawerVisible"/)
+  assert.match(pipelines, /node-config-panel--inspector/)
+  assert.match(pipelines, /<aside class="node-config-panel node-config-panel--inspector"/)
+  assert.match(pipelines, /grid-template-columns:\s*280px minmax\(0, 1fr\) 320px/)
   assert.match(pipelines, /nodeDrawerVisible\.value = true/)
   assert.doesNotMatch(pipelines, /grid-template-columns:\s*292px minmax\(0, 1fr\) 360px/)
 })
