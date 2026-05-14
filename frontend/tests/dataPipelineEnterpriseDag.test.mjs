@@ -116,3 +116,16 @@ test("data pipeline canvas uses orthogonal left-to-right connectors", () => {
   assert.doesNotMatch(pipelines, /:position="Position\.Top"/)
   assert.doesNotMatch(pipelines, /:position="Position\.Bottom"/)
 })
+
+test("data pipeline operator console uses consistent icon-over-text palette cards", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /class="source-palette"/)
+  assert.match(pipelines, /class="source-chip palette-card"/)
+  assert.match(pipelines, /class="palette-card__icon etl-canvas-node__icon"/)
+  assert.match(pipelines, /class="palette-card__copy"/)
+  assert.match(pipelines, /paletteNodeDescription\(node\)/)
+  assert.match(pipelines, /\.source-palette,[\s\S]*?\.node-palette\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/)
+  assert.match(pipelines, /\.palette-card__copy strong/)
+  assert.match(pipelines, /\.palette-card__copy small/)
+})

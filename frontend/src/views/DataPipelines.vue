@@ -120,10 +120,17 @@
             <span>数据源</span>
             <small>拖拽接入</small>
           </div>
-          <button v-for="source in sourcePalette" :key="source.name" type="button" class="source-chip">
-            <el-icon><component :is="source.icon" /></el-icon>
-            {{ source.name }}
-          </button>
+          <div class="source-palette">
+            <button v-for="source in sourcePalette" :key="source.name" type="button" class="source-chip palette-card" :title="source.description">
+              <span class="palette-card__icon etl-canvas-node__icon" :class="`etl-canvas-node__icon--${source.tone}`" aria-hidden="true">
+                <el-icon><component :is="source.icon" /></el-icon>
+              </span>
+              <span class="palette-card__copy">
+                <strong>{{ source.name }}</strong>
+                <small>{{ source.description }}</small>
+              </span>
+            </button>
+          </div>
         </div>
 
         <div class="palette-section">
@@ -143,8 +150,13 @@
                 @dragstart="onPaletteDragStart(node.type)"
                 @click="addNode(node.type)"
               >
-                <el-icon><component :is="node.icon" /></el-icon>
-                <span>{{ node.label }}</span>
+                <span class="palette-card__icon etl-canvas-node__icon" :class="`etl-canvas-node__icon--${nodeTone(node.type)}`" aria-hidden="true">
+                  <el-icon><component :is="node.icon" /></el-icon>
+                </span>
+                <span class="palette-card__copy">
+                  <strong>{{ node.label }}</strong>
+                  <small>{{ paletteNodeDescription(node) }}</small>
+                </span>
               </button>
             </div>
           </div>
@@ -1170,24 +1182,24 @@ const runModeOptions = [
   { label: "补数", value: "backfill" },
 ]
 const sourcePalette = [
-  { name: "MySQL", icon: DataAnalysis },
-  { name: "PostgreSQL", icon: DataAnalysis },
-  { name: "Excel", icon: DocumentChecked },
-  { name: "API", icon: Connection },
-  { name: "Kafka", icon: Link },
+  { name: "MySQL", description: "业务库接入", icon: DataAnalysis, tone: "blue" },
+  { name: "PostgreSQL", description: "数仓明细表", icon: DataAnalysis, tone: "indigo" },
+  { name: "Excel", description: "文件批量导入", icon: DocumentChecked, tone: "emerald" },
+  { name: "API", description: "服务接口同步", icon: Connection, tone: "cyan" },
+  { name: "Kafka", description: "实时消息流", icon: Link, tone: "violet" },
 ]
 const fallbackNodePalette = [
-  { type: "extract", label: "抽取", icon: UploadFilled },
-  { type: "metadata_extract", label: "元数据", icon: DocumentChecked },
-  { type: "transform", label: "转换", icon: SetUp },
-  { type: "join", label: "关联", icon: Link },
-  { type: "union", label: "汇合", icon: Connection },
-  { type: "sql", label: "SQL 算子", icon: DataAnalysis },
-  { type: "transform", label: "聚合", icon: Histogram },
-  { type: "quality", label: "校验", icon: Select },
-  { type: "load", label: "加载", icon: Finished },
-  { type: "reverse_etl", label: "反向 ETL", icon: RefreshRight },
-  { type: "transform", label: "自定义", icon: Grid },
+  { type: "extract", label: "抽取", icon: UploadFilled, description: "源端采集" },
+  { type: "metadata_extract", label: "元数据", icon: DocumentChecked, description: "结构探查" },
+  { type: "transform", label: "转换", icon: SetUp, description: "字段清洗" },
+  { type: "join", label: "关联", icon: Link, description: "多表融合" },
+  { type: "union", label: "汇合", icon: Connection, description: "多路合并" },
+  { type: "sql", label: "SQL 算子", icon: DataAnalysis, description: "灵活分析" },
+  { type: "transform", label: "聚合", icon: Histogram, description: "指标汇总" },
+  { type: "quality", label: "校验", icon: Select, description: "规则质检" },
+  { type: "load", label: "加载", icon: Finished, description: "目标写入" },
+  { type: "reverse_etl", label: "反向 ETL", icon: RefreshRight, description: "业务回写" },
+  { type: "transform", label: "自定义", icon: Grid, description: "扩展逻辑" },
 ]
 const calloutGroups = {
   left: [
@@ -1285,6 +1297,32 @@ const nodeTone = (type: string) => ({
   sink: "emerald",
   reverse_etl: "rose",
 }[type] || "teal")
+const paletteNodeDescription = (node: { type?: string; label?: string; description?: string }) => {
+  if (node.description) return node.description
+  return ({
+    抽取: "源端采集",
+    元数据: "结构探查",
+    转换: "字段清洗",
+    聚合: "指标汇总",
+    关联: "多表融合",
+    汇合: "多路合并",
+    "SQL 算子": "灵活分析",
+    校验: "规则质检",
+    加载: "目标写入",
+    "反向 ETL": "业务回写",
+    自定义: "扩展逻辑",
+  }[node.label || ""] || {
+    extract: "源端采集",
+    metadata_extract: "结构探查",
+    transform: "字段处理",
+    join: "多表融合",
+    union: "多路合并",
+    sql: "灵活分析",
+    quality: "规则质检",
+    load: "目标写入",
+    reverse_etl: "业务回写",
+  }[node.type || ""] || "扩展逻辑")
+}
 const nodePalette = computed(() => {
   if (!operatorCatalog.value.length) return fallbackNodePalette
   return operatorCatalog.value.map((operator) => ({
@@ -3308,31 +3346,73 @@ onMounted(loadAll)
 
 .source-chip,
 .node-palette button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 7px;
   width: 100%;
-  min-height: 40px;
-  padding: 8px 10px;
-  text-align: left;
+  min-height: 112px;
+  padding: 10px 8px;
+  text-align: center;
+  touch-action: manipulation;
 }
 
-.source-chip .el-icon,
-.node-palette button .el-icon {
-  flex: 0 0 auto;
+.palette-card__icon.etl-canvas-node__icon {
+  width: 46px;
+  height: 46px;
+  border-color: rgba(148, 163, 184, 0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 0 rgba(15, 23, 42, 0.04),
+    0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
-.node-palette button span {
+.palette-card__icon.etl-canvas-node__icon::before {
+  inset: 5px;
+}
+
+.palette-card__icon .el-icon {
+  font-size: 22px;
+}
+
+.palette-card__copy {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
   min-width: 0;
+  width: 100%;
+}
+
+.palette-card__copy strong,
+.palette-card__copy small {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.palette-card__copy strong {
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
+.palette-card__copy small {
+  display: -webkit-box;
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.source-palette,
 .node-palette {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
