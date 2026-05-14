@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -26,7 +27,7 @@ MetadataExtractor = Callable[[DataSource, dict[str, Any]], dict[str, Any]]
 
 
 SAFE_TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-SUPPORTED_NODE_TYPES = {"source", "extract", "metadata_extract", "transform", "join", "union", "quality", "load", "sink"}
+SUPPORTED_NODE_TYPES = {"source", "extract", "metadata_extract", "transform", "join", "union", "sql", "quality", "load", "sink", "reverse_etl"}
 
 
 @dataclass
@@ -549,6 +550,151 @@ def _sql_type_for(values: list[Any]) -> str:
     return "TEXT"
 
 
+def _assert_select_sql(sql: str) -> str:
+    cleaned = sql.strip()
+    if cleaned.endswith(";"):
+        cleaned = cleaned[:-1].strip()
+    lowered = re.sub(r"/\*.*?\*/|--.*?$", "", cleaned, flags=re.DOTALL | re.MULTILINE).strip().lower()
+    if not lowered:
+        raise ValueError("SQL node requires a SELECT statement")
+    if ";" in lowered:
+        raise ValueError("SQL node accepts a single SELECT statement only")
+    if not (lowered.startswith("select") or lowered.startswith("with")):
+        raise ValueError("SQL node only supports SELECT queries")
+    blocked = r"\b(insert|update|delete|drop|alter|truncate|create|replace|attach|detach|vacuum|pragma)\b"
+    if re.search(blocked, lowered):
+        raise ValueError("SQL node only supports read-only SELECT queries")
+    return cleaned
+
+
+def _sqlite_quote_identifier(identifier: str) -> str:
+    if not SAFE_TABLE_RE.match(identifier):
+        raise ValueError(f"invalid identifier: {identifier}")
+    return f'"{identifier}"'
+
+
+def _safe_sqlite_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _sql_row_value(row: dict[str, Any], column: str) -> Any:
+    if column in row:
+        return row[column]
+    lowered_column = column.lower()
+    for key, value in row.items():
+        if str(key).split(".")[-1].lower() == lowered_column:
+            return value
+    return None
+
+
+def _create_sqlite_rowset_table(
+    conn: sqlite3.Connection,
+    table_name: str,
+    columns: list[str],
+    rows: list[dict[str, Any]],
+) -> None:
+    normalized_columns: list[str] = []
+    for column in columns or _columns_for(rows):
+        column_name = str(column).split(".")[-1]
+        if SAFE_TABLE_RE.match(column_name) and column_name not in normalized_columns:
+            normalized_columns.append(column_name)
+    if not normalized_columns:
+        normalized_columns = ["_empty"]
+    definitions = [
+        f"{_sqlite_quote_identifier(column)} {_sql_type_for([_sql_row_value(row, column) for row in rows])}"
+        for column in normalized_columns
+    ]
+    conn.execute(f"CREATE TEMP TABLE {_sqlite_quote_identifier(table_name)} ({', '.join(definitions)})")
+    if rows:
+        columns_sql = ", ".join(_sqlite_quote_identifier(column) for column in normalized_columns)
+        values_sql = ", ".join("?" for _ in normalized_columns)
+        conn.executemany(
+            f"INSERT INTO {_sqlite_quote_identifier(table_name)} ({columns_sql}) VALUES ({values_sql})",
+            [
+                tuple(_safe_sqlite_value(_sql_row_value(row, column)) for column in normalized_columns)
+                for row in rows
+            ],
+        )
+
+
+def _table_name_for_parent(parent_id: str, index: int) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_]", "_", parent_id).strip("_")
+    if not normalized or normalized[0].isdigit():
+        normalized = f"node_{normalized or index}"
+    return f"input_{normalized}"
+
+
+def _execute_sql_in_memory(
+    parent_ids: list[str],
+    rowsets_by_node: dict[str, list[dict[str, Any]]],
+    columns_by_node: dict[str, list[str]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    sql = _assert_select_sql(str(config.get("sql") or ""))
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    try:
+        for index, parent_id in enumerate(parent_ids):
+            rows = [dict(row) for row in rowsets_by_node.get(parent_id, [])]
+            columns = columns_by_node.get(parent_id, []) or _columns_for(rows)
+            table_names = [_table_name_for_parent(parent_id, index + 1), f"input_{index + 1}"]
+            if index == 0:
+                table_names.insert(0, "input")
+            created: set[str] = set()
+            for table_name in table_names:
+                if table_name in created:
+                    continue
+                _create_sqlite_rowset_table(conn, table_name, columns, rows)
+                created.add(table_name)
+        cursor = conn.execute(sql)
+        columns = [description[0] for description in cursor.description or []]
+        rows = [dict(row) for row in cursor.fetchall()]
+        return {"columns": columns, "rows": rows, "row_count": len(rows)}
+    finally:
+        conn.close()
+
+
+def _execute_sql_pushdown(
+    datasource: DataSource,
+    config: dict[str, Any],
+    *,
+    limit: int | None,
+    persist: bool,
+) -> dict[str, Any]:
+    sql = _assert_select_sql(str(config.get("sql") or ""))
+    target_table = str(config.get("target_table") or "").strip()
+    mode = str(config.get("mode") or "replace").strip().lower()
+    preview_limit = max(1, int(limit or 100))
+    engine = get_datasource_engine(datasource.database_url)
+    target_identifier = _quote_identifier(engine, target_table) if target_table else ""
+    with engine.begin() as conn:
+        row_count = int(conn.execute(text(f"SELECT COUNT(*) FROM ({sql}) AS _pipeline_sql")).scalar() or 0)
+        result = conn.execute(text(f"SELECT * FROM ({sql}) AS _pipeline_sql LIMIT :limit"), {"limit": preview_limit})
+        columns = list(result.keys())
+        rows = [dict(row._mapping) for row in result.fetchall()]
+        records_written = 0
+        if persist and target_identifier:
+            if mode != "append":
+                conn.execute(text(f"DROP TABLE IF EXISTS {target_identifier}"))
+                conn.execute(text(f"CREATE TABLE {target_identifier} AS SELECT * FROM ({sql}) AS _pipeline_sql"))
+            else:
+                conn.execute(text(f"CREATE TABLE IF NOT EXISTS {target_identifier} AS SELECT * FROM ({sql}) AS _pipeline_sql WHERE 1 = 0"))
+                conn.execute(text(f"INSERT INTO {target_identifier} SELECT * FROM ({sql}) AS _pipeline_sql"))
+            records_written = row_count
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_count": row_count,
+        "records_written": records_written,
+        "external_target": target_table or None,
+        "execution_mode": "pushdown",
+    }
+
+
 def _write_target_table(datasource: DataSource, table_name: str, columns: list[str], rows: list[dict[str, Any]], mode: str) -> int:
     if not table_name or mode == "dataset_refresh":
         return len(rows)
@@ -615,12 +761,15 @@ def execute_pipeline_dag(
         rows = input_rows
         columns = input_columns
         rows_in = len(input_rows)
+        node_records_read = rows_in
         status = "success"
         errors: list[str] = []
+        execution_mode: str | None = None
+        external_target: str | None = None
         if node_type not in SUPPORTED_NODE_TYPES:
             status = "skipped"
             errors.append("unsupported node type")
-        elif quality_blocked and node_type in {"load", "sink"}:
+        elif quality_blocked and node_type in {"load", "sink", "reverse_etl"}:
             status = "skipped"
             node_records_written = 0
         else:
@@ -635,6 +784,7 @@ def execute_pipeline_dag(
                     rows = _filter_incremental_rows(rows, config, payload, source_dataset)
                     columns = _columns_for(rows, extract.get("columns", []))
                     records_read += len(rows)
+                    node_records_read = len(rows)
                     if persist_load and not payload.dry_run:
                         _update_incremental_watermark(source_dataset, rows, config)
                 elif node_type == "metadata_extract":
@@ -645,6 +795,7 @@ def execute_pipeline_dag(
                     rows = [dict(row) for row in extract.get("rows", [])]
                     columns = _columns_for(rows, extract.get("columns", []))
                     records_read += len(rows)
+                    node_records_read = len(rows)
                 elif node_type == "transform":
                     rows = _execute_transform(input_rows, config)
                     columns = _columns_for(rows, columns)
@@ -661,6 +812,33 @@ def execute_pipeline_dag(
                         raise ValueError("join node requires two upstream nodes")
                     rows = _execute_join(rowsets_by_node.get(left_id, []), rowsets_by_node.get(right_id, []), config)
                     columns = _columns_for(rows, columns_by_node.get(left_id, []) + columns_by_node.get(right_id, []))
+                elif node_type == "sql":
+                    parent_ids = upstream.get(node_id) or []
+                    execution_mode = str(config.get("execution_mode") or ("pushdown" if not parent_ids else "in_memory")).lower()
+                    if execution_mode == "pushdown":
+                        source_datasource = datasource
+                        if config.get("datasource_id") and datasource_resolver:
+                            source_datasource = datasource_resolver(int(config["datasource_id"]))
+                        sql_result = _execute_sql_pushdown(
+                            source_datasource,
+                            config,
+                            limit=limit,
+                            persist=persist_load and not payload.dry_run,
+                        )
+                        rows = [dict(row) for row in sql_result.get("rows", [])]
+                        columns = _columns_for(rows, sql_result.get("columns", []))
+                        node_records_read = int(sql_result.get("row_count") or len(rows))
+                        records_read += node_records_read
+                        node_records_written = int(sql_result.get("records_written") or 0)
+                        records_written += node_records_written
+                        external_target = sql_result.get("external_target")
+                    else:
+                        sql_result = _execute_sql_in_memory(parent_ids, rowsets_by_node, columns_by_node, config)
+                        rows = [dict(row) for row in sql_result.get("rows", [])]
+                        columns = _columns_for(rows, sql_result.get("columns", []))
+                        node_records_read = sum(len(rowsets_by_node.get(parent_id, [])) for parent_id in parent_ids)
+                        records_read += node_records_read
+                        execution_mode = "in_memory"
                 elif node_type == "quality":
                     if quality_evaluator:
                         node_quality_results = quality_evaluator(quality_rules or [], input_rows, datasource, run_now)
@@ -690,10 +868,32 @@ def execute_pipeline_dag(
                             str(config.get("mode") or "replace").strip(),
                         )
                         records_written += node_records_written
+                elif node_type == "reverse_etl":
+                    rows = input_rows
+                    columns = input_columns
+                    target_type = str(config.get("target_type") or "database").lower()
+                    if target_type != "database":
+                        raise ValueError(f"unsupported reverse_etl target_type: {target_type}")
+                    target_datasource = datasource
+                    if config.get("datasource_id") and datasource_resolver:
+                        target_datasource = datasource_resolver(int(config["datasource_id"]))
+                    external_target = str(config.get("target_table") or "").strip()
+                    execution_mode = "reverse_etl"
+                    if payload.dry_run or not persist_load:
+                        node_records_written = 0
+                    else:
+                        node_records_written = _write_target_table(
+                            target_datasource,
+                            external_target,
+                            _columns_for(rows, columns),
+                            rows,
+                            str(config.get("mode") or "append").strip(),
+                        )
+                        records_written += node_records_written
             except Exception as exc:
                 status = "failed"
                 errors.append(str(exc))
-                if node_type in {"source", "extract", "metadata_extract", "transform", "join", "union", "quality"}:
+                if node_type in {"source", "extract", "metadata_extract", "transform", "join", "union", "sql", "quality", "reverse_etl"}:
                     quality_blocked = True
 
         rowsets_by_node[node_id] = [dict(row) for row in rows]
@@ -710,13 +910,15 @@ def execute_pipeline_dag(
                 "status": status,
                 "rows_in": rows_in,
                 "rows_out": len(rows),
-                "records_read": len(rows) if node_type in {"source", "extract", "metadata_extract"} else rows_in,
-                "records_written": node_records_written if node_type in {"load", "sink"} and "node_records_written" in locals() else len(rows),
+                "records_read": node_records_read,
+                "records_written": node_records_written if node_type in {"load", "sink", "sql", "reverse_etl"} and "node_records_written" in locals() else len(rows),
                 "records_failed": sum(result.get("failed_count", 0) for result in quality_results if result.get("status") == "failed") if node_type == "quality" else 0,
                 "duration_ms": duration_ms,
                 "preview": _preview_rows(rows),
                 "errors": errors,
                 "quality_results": node_quality_results if node_type == "quality" and "node_quality_results" in locals() else [],
+                **({"execution_mode": execution_mode} if execution_mode else {}),
+                **({"external_target": external_target} if external_target else {}),
             }
         )
         if "node_records_written" in locals():
@@ -740,7 +942,7 @@ def execute_pipeline_dag(
             ]
         error_message = "；".join(message for message in messages if message) or "管道执行失败"
     if records_written == 0 and not payload.dry_run and not quality_blocked and not until_node_id:
-        has_load = any((node.get("type") in {"load", "sink"}) for node in dag.get("nodes", []) if isinstance(node, dict))
+        has_load = any((node.get("type") in {"load", "sink", "reverse_etl"} or (node.get("type") == "sql" and (_node_config(node).get("target_table")))) for node in dag.get("nodes", []) if isinstance(node, dict))
         if not has_load:
             records_written = len(final_rows)
 

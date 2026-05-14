@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import copy
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -44,8 +45,8 @@ VALID_RUN_MODES = {"manual", "scheduled", "incremental", "full", "backfill"}
 VALID_RULE_TYPES = {"not_null", "unique", "range", "regex", "row_count", "freshness", "custom_sql"}
 VALID_PIPELINE_ENVIRONMENTS = {"dev", "test", "prod"}
 VALID_PIPELINE_PRIORITIES = {"low", "medium", "high", "critical"}
-ALLOWED_DAG_NODE_TYPES = {"source", "extract", "metadata_extract", "transform", "join", "union", "quality", "load", "sink"}
-FAN_IN_NODE_TYPES = {"join", "union"}
+ALLOWED_DAG_NODE_TYPES = {"source", "extract", "metadata_extract", "transform", "join", "union", "sql", "quality", "load", "sink", "reverse_etl"}
+FAN_IN_NODE_TYPES = {"join", "union", "sql"}
 SOURCE_NODE_TYPES = {"source", "extract", "metadata_extract"}
 
 
@@ -88,7 +89,27 @@ def _cron_is_valid(expression: str | None) -> bool:
     return all(part and set(part) <= allowed for part in parts)
 
 
-def _diagnose_dag(dag_json: dict[str, Any]) -> list[dict[str, Any]]:
+def _sql_node_has_external_source(node: dict[str, Any], in_degree: dict[str, int]) -> bool:
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    mode = str(config.get("execution_mode") or "").lower()
+    node_id = str(node.get("id") or "")
+    return node.get("type") == "sql" and in_degree.get(node_id, 0) == 0 and (mode == "pushdown" or config.get("datasource_id") is not None)
+
+
+def _node_is_output(node: dict[str, Any]) -> bool:
+    node_type = str(node.get("type") or "")
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    if node_type in {"load", "sink", "reverse_etl"}:
+        return True
+    return node_type == "sql" and bool(str(config.get("target_table") or "").strip())
+
+
+def _diagnose_dag(
+    dag_json: dict[str, Any],
+    *,
+    require_source: bool = True,
+    require_output: bool = True,
+) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     nodes = dag_json.get("nodes")
     edges = dag_json.get("edges", [])
@@ -172,11 +193,34 @@ def _diagnose_dag(dag_json: dict[str, Any]) -> list[dict[str, Any]]:
             diagnostics.append({"severity": "critical", "code": "missing_join_key", "message": f"join 节点 {node_id} 缺少关联键", "node_id": node_id})
         if node_type == "metadata_extract" and config.get("datasource_id") is None:
             diagnostics.append({"severity": "warning", "code": "metadata_datasource_default", "message": f"元数据节点 {node_id} 将使用管道默认数据源", "node_id": node_id})
+        if node_type == "sql" and not str(config.get("sql") or "").strip():
+            diagnostics.append({"severity": "critical", "code": "missing_sql", "message": f"SQL 节点 {node_id} 缺少查询语句", "node_id": node_id})
+        if node_type == "reverse_etl":
+            target_type = str(config.get("target_type") or "database").lower()
+            if target_type != "database":
+                diagnostics.append({"severity": "critical", "code": "unsupported_reverse_etl_target", "message": f"反向 ETL 节点 {node_id} 仅支持数据库目标", "node_id": node_id})
+            if not str(config.get("target_table") or "").strip():
+                diagnostics.append({"severity": "critical", "code": "missing_reverse_etl_target", "message": f"反向 ETL 节点 {node_id} 缺少目标表", "node_id": node_id})
 
-    if not any(node_type in SOURCE_NODE_TYPES for node_type in node_types.values()):
-        diagnostics.append({"severity": "critical", "code": "missing_extract", "message": "企业 ETL DAG 必须包含抽取/源节点"})
-    if not any(node_type in {"load", "sink"} for node_type in node_types.values()):
-        diagnostics.append({"severity": "critical", "code": "missing_load", "message": "企业 ETL DAG 必须包含装载/目标节点"})
+    valid_nodes = [node for node in nodes if isinstance(node, dict) and node.get("id")]
+    has_source = any(node_types.get(str(node.get("id"))) in SOURCE_NODE_TYPES or _sql_node_has_external_source(node, in_degree) for node in valid_nodes)
+    has_output = any(_node_is_output(node) for node in valid_nodes)
+    if not has_source:
+        diagnostics.append(
+            {
+                "severity": "critical" if require_source else "warning",
+                "code": "missing_extract",
+                "message": "企业 ETL DAG 必须包含抽取/源节点",
+            }
+        )
+    if not has_output:
+        diagnostics.append(
+            {
+                "severity": "critical" if require_output else "warning",
+                "code": "missing_load",
+                "message": "企业 ETL DAG 必须包含装载/目标节点",
+            }
+        )
     if not any(node_type == "quality" for node_type in node_types.values()):
         diagnostics.append({"severity": "warning", "code": "missing_quality_gate", "message": "建议增加质量闸门节点，避免脏数据进入目标数据集"})
 
@@ -211,8 +255,8 @@ def _critical_messages(diagnostics: list[dict[str, Any]]) -> list[str]:
     return [str(item["message"]) for item in diagnostics if item.get("severity") == "critical"]
 
 
-def _validate_dag(dag_json: dict[str, Any]) -> None:
-    diagnostics = _diagnose_dag(dag_json)
+def _validate_dag(dag_json: dict[str, Any], *, require_source: bool = True, require_output: bool = True) -> None:
+    diagnostics = _diagnose_dag(dag_json, require_source=require_source, require_output=require_output)
     critical = _critical_messages(diagnostics)
     if critical:
         raise HTTPException(status_code=400, detail="；".join(critical))
@@ -668,7 +712,7 @@ def create_pipeline(
         payload.retry_count,
         payload.timeout_minutes,
     )
-    _validate_dag(payload.dag_json)
+    _validate_dag(payload.dag_json, require_source=False, require_output=False)
     dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
     pipeline = DataPipeline(
         **payload.model_dump(),
@@ -727,7 +771,7 @@ def update_pipeline(
     }
     _validate_pipeline_settings(**candidate)
     if "dag_json" in updates:
-        _validate_dag(updates["dag_json"])
+        _validate_dag(updates["dag_json"], require_source=False, require_output=False)
     if "dataset_id" in updates:
         dataset = _get_dataset_for_user(db, updates["dataset_id"], current_user)
         pipeline.org_id = dataset.org_id
@@ -949,9 +993,12 @@ def preview_pipeline(
     datasource = _get_datasource_for_user(db, dataset.datasource_id, current_user)
     request = payload or PipelinePreviewRequest()
     limit = max(1, min(int(request.limit or 100), 500))
+    dag_json = request.dag_json if isinstance(request.dag_json, dict) else pipeline.dag_json or {}
+    if request.dag_json is not None:
+        _validate_dag(dag_json, require_source=False, require_output=False)
     node_ids = {
         str(node.get("id"))
-        for node in (pipeline.dag_json or {}).get("nodes", []) or []
+        for node in dag_json.get("nodes", []) or []
         if isinstance(node, dict) and node.get("id")
     }
     if request.node_id and request.node_id not in node_ids:
@@ -966,8 +1013,10 @@ def preview_pipeline(
         .order_by(DataQualityRule.id.asc())
         .all()
     )
+    preview_pipeline_model = copy(pipeline)
+    preview_pipeline_model.dag_json = dag_json
     execution = execute_pipeline_dag(
-        pipeline,
+        preview_pipeline_model,
         dataset,
         datasource,
         PipelineRunRequest(mode="manual", reason="preview", dry_run=True),
@@ -1015,11 +1064,26 @@ def get_pipeline_lineage(
     target_tables = [
         (node.get("config") or {}).get("target_table")
         for node in dag.get("nodes", []) or []
-        if isinstance(node, dict) and node.get("type") in {"load", "sink"} and isinstance(node.get("config"), dict)
+        if isinstance(node, dict) and _node_is_output(node) and isinstance(node.get("config"), dict)
     ]
     sources: list[dict[str, Any]] = []
     for node in dag.get("nodes", []) or []:
-        if not isinstance(node, dict) or node.get("type") not in SOURCE_NODE_TYPES:
+        if not isinstance(node, dict):
+            continue
+        if node.get("type") not in SOURCE_NODE_TYPES:
+            config = node.get("config") if isinstance(node.get("config"), dict) else {}
+            if node.get("type") == "sql" and str(config.get("execution_mode") or "").lower() == "pushdown":
+                sources.append(
+                    {
+                        "node_id": str(node.get("id")),
+                        "type": node.get("type"),
+                        "dataset_id": dataset.id,
+                        "dataset_name": dataset.name,
+                        "datasource_id": int(config.get("datasource_id") or dataset.datasource_id),
+                        "table": "SQL pushdown",
+                        "fields": [],
+                    }
+                )
             continue
         config = node.get("config") if isinstance(node.get("config"), dict) else {}
         source_dataset = dataset

@@ -88,6 +88,7 @@ class PipelineRunOut(BaseModel):
 class PipelinePreviewRequest(BaseModel):
     node_id: Optional[str] = None
     limit: int = 100
+    dag_json: Optional[dict[str, Any]] = None
 
 
 class PipelinePreviewOut(BaseModel):

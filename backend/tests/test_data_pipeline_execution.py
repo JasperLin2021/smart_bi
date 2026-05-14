@@ -785,6 +785,328 @@ class DataPipelineExecutionTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_pipeline_reuses_one_transform_for_multiple_outputs(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="多点输出复用管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {"id": "valid_orders", "type": "transform", "label": "有效订单", "config": {"filters": [{"field": "status", "operator": "in", "value": ["PAID", "COMPLETE"]}]}},
+                            {"id": "load_bi", "type": "load", "label": "输出 BI", "config": {"target_table": "etl_bi_orders"}},
+                            {"id": "load_ops", "type": "load", "label": "输出运营", "config": {"target_table": "etl_ops_orders"}},
+                        ],
+                        "edges": [
+                            {"source": "extract_orders", "target": "valid_orders"},
+                            {"source": "valid_orders", "target": "load_bi"},
+                            {"source": "valid_orders", "target": "load_ops"},
+                        ],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.records_written, 6)
+            engine = create_engine(f"sqlite:///{source_path}")
+            with engine.connect() as conn:
+                bi_count = conn.execute(text("SELECT COUNT(*) FROM etl_bi_orders")).scalar()
+                ops_count = conn.execute(text("SELECT COUNT(*) FROM etl_ops_orders")).scalar()
+            engine.dispose()
+            self.assertEqual((bi_count, ops_count), (3, 3))
+        finally:
+            os.unlink(source_path)
+
+    def test_pipeline_sql_operator_runs_over_upstream_rows(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="SQL 算子分析管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {
+                                "id": "sql_summary",
+                                "type": "sql",
+                                "label": "SQL 汇总",
+                                "config": {
+                                    "sql": "SELECT region AS area, SUM(amount - discount) AS net_amount_sum, COUNT(order_id) AS order_count FROM input WHERE status IN ('PAID','COMPLETE') GROUP BY region",
+                                },
+                            },
+                            {"id": "load_summary", "type": "load", "label": "写入汇总", "config": {"target_table": "etl_sql_summary"}},
+                        ],
+                        "edges": [
+                            {"source": "extract_orders", "target": "sql_summary"},
+                            {"source": "sql_summary", "target": "load_summary"},
+                        ],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.node_logs_json["summary"]["final_columns"], ["area", "net_amount_sum", "order_count"])
+            engine = create_engine(f"sqlite:///{source_path}")
+            with engine.connect() as conn:
+                rows = [dict(row._mapping) for row in conn.execute(text("SELECT * FROM etl_sql_summary ORDER BY area")).fetchall()]
+            engine.dispose()
+            self.assertEqual(
+                rows,
+                [
+                    {"area": "East", "net_amount_sum": 180.0, "order_count": 2},
+                    {"area": "West", "net_amount_sum": 180.0, "order_count": 1},
+                ],
+            )
+        finally:
+            os.unlink(source_path)
+
+    def test_pipeline_sql_pushdown_materializes_large_scale_result_without_load_node(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="SQL 下推规模计算管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {
+                                "id": "sql_pushdown",
+                                "type": "sql",
+                                "label": "数据库侧汇总",
+                                "config": {
+                                    "execution_mode": "pushdown",
+                                    "datasource_id": 101,
+                                    "target_table": "etl_pushdown_region_summary",
+                                    "sql": "SELECT region, SUM(amount) AS gross_amount FROM order_events GROUP BY region",
+                                },
+                            }
+                        ],
+                        "edges": [],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.records_written, 2)
+            sql_log = run.node_logs_json["nodes"][0]
+            self.assertEqual(sql_log["execution_mode"], "pushdown")
+            self.assertEqual(sql_log["external_target"], "etl_pushdown_region_summary")
+            engine = create_engine(f"sqlite:///{source_path}")
+            with engine.connect() as conn:
+                count = conn.execute(text("SELECT COUNT(*) FROM etl_pushdown_region_summary")).scalar()
+            engine.dispose()
+            self.assertEqual(count, 2)
+        finally:
+            os.unlink(source_path)
+
+    def test_pipeline_reverse_etl_writes_rows_back_to_business_table(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="反向 ETL 回写管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {"id": "paid_orders", "type": "transform", "label": "已支付订单", "config": {"filters": [{"field": "status", "operator": "=", "value": "PAID"}]}},
+                            {"id": "sync_crm", "type": "reverse_etl", "label": "回写 CRM", "config": {"target_type": "database", "datasource_id": 101, "target_table": "crm_paid_orders", "mode": "replace"}},
+                        ],
+                        "edges": [
+                            {"source": "extract_orders", "target": "paid_orders"},
+                            {"source": "paid_orders", "target": "sync_crm"},
+                        ],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.records_written, 2)
+            engine = create_engine(f"sqlite:///{source_path}")
+            with engine.connect() as conn:
+                rows = [dict(row._mapping) for row in conn.execute(text("SELECT order_id, status FROM crm_paid_orders ORDER BY order_id")).fetchall()]
+            engine.dispose()
+            self.assertEqual(rows, [{"order_id": "O001", "status": "PAID"}, {"order_id": "O001", "status": "PAID"}])
+        finally:
+            os.unlink(source_path)
+
+    def test_pipeline_preview_accepts_unsaved_dag_json_for_realtime_validation(self):
+        from app.api.pipelines import create_pipeline, preview_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelinePreviewRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="实时预览管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {"id": "filter_orders", "type": "transform", "label": "筛选订单", "config": {"filters": [{"field": "region", "operator": "=", "value": "East"}]}},
+                        ],
+                        "edges": [{"source": "extract_orders", "target": "filter_orders"}],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+            unsaved_dag = {
+                "nodes": [
+                    {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                    {"id": "filter_orders", "type": "transform", "label": "筛选订单", "config": {"filters": [{"field": "region", "operator": "=", "value": "West"}]}},
+                ],
+                "edges": [{"source": "extract_orders", "target": "filter_orders"}],
+            }
+
+            preview = preview_pipeline(
+                pipeline.id,
+                PipelinePreviewRequest(node_id="filter_orders", limit=10, dag_json=unsaved_dag),
+                db=db,
+                current_user=admin,
+            )
+
+            self.assertEqual(preview.row_count, 1)
+            self.assertEqual(preview.rows[0]["region"], "West")
+        finally:
+            os.unlink(source_path)
+
     def test_metadata_extract_node_refreshes_datasource_schema_metadata(self):
         import json
 

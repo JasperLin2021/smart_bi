@@ -116,7 +116,14 @@
             <small>点击添加</small>
           </div>
           <div class="node-palette">
-            <button v-for="node in nodePalette" :key="`${node.type}-${node.label}`" type="button" @click="addNode(node.type)">
+            <button
+              v-for="node in nodePalette"
+              :key="`${node.type}-${node.label}`"
+              type="button"
+              draggable="true"
+              @dragstart="onPaletteDragStart(node.type)"
+              @click="addNode(node.type)"
+            >
               <el-icon><component :is="node.icon" /></el-icon>
               <span>{{ node.label }}</span>
             </button>
@@ -147,14 +154,16 @@
             </div>
             <el-button size="small" :icon="Plus" :disabled="!selectedPipeline" @click="addTemplateNodes">套用模板</el-button>
           </div>
-          <div class="flow-wrap">
+          <div class="flow-wrap" @drop.prevent="onCanvasDrop" @dragover.prevent>
             <VueFlow
               v-if="selectedPipeline"
               :nodes="flowNodes"
               :edges="flowEdges"
               fit-view-on-init
               class="pipeline-flow"
+              @connect="onConnect"
               @node-click="onNodeClick"
+              @node-drag-stop="onNodeDragStop"
             />
             <el-empty v-else description="请选择或新建管道" />
           </div>
@@ -562,6 +571,56 @@
             </div>
           </template>
 
+          <template v-else-if="selectedNode.type === 'sql'">
+            <div class="config-group">
+              <label>
+                <span>SQL 查询</span>
+                <el-input v-model="selectedNodeConfig.sql" type="textarea" :rows="8" placeholder="SELECT * FROM input" />
+              </label>
+              <label>
+                <span>执行模式</span>
+                <el-select v-model="selectedNodeConfig.execution_mode" placeholder="执行模式">
+                  <el-option label="内存预览" value="in_memory" />
+                  <el-option label="数据库下推" value="pushdown" />
+                </el-select>
+              </label>
+              <label>
+                <span>数据源 ID</span>
+                <el-input-number v-model="selectedNodeConfig.datasource_id" :min="1" controls-position="right" />
+              </label>
+              <label>
+                <span>物化目标表</span>
+                <el-input v-model="selectedNodeConfig.target_table" placeholder="etl_sql_result" />
+              </label>
+            </div>
+          </template>
+
+          <template v-else-if="selectedNode.type === 'reverse_etl'">
+            <div class="config-group">
+              <label>
+                <span>目标类型</span>
+                <el-select v-model="selectedNodeConfig.target_type">
+                  <el-option label="数据库" value="database" />
+                </el-select>
+              </label>
+              <label>
+                <span>业务系统数据源 ID</span>
+                <el-input-number v-model="selectedNodeConfig.datasource_id" :min="1" controls-position="right" />
+              </label>
+              <label>
+                <span>回写目标表</span>
+                <el-input v-model="selectedNodeConfig.target_table" placeholder="crm_paid_orders" />
+              </label>
+              <label>
+                <span>回写模式</span>
+                <el-select v-model="selectedNodeConfig.mode">
+                  <el-option label="追加写入" value="append" />
+                  <el-option label="替换写入" value="replace" />
+                </el-select>
+              </label>
+            </div>
+          </template>
+
           <template v-else-if="selectedNode.type === 'quality'">
             <div class="config-group">
               <div class="config-title">
@@ -870,6 +929,7 @@ const dialogVisible = ref(false)
 const ruleDialogVisible = ref(false)
 const selectedId = ref<number | null>(null)
 const selectedNodeId = ref<string | null>(null)
+const draggedNodeType = ref<string | null>(null)
 const pipelineSearch = ref("")
 const statusFilter = ref("all")
 const activeWorkbenchTab = ref("design")
@@ -939,9 +999,11 @@ const nodePalette = [
   { type: "transform", label: "转换", icon: SetUp },
   { type: "join", label: "关联", icon: Link },
   { type: "union", label: "汇合", icon: Connection },
+  { type: "sql", label: "SQL 算子", icon: DataAnalysis },
   { type: "transform", label: "聚合", icon: Histogram },
   { type: "quality", label: "校验", icon: Select },
   { type: "load", label: "加载", icon: Finished },
+  { type: "reverse_etl", label: "反向 ETL", icon: RefreshRight },
   { type: "transform", label: "自定义", icon: Grid },
 ]
 const calloutGroups = {
@@ -1167,7 +1229,7 @@ const runStatusLabel = (value: string) => ({ success: "成功", failed: "失败"
 const runModeLabel = (value: string) => ({ manual: "手动", scheduled: "调度", incremental: "增量", full: "全量", backfill: "补数" }[value] || value)
 const ruleTypeLabel = (value: string) => ({ not_null: "非空", unique: "唯一", range: "范围", regex: "正则", row_count: "行数波动", freshness: "新鲜度", custom_sql: "自定义 SQL" }[value] || value)
 const severityLabel = (value: string) => ({ error: "阻断", warning: "告警" }[value] || value)
-const nodeTypeLabel = (value: string) => ({ source: "源", extract: "抽取", metadata_extract: "元数据", transform: "转换", join: "关联", union: "汇合", quality: "质检", load: "装载", sink: "目标" }[value] || "任务")
+const nodeTypeLabel = (value: string) => ({ source: "源", extract: "抽取", metadata_extract: "元数据", transform: "转换", join: "关联", union: "汇合", sql: "SQL 算子", quality: "质检", load: "装载", sink: "目标", reverse_etl: "反向 ETL" }[value] || "任务")
 const runWindowLabel = (run: PipelineRun) => {
   const window = run.node_logs_json?.summary?.run_window
   if (!window?.start && !window?.end) return "-"
@@ -1193,6 +1255,30 @@ const removeAggregationMetric = (index: number) => {
 const onNodeClick = ({ node }: { node: { id: string } }) => {
   selectedNodeId.value = node.id
 }
+const onPaletteDragStart = (type: string) => {
+  draggedNodeType.value = type
+}
+const onCanvasDrop = (event: DragEvent) => {
+  if (!draggedNodeType.value || !selectedPipeline.value) return
+  const target = event.currentTarget as HTMLElement | null
+  const rect = target?.getBoundingClientRect()
+  const position = rect
+    ? { x: Math.max(24, event.clientX - rect.left - 75), y: Math.max(24, event.clientY - rect.top - 28) }
+    : undefined
+  addNode(draggedNodeType.value, position)
+  draggedNodeType.value = null
+}
+const onConnect = (connection: any) => {
+  if (!selectedPipeline.value || !connection?.source || !connection?.target) return
+  selectedPipeline.value.dag_json ||= { nodes: [], edges: [] }
+  selectedPipeline.value.dag_json.edges ||= []
+  const exists = selectedPipeline.value.dag_json.edges.some((edge) => String(edge.source) === String(connection.source) && String(edge.target) === String(connection.target))
+  if (!exists) selectedPipeline.value.dag_json.edges.push({ source: String(connection.source), target: String(connection.target) })
+}
+const onNodeDragStop = ({ node }: any) => {
+  const dagNode = selectedPipeline.value?.dag_json?.nodes?.find((item) => String(item.id) === String(node?.id))
+  if (dagNode && node?.position) dagNode.position = { x: Number(node.position.x || 0), y: Number(node.position.y || 0) }
+}
 const selectReferenceNode = (nodeId: string) => {
   selectedNodeId.value = nodeId
 }
@@ -1201,7 +1287,7 @@ const selectPipeline = (id: number) => {
   const pipeline = pipelines.value.find((item) => item.id === id)
   selectedNodeId.value = pipeline?.dag_json?.nodes?.[0]?.id || null
 }
-const addNode = (type: string) => {
+const addNode = (type: string, position?: { x: number; y: number }) => {
   if (!selectedPipeline.value) return
   selectedPipeline.value.dag_json ||= { nodes: [], edges: [] }
   selectedPipeline.value.dag_json.nodes ||= []
@@ -1213,7 +1299,7 @@ const addNode = (type: string) => {
     id,
     type,
     label: `${nodeTypeLabel(type)}节点 ${index}`,
-    position: { x: 80 + (index - 1) * 190, y: 120 + Math.floor((index - 1) / 4) * 120 },
+    position: position || { x: 80 + (index - 1) * 190, y: 120 + Math.floor((index - 1) / 4) * 120 },
     config: defaultNodeConfig(type),
   })
   if (previous) selectedPipeline.value.dag_json.edges.push({ source: previous.id, target: id })
@@ -1228,7 +1314,15 @@ const defaultNodeConfig = (type: string) => {
   }
   if (type === "join") return { left_node_id: "", right_node_id: "", left_key: "", right_key: "", join_type: "inner" }
   if (type === "union") return { mode: "all", keys: [] }
+  if (type === "sql") {
+    const datasourceId = datasets.value.find((item) => item.id === selectedPipeline.value?.dataset_id)?.datasource_id
+    return { execution_mode: "in_memory", sql: "SELECT * FROM input", datasource_id: datasourceId, target_table: "" }
+  }
   if (type === "load" || type === "sink") return { mode: "dataset_refresh", target_table: "" }
+  if (type === "reverse_etl") {
+    const datasourceId = datasets.value.find((item) => item.id === selectedPipeline.value?.dataset_id)?.datasource_id
+    return { target_type: "database", datasource_id: datasourceId, target_table: "", mode: "append" }
+  }
   return {}
 }
 const addTemplateNodes = () => {
@@ -1302,6 +1396,7 @@ const previewSelectedNode = async () => {
     const { data } = await axios.post(`/api/pipelines/${selectedPipeline.value.id}/preview`, {
       node_id: selectedNode.value?.id,
       limit: 100,
+      dag_json: selectedPipeline.value.dag_json,
     })
     previewColumns.value = data.columns || []
     previewRows.value = data.rows || []
