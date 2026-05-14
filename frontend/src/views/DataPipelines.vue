@@ -223,11 +223,7 @@
                 <Handle type="target" :position="Position.Top" :connectable="connectable" />
                 <div class="etl-canvas-node" :class="[`is-${data.status}`, { 'is-selected': selected }]">
                   <span class="etl-canvas-node__icon" :class="`etl-canvas-node__icon--${data.tone}`" aria-hidden="true">
-                    <span class="etl-canvas-node__glyph" :class="`etl-canvas-node__glyph--${data.iconKey}`">
-                      <span />
-                      <span />
-                      <b v-if="data.iconKey === 'sql'">SQL</b>
-                    </span>
+                    <el-icon><component :is="data.icon" /></el-icon>
                     <i class="etl-canvas-node__status" />
                   </span>
                   <span class="etl-canvas-node__title">{{ data.title }}</span>
@@ -1263,19 +1259,19 @@ const iconRegistry: Record<string, any> = {
   UploadFilled,
 }
 const operatorIcon = (name?: string) => iconRegistry[name || ""] || Grid
-const nodeIconKey = (type: string) => ({
-  source: "source",
-  extract: "extract",
-  metadata_extract: "metadata",
-  transform: "transform",
-  join: "join",
-  union: "union",
-  sql: "sql",
-  quality: "quality",
-  load: "load",
-  sink: "load",
-  reverse_etl: "reverse",
-}[type] || "task")
+const nodeTypeIcon = (type: string) => ({
+  source: DataAnalysis,
+  extract: UploadFilled,
+  metadata_extract: DocumentChecked,
+  transform: SetUp,
+  join: Link,
+  union: Connection,
+  sql: DataAnalysis,
+  quality: CircleCheck,
+  load: Finished,
+  sink: Finished,
+  reverse_etl: RefreshRight,
+}[type] || Grid)
 const nodeTone = (type: string) => ({
   source: "blue",
   extract: "blue",
@@ -1419,7 +1415,7 @@ const flowNodes = computed(() => {
       targetPosition: Position.Top,
       data: {
         type: node.type || "task",
-        iconKey: nodeIconKey(String(node.type || "task")),
+        icon: nodeTypeIcon(String(node.type || "task")),
         tone: nodeTone(String(node.type || "task")),
         title,
         caption: `${typeLabel} · ${rowsText || statusText}`,
@@ -3438,26 +3434,35 @@ onMounted(loadAll)
   position: relative;
   display: grid;
   place-items: center;
-  width: 50px;
-  height: 50px;
+  width: 52px;
+  height: 52px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.38);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 999px;
   background:
-    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.96) 0 20%, transparent 36%),
-    linear-gradient(145deg, #ffffff 0%, #f7fbff 56%, var(--node-accent-soft) 100%);
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.95) 0 18%, transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 10px 22px rgba(15, 23, 42, 0.14);
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 0 rgba(15, 23, 42, 0.04),
+    0 10px 24px rgba(15, 23, 42, 0.11);
   transition: border-color var(--app-transition), box-shadow var(--app-transition), transform var(--app-transition), background var(--app-transition);
 }
 
-.etl-canvas-node__icon::after {
+.etl-canvas-node__icon .el-icon {
+  z-index: 2;
+  color: var(--node-accent);
+  font-size: 25px;
+  filter: drop-shadow(0 2px 4px var(--node-accent-soft));
+}
+
+.etl-canvas-node__icon::before {
   position: absolute;
-  inset: 8px;
-  border: 1px solid var(--node-accent-soft);
+  inset: 6px;
   border-radius: inherit;
+  background: var(--node-accent-soft);
   content: "";
+  opacity: 0.72;
 }
 
 .etl-canvas-node__icon--blue {
@@ -3524,336 +3529,6 @@ onMounted(loadAll)
   border: 2px solid #fff;
   border-radius: 999px;
   background: var(--app-success);
-}
-
-.etl-canvas-node__glyph,
-.etl-canvas-node__glyph::before,
-.etl-canvas-node__glyph::after,
-.etl-canvas-node__glyph span {
-  position: absolute;
-  box-sizing: border-box;
-}
-
-.etl-canvas-node__glyph {
-  z-index: 2;
-  width: 28px;
-  height: 28px;
-  color: var(--node-accent);
-}
-
-.etl-canvas-node__glyph::before,
-.etl-canvas-node__glyph::after,
-.etl-canvas-node__glyph span {
-  content: "";
-}
-
-.etl-canvas-node__glyph b {
-  position: absolute;
-  inset: 7px 3px auto;
-  color: var(--node-accent);
-  font-size: 8px;
-  font-weight: 900;
-  letter-spacing: 0;
-  line-height: 1;
-}
-
-.etl-canvas-node__glyph--source::before {
-  top: 3px;
-  left: 4px;
-  width: 20px;
-  height: 8px;
-  border: 2px solid var(--node-accent);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.etl-canvas-node__glyph--source span:first-child {
-  top: 7px;
-  left: 4px;
-  width: 20px;
-  height: 15px;
-  border-right: 2px solid var(--node-accent);
-  border-bottom: 2px solid var(--node-accent);
-  border-left: 2px solid var(--node-accent);
-  border-radius: 0 0 10px 10px;
-  background: linear-gradient(180deg, var(--node-accent-soft), rgba(255, 255, 255, 0.36));
-}
-
-.etl-canvas-node__glyph--source::after {
-  top: 14px;
-  left: 8px;
-  width: 12px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--node-accent-mid);
-  box-shadow: 0 4px 0 var(--node-accent-mid);
-}
-
-.etl-canvas-node__glyph--extract::before {
-  top: 4px;
-  left: 12px;
-  width: 4px;
-  height: 13px;
-  border-radius: 999px;
-  background: var(--node-accent);
-}
-
-.etl-canvas-node__glyph--extract::after {
-  top: 13px;
-  left: 7px;
-  width: 14px;
-  height: 14px;
-  border-right: 4px solid var(--node-accent);
-  border-bottom: 4px solid var(--node-accent);
-  transform: rotate(45deg);
-}
-
-.etl-canvas-node__glyph--extract span:first-child {
-  right: 3px;
-  bottom: 2px;
-  left: 3px;
-  height: 5px;
-  border: 2px solid var(--node-accent-mid);
-  border-top: 0;
-  border-radius: 0 0 7px 7px;
-}
-
-.etl-canvas-node__glyph--metadata::before {
-  inset: 3px 6px 3px 5px;
-  border: 2px solid var(--node-accent);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.etl-canvas-node__glyph--metadata::after {
-  top: 7px;
-  right: 7px;
-  width: 7px;
-  height: 7px;
-  border-top: 2px solid var(--node-accent-mid);
-  border-right: 2px solid var(--node-accent-mid);
-}
-
-.etl-canvas-node__glyph--metadata span:first-child {
-  top: 12px;
-  left: 9px;
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--node-accent);
-  box-shadow: 6px 0 0 var(--node-accent), 0 6px 0 var(--node-accent-mid), 6px 6px 0 var(--node-accent-mid);
-}
-
-.etl-canvas-node__glyph--transform::before,
-.etl-canvas-node__glyph--transform::after {
-  left: 4px;
-  width: 20px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--node-accent-mid);
-}
-
-.etl-canvas-node__glyph--transform::before {
-  top: 8px;
-}
-
-.etl-canvas-node__glyph--transform::after {
-  bottom: 8px;
-}
-
-.etl-canvas-node__glyph--transform span:first-child,
-.etl-canvas-node__glyph--transform span:last-child {
-  width: 9px;
-  height: 9px;
-  border: 2px solid #fff;
-  border-radius: 999px;
-  background: var(--node-accent);
-  box-shadow: 0 2px 5px var(--node-accent-soft);
-}
-
-.etl-canvas-node__glyph--transform span:first-child {
-  top: 5px;
-  left: 7px;
-}
-
-.etl-canvas-node__glyph--transform span:last-child {
-  right: 6px;
-  bottom: 5px;
-}
-
-.etl-canvas-node__glyph--join::before,
-.etl-canvas-node__glyph--join::after,
-.etl-canvas-node__glyph--join span:first-child {
-  width: 9px;
-  height: 9px;
-  border: 2px solid var(--node-accent);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.etl-canvas-node__glyph--join::before {
-  top: 5px;
-  left: 4px;
-}
-
-.etl-canvas-node__glyph--join::after {
-  bottom: 5px;
-  left: 4px;
-}
-
-.etl-canvas-node__glyph--join span:first-child {
-  top: 10px;
-  right: 4px;
-  background: var(--node-accent);
-}
-
-.etl-canvas-node__glyph--join span:last-child {
-  top: 10px;
-  left: 12px;
-  width: 10px;
-  height: 8px;
-  border-top: 2px solid var(--node-accent-mid);
-  border-bottom: 2px solid var(--node-accent-mid);
-  transform: skewX(-22deg);
-}
-
-.etl-canvas-node__glyph--union::before,
-.etl-canvas-node__glyph--union::after {
-  top: 5px;
-  width: 11px;
-  height: 17px;
-  border-top: 2px solid var(--node-accent);
-  border-bottom: 2px solid var(--node-accent);
-}
-
-.etl-canvas-node__glyph--union::before {
-  left: 5px;
-  border-left: 2px solid var(--node-accent);
-  border-radius: 8px 0 0 8px;
-}
-
-.etl-canvas-node__glyph--union::after {
-  right: 5px;
-  border-right: 2px solid var(--node-accent);
-  border-radius: 0 8px 8px 0;
-}
-
-.etl-canvas-node__glyph--union span:first-child {
-  top: 13px;
-  left: 6px;
-  width: 16px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--node-accent);
-}
-
-.etl-canvas-node__glyph--sql::before,
-.etl-canvas-node__glyph--sql::after {
-  top: 5px;
-  width: 6px;
-  height: 18px;
-  border: 2px solid var(--node-accent);
-}
-
-.etl-canvas-node__glyph--sql::before {
-  left: 3px;
-  border-right: 0;
-  border-radius: 6px 0 0 6px;
-}
-
-.etl-canvas-node__glyph--sql::after {
-  right: 3px;
-  border-left: 0;
-  border-radius: 0 6px 6px 0;
-}
-
-.etl-canvas-node__glyph--quality::before {
-  top: 3px;
-  left: 6px;
-  width: 16px;
-  height: 20px;
-  border: 2px solid var(--node-accent);
-  border-radius: 9px 9px 12px 12px;
-  background: var(--node-accent-soft);
-}
-
-.etl-canvas-node__glyph--quality::after {
-  top: 10px;
-  left: 11px;
-  width: 11px;
-  height: 7px;
-  border-bottom: 3px solid var(--node-accent);
-  border-left: 3px solid var(--node-accent);
-  transform: rotate(-45deg);
-}
-
-.etl-canvas-node__glyph--load::before {
-  right: 4px;
-  bottom: 3px;
-  left: 4px;
-  height: 12px;
-  border: 2px solid var(--node-accent);
-  border-radius: 4px 4px 8px 8px;
-  background: var(--node-accent-soft);
-}
-
-.etl-canvas-node__glyph--load::after {
-  top: 4px;
-  left: 11px;
-  width: 6px;
-  height: 13px;
-  border-radius: 999px;
-  background: var(--node-accent);
-}
-
-.etl-canvas-node__glyph--load span:first-child {
-  top: 4px;
-  left: 7px;
-  width: 14px;
-  height: 14px;
-  border-top: 4px solid var(--node-accent);
-  border-left: 4px solid var(--node-accent);
-  transform: rotate(45deg);
-}
-
-.etl-canvas-node__glyph--reverse::before {
-  inset: 4px;
-  border: 3px solid var(--node-accent-mid);
-  border-right-color: var(--node-accent);
-  border-bottom-color: var(--node-accent);
-  border-radius: 999px;
-  transform: rotate(-24deg);
-}
-
-.etl-canvas-node__glyph--reverse::after {
-  top: 5px;
-  right: 3px;
-  width: 0;
-  height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 7px solid var(--node-accent);
-  transform: rotate(24deg);
-}
-
-.etl-canvas-node__glyph--reverse span:first-child {
-  bottom: 5px;
-  left: 3px;
-  width: 0;
-  height: 0;
-  border-top: 5px solid transparent;
-  border-right: 7px solid var(--node-accent-mid);
-  border-bottom: 5px solid transparent;
-  transform: rotate(24deg);
-}
-
-.etl-canvas-node__glyph--task::before {
-  inset: 5px;
-  border: 2px solid var(--node-accent);
-  border-radius: 6px;
-  background:
-    linear-gradient(var(--node-accent-soft) 0 0) 50% 50% / 2px 100% no-repeat,
-    linear-gradient(90deg, var(--node-accent-soft) 0 0) 50% 50% / 100% 2px no-repeat;
 }
 
 .etl-canvas-node__title {
