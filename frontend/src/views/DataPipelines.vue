@@ -44,8 +44,8 @@
       </div>
     </div>
 
-    <section class="etl-shell etl-shell--composer">
-      <aside class="etl-palette" aria-label="ETL 管道与节点组件">
+    <section class="etl-shell etl-shell--composer" :class="{ 'etl-shell--non-design': activeWorkbenchTab !== 'design' }">
+      <aside v-if="activeWorkbenchTab === 'design'" class="etl-palette" aria-label="ETL 管道与节点组件">
         <div class="panel-title">
           <span>操作台</span>
           <small>拖拽组件到画板</small>
@@ -3180,6 +3180,10 @@ onMounted(loadAll)
   grid-template-columns: 280px minmax(0, 1fr) 320px;
   align-items: start;
   gap: 12px;
+}
+
+.etl-shell--non-design {
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 
 .etl-palette,

@@ -32,10 +32,13 @@ test("data pipeline workbench uses a left operator console and pinned node inspe
   const pipelines = read("src/views/DataPipelines.vue")
 
   assert.match(pipelines, /etl-shell--composer/)
+  assert.match(pipelines, /etl-shell--non-design/)
+  assert.match(pipelines, /<aside v-if="activeWorkbenchTab === 'design'" class="etl-palette"/)
   assert.match(pipelines, /操作台/)
   assert.match(pipelines, /node-config-panel--inspector/)
   assert.match(pipelines, /<aside class="node-config-panel node-config-panel--inspector"/)
   assert.match(pipelines, /grid-template-columns:\s*280px minmax\(0, 1fr\) 320px/)
+  assert.match(pipelines, /grid-template-columns:\s*minmax\(0, 1fr\) 320px/)
   assert.match(pipelines, /nodeDrawerVisible\.value = true/)
   assert.doesNotMatch(pipelines, /grid-template-columns:\s*292px minmax\(0, 1fr\) 360px/)
 })
