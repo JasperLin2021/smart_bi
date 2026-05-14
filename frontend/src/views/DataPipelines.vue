@@ -1,12 +1,20 @@
 <template>
   <div class="page data-pipelines-page etl-workbench">
-    <section class="legacy-commandbar">
-      <div class="legacy-commandbar__title">
-        <p class="eyebrow">ENTERPRISE ETL</p>
-        <h2>数据加工管道</h2>
-        <span>在 BI 中完成抽取、清洗、转换、质量闸门、装载、调度、监控和血缘治理。</span>
+    <div class="page-tabbar etl-mode-tabs">
+      <div class="etl-mode-tabs__tabs" role="tablist" aria-label="ETL 工作台视图">
+        <button
+          v-for="tab in workbenchTabs"
+          :key="tab.value"
+          type="button"
+          class="page-tab"
+          :class="{ 'is-active': activeWorkbenchTab === tab.value }"
+          @click="activeWorkbenchTab = tab.value"
+        >
+          <el-icon><component :is="tab.icon" /></el-icon>
+          {{ tab.label }}
+        </button>
       </div>
-      <div class="legacy-commandbar__actions pipeline-action-toolbar">
+      <div class="etl-mode-tabs__actions pipeline-action-toolbar" aria-label="管道操作">
         <el-input
           v-model="pipelineSearch"
           class="pipeline-search"
@@ -34,39 +42,6 @@
         </div>
         <el-button class="toolbar-button toolbar-button--new" type="primary" plain :icon="Plus" @click="openCreate">新建管道</el-button>
       </div>
-    </section>
-
-    <section class="pipeline-kpis">
-      <div class="kpi-cell">
-        <span>生产管道</span>
-        <strong>{{ summaryStats.prod }}</strong>
-      </div>
-      <div class="kpi-cell">
-        <span>运行中/已激活</span>
-        <strong>{{ summaryStats.active }}</strong>
-      </div>
-      <div class="kpi-cell">
-        <span>最近失败</span>
-        <strong>{{ summaryStats.failed }}</strong>
-      </div>
-      <div class="kpi-cell">
-        <span>SLA ≤ 2h</span>
-        <strong>{{ summaryStats.tightSla }}</strong>
-      </div>
-    </section>
-
-    <div class="page-tabbar etl-mode-tabs" role="tablist" aria-label="ETL 工作台视图">
-      <button
-        v-for="tab in workbenchTabs"
-        :key="tab.value"
-        type="button"
-        class="page-tab"
-        :class="{ 'is-active': activeWorkbenchTab === tab.value }"
-        @click="activeWorkbenchTab = tab.value"
-      >
-        <el-icon><component :is="tab.icon" /></el-icon>
-        {{ tab.label }}
-      </button>
     </div>
 
     <section class="etl-shell etl-shell--composer">
@@ -1348,12 +1323,6 @@ const statusTabs = computed(() => [
   { label: "草稿", value: "draft", count: pipelines.value.filter((item) => item.status === "draft").length },
   { label: "失败", value: "failed", count: pipelines.value.filter((item) => item.last_run_status === "failed").length },
 ])
-const summaryStats = computed(() => ({
-  prod: pipelines.value.filter((item) => item.environment === "prod").length,
-  active: pipelines.value.filter((item) => item.status === "active").length,
-  failed: pipelines.value.filter((item) => item.last_run_status === "failed").length,
-  tightSla: pipelines.value.filter((item) => (item.sla_minutes || 120) <= 120).length,
-}))
 const lastRun = computed(() => runHistory.value[0] || null)
 const latestNodeLogs = computed(() => previewLogs.value?.nodes || lastRun.value?.node_logs_json?.nodes || [])
 const activeDiagnostics = computed(() => validation.value?.diagnostics || [])
@@ -3047,8 +3016,6 @@ onMounted(loadAll)
   gap: 12px;
 }
 
-.legacy-commandbar,
-.pipeline-kpis,
 .etl-palette,
 .etl-stage,
 .node-config-panel,
@@ -3060,25 +3027,14 @@ onMounted(loadAll)
   border-radius: var(--app-radius);
 }
 
-.legacy-commandbar {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px;
-}
-
-.legacy-commandbar__title h2,
 .pipeline-toolbar h3 {
   margin: 2px 0 6px;
   letter-spacing: 0;
 }
 
-.legacy-commandbar__title span,
 .pipeline-toolbar span,
 .section-heading small,
 .pipeline-item span,
-.kpi-cell span,
 .ops-grid span,
 .ops-grid small,
 .validation-score span,
@@ -3090,15 +3046,6 @@ onMounted(loadAll)
   color: var(--app-text-muted);
 }
 
-.eyebrow {
-  margin: 0;
-  color: var(--app-primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.legacy-commandbar__actions,
 .pipeline-toolbar,
 .section-heading,
 .validation-score,
@@ -3111,14 +3058,9 @@ onMounted(loadAll)
   gap: 10px;
 }
 
-.legacy-commandbar__actions {
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
 .pipeline-action-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 270px) max-content max-content max-content;
+  grid-template-columns: minmax(190px, 220px) max-content max-content max-content;
   align-items: center;
   justify-content: end;
   gap: 8px;
@@ -3167,30 +3109,24 @@ onMounted(loadAll)
   width: 220px;
 }
 
-.pipeline-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.kpi-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border-right: 1px solid var(--app-border-light);
-}
-
-.kpi-cell:last-child {
-  border-right: none;
-}
-
-.kpi-cell strong {
-  font-size: 22px;
-  line-height: 1.1;
-}
-
 .etl-mode-tabs {
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   width: 100%;
+  overflow: visible;
+}
+
+.etl-mode-tabs__tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.etl-mode-tabs__actions {
+  flex: 1 1 620px;
 }
 
 .etl-shell {
@@ -4118,15 +4054,12 @@ onMounted(loadAll)
 
   .ops-grid,
   .lineage-summary,
-  .pipeline-kpis,
   .run-health__stats {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 760px) {
-  .legacy-commandbar,
-  .legacy-commandbar__actions,
   .pipeline-toolbar,
   .section-heading--canvas,
   .mapping-row,
@@ -4154,7 +4087,7 @@ onMounted(loadAll)
   }
 
   .pipeline-search,
-  .legacy-commandbar__actions .el-button {
+  .etl-mode-tabs__actions .el-button {
     width: 100%;
   }
 
@@ -4172,13 +4105,5 @@ onMounted(loadAll)
     width: 100%;
   }
 
-  .kpi-cell {
-    border-right: none;
-    border-bottom: 1px solid var(--app-border-light);
-  }
-
-  .kpi-cell:last-child {
-    border-bottom: none;
-  }
 }
 </style>
