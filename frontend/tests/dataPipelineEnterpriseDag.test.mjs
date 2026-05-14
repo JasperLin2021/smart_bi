@@ -70,3 +70,17 @@ test("data pipeline workbench exposes inspect/profile and SQL editor affordances
   assert.match(pipelines, /upsert_keys/)
   assert.match(pipelines, /更新写入/)
 })
+
+test("data pipeline workbench applies consistent enterprise toolbar styling", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /pipeline-action-toolbar/)
+  assert.match(pipelines, /canvas-commandbar/)
+  assert.match(pipelines, /toolbar-group/)
+  assert.match(pipelines, /toolbar-button/)
+  assert.match(pipelines, /flow-control-button/)
+  assert.match(pipelines, /ElTooltip/)
+  assert.match(pipelines, /section-heading > div:first-child/)
+  assert.doesNotMatch(pipelines, /canvas-toolstrip/)
+  assert.doesNotMatch(pipelines, /h\("button"/)
+})

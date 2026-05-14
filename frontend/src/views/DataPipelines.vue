@@ -6,7 +6,7 @@
         <h2>数据加工管道</h2>
         <span>在 BI 中完成抽取、清洗、转换、质量闸门、装载、调度、监控和血缘治理。</span>
       </div>
-      <div class="legacy-commandbar__actions">
+      <div class="legacy-commandbar__actions pipeline-action-toolbar">
         <el-input
           v-model="pipelineSearch"
           class="pipeline-search"
@@ -14,13 +14,25 @@
           :prefix-icon="Search"
           placeholder="搜索管道 / 数据集"
         />
-        <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button>
-        <el-button :icon="CircleCheck" :loading="validating" :disabled="!selectedPipeline" @click="validateSelected">校验</el-button>
-        <el-button :icon="View" :loading="previewing" :disabled="!selectedPipeline" @click="previewSelectedNode">预览</el-button>
-        <el-button :icon="DocumentChecked" :loading="savingDag" :disabled="!selectedPipeline" @click="savePipelineDag">保存</el-button>
-        <el-button type="primary" :icon="VideoPlay" :loading="running" :disabled="!selectedPipeline" @click="runSelected()">运行</el-button>
-        <el-button type="warning" plain :icon="RefreshRight" :loading="running" :disabled="!selectedPipeline" @click="runBackfill">补数</el-button>
-        <el-button type="primary" plain :icon="Plus" @click="openCreate">新建管道</el-button>
+        <div class="toolbar-group" aria-label="管道维护操作">
+          <el-tooltip content="刷新管道列表" placement="bottom">
+            <el-button class="toolbar-button" circle :icon="Refresh" :loading="loading" aria-label="刷新管道列表" @click="loadAll" />
+          </el-tooltip>
+          <el-tooltip content="上线校验" placement="bottom">
+            <el-button class="toolbar-button" circle :icon="CircleCheck" :loading="validating" :disabled="!selectedPipeline" aria-label="上线校验" @click="validateSelected" />
+          </el-tooltip>
+          <el-tooltip content="预览当前节点" placement="bottom">
+            <el-button class="toolbar-button" circle :icon="View" :loading="previewing" :disabled="!selectedPipeline" aria-label="预览当前节点" @click="previewSelectedNode" />
+          </el-tooltip>
+          <el-tooltip content="保存流程配置" placement="bottom">
+            <el-button class="toolbar-button" circle :icon="DocumentChecked" :loading="savingDag" :disabled="!selectedPipeline" aria-label="保存流程配置" @click="savePipelineDag" />
+          </el-tooltip>
+        </div>
+        <div class="toolbar-group toolbar-group--primary" aria-label="运行操作">
+          <el-button class="toolbar-button toolbar-button--primary" type="primary" :icon="VideoPlay" :loading="running" :disabled="!selectedPipeline" @click="runSelected()">运行</el-button>
+          <el-button class="toolbar-button" type="warning" plain :icon="RefreshRight" :loading="running" :disabled="!selectedPipeline" @click="runBackfill">补数</el-button>
+        </div>
+        <el-button class="toolbar-button toolbar-button--new" type="primary" plain :icon="Plus" @click="openCreate">新建管道</el-button>
       </div>
     </section>
 
@@ -155,12 +167,12 @@
         </div>
 
         <section v-show="activeWorkbenchTab === 'design'" class="pipeline-canvas-panel">
-          <div class="section-heading">
+          <div class="section-heading section-heading--canvas">
             <div>
               <span>流程设计</span>
               <small>抽取 -> 转换 -> 质量闸门 -> 装载</small>
             </div>
-            <div class="canvas-toolstrip">
+            <div class="canvas-commandbar" aria-label="画布操作">
               <el-input
                 v-model="nodeSearch"
                 class="node-search-input"
@@ -170,14 +182,30 @@
                 placeholder="定位节点"
                 @keyup.enter="locateSearchedNode"
               />
-              <el-button size="small" :disabled="!selectedPipeline" @click="locateSearchedNode">定位</el-button>
-              <el-button size="small" :disabled="!dagUndoStack.length" @click="undoDagChange">撤销</el-button>
-              <el-button size="small" :disabled="!dagRedoStack.length" @click="redoDagChange">重做</el-button>
-              <el-button size="small" :disabled="!selectedNode" @click="copySelectedNode">复制</el-button>
-              <el-button size="small" :disabled="!copiedNode" @click="pasteCopiedNode">粘贴</el-button>
-              <el-button size="small" :disabled="!selectedNode" @click="deleteSelectedNode">删除</el-button>
-              <el-button size="small" :disabled="!selectedPipeline" @click="autoLayoutDag">自动布局</el-button>
-              <el-button size="small" :icon="Plus" :disabled="!selectedPipeline" @click="addTemplateNodes">套用模板</el-button>
+              <div class="toolbar-group toolbar-group--compact" aria-label="画布快捷操作">
+                <el-tooltip content="定位节点" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle :icon="Aim" :disabled="!selectedPipeline" aria-label="定位节点" @click="locateSearchedNode" />
+                </el-tooltip>
+                <el-tooltip content="撤销" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle :icon="Back" :disabled="!dagUndoStack.length" aria-label="撤销" @click="undoDagChange" />
+                </el-tooltip>
+                <el-tooltip content="重做" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle :icon="Right" :disabled="!dagRedoStack.length" aria-label="重做" @click="redoDagChange" />
+                </el-tooltip>
+                <el-tooltip content="复制节点" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle :icon="CopyDocument" :disabled="!selectedNode" aria-label="复制节点" @click="copySelectedNode" />
+                </el-tooltip>
+                <el-tooltip content="粘贴节点" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle :icon="DocumentCopy" :disabled="!copiedNode" aria-label="粘贴节点" @click="pasteCopiedNode" />
+                </el-tooltip>
+                <el-tooltip content="删除节点" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle type="danger" plain :icon="Delete" :disabled="!selectedNode" aria-label="删除节点" @click="deleteSelectedNode" />
+                </el-tooltip>
+                <el-tooltip content="自动布局" placement="bottom">
+                  <el-button class="toolbar-button" size="small" circle :icon="Rank" :disabled="!selectedPipeline" aria-label="自动布局" @click="autoLayoutDag" />
+                </el-tooltip>
+              </div>
+              <el-button class="toolbar-button" size="small" :icon="MagicStick" :disabled="!selectedPipeline" @click="addTemplateNodes">套用模板</el-button>
             </div>
           </div>
           <div class="flow-wrap" @drop.prevent="onCanvasDrop" @dragover.prevent>
@@ -913,20 +941,29 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
-import { ElMessage } from "element-plus"
+import { ElButton, ElMessage, ElTooltip } from "element-plus"
 import CodeMirrorSqlEditor from "@/components/SqlEditor.vue"
 import {
+  Aim,
+  Back,
   CircleCheck,
   Connection,
+  CopyDocument,
   DataAnalysis,
+  Delete,
   DocumentChecked,
+  DocumentCopy,
   Finished,
+  FullScreen,
   Grid,
   Histogram,
   Link,
+  MagicStick,
   Plus,
+  Rank,
   Refresh,
   RefreshRight,
+  Right,
   Search,
   Select,
   SetUp,
@@ -1646,8 +1683,12 @@ const Controls = defineComponent({
   name: "Controls",
   setup: () => () =>
     h("div", { class: "flow-controls", role: "toolbar", "aria-label": "画布视图控制" }, [
-      h("button", { type: "button", title: "适配视图", onClick: fitCanvasView }, "适配"),
-      h("button", { type: "button", title: "自动布局", onClick: autoLayoutDag }, "布局"),
+      h(ElTooltip, { content: "适配视图", placement: "top" }, {
+        default: () => h(ElButton, { class: "flow-control-button", size: "small", icon: FullScreen, onClick: fitCanvasView, "aria-label": "适配视图" }, () => "适配"),
+      }),
+      h(ElTooltip, { content: "自动布局", placement: "top" }, {
+        default: () => h(ElButton, { class: "flow-control-button", size: "small", icon: Rank, onClick: autoLayoutDag, "aria-label": "自动布局" }, () => "布局"),
+      }),
     ]),
 })
 const MiniMap = defineComponent({
@@ -2875,6 +2916,45 @@ onMounted(loadAll)
   flex-wrap: wrap;
 }
 
+.pipeline-action-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 270px) max-content max-content max-content;
+  align-items: center;
+  justify-content: end;
+  gap: 8px;
+}
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  padding: 3px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+}
+
+.toolbar-group--primary {
+  background: #fff;
+}
+
+.toolbar-group :deep(.el-button + .el-button),
+.flow-controls :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+.toolbar-button,
+.flow-control-button {
+  min-height: 32px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.toolbar-button--new {
+  white-space: nowrap;
+}
+
 .pipeline-toolbar__actions {
   display: flex;
   align-items: center;
@@ -2987,19 +3067,33 @@ onMounted(loadAll)
 .source-chip,
 .node-palette button,
 .pipeline-item {
+  appearance: none;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm);
   background: var(--app-surface);
   color: var(--app-text);
   cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
   transition: border-color var(--app-transition), background var(--app-transition), box-shadow var(--app-transition);
 }
 
 .status-filter button {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   min-height: 34px;
   padding: 7px 9px;
+  font-weight: 700;
+}
+
+.status-filter button:focus-visible,
+.source-chip:focus-visible,
+.node-palette button:focus-visible,
+.pipeline-item:focus-visible {
+  outline: none;
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .status-filter button.active,
@@ -3079,14 +3173,29 @@ onMounted(loadAll)
 .node-palette button {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
+  width: 100%;
   min-height: 40px;
   padding: 8px 10px;
+  text-align: left;
+}
+
+.source-chip .el-icon,
+.node-palette button .el-icon {
+  flex: 0 0 auto;
+}
+
+.node-palette button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-palette {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
@@ -3108,8 +3217,20 @@ onMounted(loadAll)
   margin-bottom: 10px;
 }
 
+.section-heading--canvas {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.section-heading > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .section-heading__actions,
-.canvas-toolstrip {
+.canvas-commandbar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -3117,14 +3238,17 @@ onMounted(loadAll)
   gap: 8px;
 }
 
-.node-search-input {
-  width: 180px;
+.canvas-commandbar {
+  flex: 1;
+  min-width: min(100%, 560px);
 }
 
-.section-heading > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.canvas-commandbar .toolbar-group {
+  flex-wrap: nowrap;
+}
+
+.node-search-input {
+  width: clamp(180px, 22vw, 260px);
 }
 
 .section-heading span,
@@ -3200,28 +3324,13 @@ onMounted(loadAll)
   bottom: 14px;
   z-index: 4;
   display: inline-flex;
-  overflow: hidden;
+  gap: 6px;
+  padding: 6px;
+  overflow: visible;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--app-shadow-soft);
-}
-
-.flow-controls button {
-  min-height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-right: 1px solid var(--app-border-light);
-  background: transparent;
-  color: var(--app-text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.flow-controls button:last-child {
-  border-right: 0;
 }
 
 .pipeline-flow :deep(.vue-flow__node) {
@@ -3506,6 +3615,10 @@ onMounted(loadAll)
   .etl-shell {
     grid-template-columns: 280px minmax(0, 1fr);
   }
+
+  .pipeline-action-toolbar {
+    grid-template-columns: minmax(220px, 1fr) max-content;
+  }
 }
 
 @media (max-width: 920px) {
@@ -3538,6 +3651,7 @@ onMounted(loadAll)
   .legacy-commandbar,
   .legacy-commandbar__actions,
   .pipeline-toolbar,
+  .section-heading--canvas,
   .mapping-row,
   .filter-row {
     align-items: stretch;
@@ -3545,8 +3659,39 @@ onMounted(loadAll)
     flex-direction: column;
   }
 
+  .pipeline-action-toolbar {
+    justify-content: stretch;
+  }
+
+  .pipeline-action-toolbar .toolbar-group,
+  .pipeline-action-toolbar .toolbar-button--new {
+    width: 100%;
+  }
+
+  .pipeline-action-toolbar .toolbar-group--primary .el-button {
+    flex: 1;
+  }
+
+  .pipeline-action-toolbar .toolbar-group:not(.toolbar-group--primary) .el-button.is-circle {
+    width: 32px;
+  }
+
   .pipeline-search,
   .legacy-commandbar__actions .el-button {
+    width: 100%;
+  }
+
+  .canvas-commandbar {
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .canvas-commandbar .toolbar-group {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .node-search-input {
     width: 100%;
   }
 
