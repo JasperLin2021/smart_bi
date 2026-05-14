@@ -57,11 +57,15 @@
       </button>
     </div>
 
-    <section class="etl-shell">
+    <section class="etl-shell etl-shell--composer">
       <aside class="etl-palette" aria-label="ETL 管道与节点组件">
         <div class="panel-title">
-          <span>管道资产</span>
-          <small>{{ filteredPipelines.length }} 条</small>
+          <span>操作台</span>
+          <small>拖拽组件到画板</small>
+        </div>
+        <div class="operator-console-note">
+          <strong>{{ filteredPipelines.length }}</strong>
+          <span>条管道资产</span>
         </div>
         <div class="status-filter">
           <button
@@ -112,8 +116,8 @@
 
         <div class="palette-section">
           <div class="panel-title">
-            <span>节点组件</span>
-            <small>点击添加</small>
+            <span>组件库</span>
+            <small>拖拽 / 点击添加</small>
           </div>
           <div class="node-palette">
             <button
@@ -374,14 +378,25 @@
           </el-tabs>
         </section>
       </main>
+    </section>
 
-      <aside class="node-config-panel" aria-label="节点配置">
+    <el-drawer
+      v-model="nodeDrawerVisible"
+      class="node-config-drawer"
+      size="min(520px, calc(100vw - 24px))"
+      direction="rtl"
+      :with-header="false"
+    >
+      <div class="node-config-panel node-config-panel--drawer" aria-label="节点配置">
         <div class="section-heading">
           <div>
             <span>节点配置</span>
             <small>{{ selectedNode ? `${nodeTypeLabel(selectedNode.type)} · ${selectedNode.label || selectedNode.id}` : "选择画布节点后配置" }}</small>
           </div>
-          <el-tag v-if="selectedNode" effect="plain">{{ nodeTypeLabel(selectedNode.type) }}</el-tag>
+          <div class="node-config-heading__actions">
+            <el-tag v-if="selectedNode" effect="plain">{{ nodeTypeLabel(selectedNode.type) }}</el-tag>
+            <el-button size="small" text @click="nodeDrawerVisible = false">收起</el-button>
+          </div>
         </div>
 
         <el-empty v-if="!selectedNode" description="请选择一个节点" :image-size="72" />
@@ -657,8 +672,8 @@
             </div>
           </template>
         </div>
-      </aside>
-    </section>
+      </div>
+    </el-drawer>
 
     <el-dialog v-model="dialogVisible" title="新建数据加工管道" width="min(860px, calc(100vw - 32px))" destroy-on-close>
       <el-form label-position="top" class="pipeline-form">
@@ -927,6 +942,7 @@ const savingRule = ref(false)
 const publishingVersion = ref(false)
 const dialogVisible = ref(false)
 const ruleDialogVisible = ref(false)
+const nodeDrawerVisible = ref(false)
 const selectedId = ref<number | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const draggedNodeType = ref<string | null>(null)
@@ -1254,6 +1270,7 @@ const removeAggregationMetric = (index: number) => {
 }
 const onNodeClick = ({ node }: { node: { id: string } }) => {
   selectedNodeId.value = node.id
+  nodeDrawerVisible.value = true
 }
 const onPaletteDragStart = (type: string) => {
   draggedNodeType.value = type
@@ -1284,6 +1301,7 @@ const selectReferenceNode = (nodeId: string) => {
 }
 const selectPipeline = (id: number) => {
   selectedId.value = id
+  nodeDrawerVisible.value = false
   const pipeline = pipelines.value.find((item) => item.id === id)
   selectedNodeId.value = pipeline?.dag_json?.nodes?.[0]?.id || null
 }
@@ -1304,6 +1322,7 @@ const addNode = (type: string, position?: { x: number; y: number }) => {
   })
   if (previous) selectedPipeline.value.dag_json.edges.push({ source: previous.id, target: id })
   selectedNodeId.value = id
+  nodeDrawerVisible.value = true
 }
 const defaultNodeConfig = (type: string) => {
   if (type === "transform") return { field_mapping: [], type_conversions: [], filters: [], derived_columns: [], dedupe: { keys: [] }, aggregations: { group_by: [], metrics: [] } }
@@ -1329,6 +1348,7 @@ const addTemplateNodes = () => {
   if (!selectedPipeline.value) return
   selectedPipeline.value.dag_json = defaultDag()
   selectedNodeId.value = "extract"
+  nodeDrawerVisible.value = false
 }
 
 const loadSelectedDetails = async () => {
@@ -2542,7 +2562,8 @@ onMounted(loadAll)
 
 .etl-shell {
   display: grid;
-  grid-template-columns: 292px minmax(0, 1fr) 360px;
+  grid-template-columns: 320px minmax(0, 1fr);
+  align-items: start;
   gap: 12px;
 }
 
@@ -2555,11 +2576,36 @@ onMounted(loadAll)
 
 .etl-palette {
   display: flex;
-  max-height: calc(100vh - 232px);
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
   min-height: 660px;
   flex-direction: column;
   gap: 12px;
   overflow: auto;
+}
+
+.operator-console-note {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.08));
+}
+
+.operator-console-note strong {
+  color: var(--app-primary);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.operator-console-note span {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .panel-title,
@@ -2682,6 +2728,7 @@ onMounted(loadAll)
 
 .etl-stage {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 12px;
 }
@@ -2709,7 +2756,8 @@ onMounted(loadAll)
 }
 
 .flow-wrap {
-  height: 420px;
+  height: clamp(560px, calc(100vh - 420px), 760px);
+  min-height: 520px;
   overflow: hidden;
   border: 1px solid var(--app-border-light);
   border-radius: var(--app-radius-sm);
@@ -2923,6 +2971,27 @@ onMounted(loadAll)
   overflow: auto;
 }
 
+.node-config-panel--drawer {
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.node-config-heading__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:deep(.node-config-drawer) {
+  --el-drawer-padding-primary: 18px;
+}
+
+:deep(.node-config-drawer .el-drawer__body) {
+  padding: 18px;
+}
+
 .mapping-row,
 .filter-row {
   display: grid;
@@ -2948,11 +3017,6 @@ onMounted(loadAll)
   .etl-shell {
     grid-template-columns: 280px minmax(0, 1fr);
   }
-
-  .node-config-panel {
-    grid-column: 1 / -1;
-    max-height: none;
-  }
 }
 
 @media (max-width: 920px) {
@@ -2963,8 +3027,14 @@ onMounted(loadAll)
   }
 
   .etl-palette {
+    position: static;
     max-height: none;
     min-height: auto;
+  }
+
+  .flow-wrap {
+    height: 520px;
+    min-height: 460px;
   }
 
   .ops-grid,
