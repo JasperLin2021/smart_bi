@@ -220,7 +220,7 @@
               @node-drag-stop="onNodeDragStop"
             >
               <template #node-etl-icon="{ data, selected, connectable }">
-                <Handle type="target" :position="Position.Top" :connectable="connectable" />
+                <Handle id="in" type="target" :position="Position.Left" :connectable="connectable" />
                 <div class="etl-canvas-node" :class="[`is-${data.status}`, { 'is-selected': selected }]">
                   <span class="etl-canvas-node__icon" :class="`etl-canvas-node__icon--${data.tone}`" aria-hidden="true">
                     <el-icon><component :is="data.icon" /></el-icon>
@@ -229,7 +229,7 @@
                   <span class="etl-canvas-node__title">{{ data.title }}</span>
                   <small>{{ data.caption }}</small>
                 </div>
-                <Handle type="source" :position="Position.Bottom" :connectable="connectable" />
+                <Handle id="out" type="source" :position="Position.Right" :connectable="connectable" />
               </template>
               <Background />
               <MiniMap />
@@ -986,7 +986,7 @@ import {
   View,
   Warning,
 } from "@element-plus/icons-vue"
-import { Handle, Position, VueFlow } from "@vue-flow/core"
+import { Handle, MarkerType, Position, VueFlow } from "@vue-flow/core"
 import "@vue-flow/core/dist/style.css"
 import "@vue-flow/core/dist/theme-default.css"
 
@@ -1396,6 +1396,77 @@ const nodeStatusFor = (node: DagNode) => {
   if (node.type === "reverse_etl" && !String(config.target_table || "").trim()) return "blocked"
   return "configured"
 }
+const dagNodePosition = (index: number) => ({ x: 88 + index * 230, y: 138 })
+const buildOrthogonalLayout = (nodes: DagNode[], edges: Array<Record<string, any>>) => {
+  const nodeIds = new Set(nodes.map((node) => String(node.id)))
+  const order = new Map(nodes.map((node, index) => [String(node.id), index]))
+  const adjacency = new Map<string, string[]>()
+  const indegree = new Map<string, number>()
+  const rank = new Map<string, number>()
+
+  nodes.forEach((node) => {
+    const id = String(node.id)
+    adjacency.set(id, [])
+    indegree.set(id, 0)
+    rank.set(id, 0)
+  })
+
+  for (const edge of edges) {
+    const source = String(edge.source || "")
+    const target = String(edge.target || "")
+    if (!nodeIds.has(source) || !nodeIds.has(target) || source === target) continue
+    adjacency.get(source)?.push(target)
+    indegree.set(target, (indegree.get(target) || 0) + 1)
+  }
+
+  const queue = nodes
+    .filter((node) => (indegree.get(String(node.id)) || 0) === 0)
+    .map((node) => String(node.id))
+    .sort((a, b) => (order.get(a) || 0) - (order.get(b) || 0))
+  const visited = new Set<string>()
+
+  while (queue.length) {
+    const current = queue.shift()!
+    visited.add(current)
+    for (const target of adjacency.get(current) || []) {
+      rank.set(target, Math.max(rank.get(target) || 0, (rank.get(current) || 0) + 1))
+      indegree.set(target, (indegree.get(target) || 0) - 1)
+      if ((indegree.get(target) || 0) === 0) {
+        queue.push(target)
+        queue.sort((a, b) => (rank.get(a) || 0) - (rank.get(b) || 0) || (order.get(a) || 0) - (order.get(b) || 0))
+      }
+    }
+  }
+
+  nodes.forEach((node, index) => {
+    const id = String(node.id)
+    if (!visited.has(id)) rank.set(id, Math.max(rank.get(id) || 0, index))
+  })
+
+  const columns = new Map<number, DagNode[]>()
+  nodes.forEach((node) => {
+    const column = rank.get(String(node.id)) || 0
+    columns.set(column, [...(columns.get(column) || []), node])
+  })
+
+  columns.forEach((columnNodes) => {
+    columnNodes.sort((a, b) => (order.get(String(a.id)) || 0) - (order.get(String(b.id)) || 0))
+  })
+
+  const columnGap = 230
+  const rowGap = 142
+  const canvasTop = 112
+  const layout = new Map<string, { x: number; y: number }>()
+  Array.from(columns.keys()).sort((a, b) => a - b).forEach((column) => {
+    const columnNodes = columns.get(column) || []
+    const startY = Math.max(64, canvasTop - ((columnNodes.length - 1) * rowGap) / 2)
+    columnNodes.forEach((node, row) => {
+      layout.set(String(node.id), { x: 88 + column * columnGap, y: Math.round(startY + row * rowGap) })
+    })
+  })
+
+  return layout
+}
 const flowNodes = computed(() => {
   const runNodeLogs = latestNodeLogs.value
   const nodes = selectedPipeline.value?.dag_json?.nodes || []
@@ -1410,9 +1481,9 @@ const flowNodes = computed(() => {
       id: String(node.id),
       type: "etl-icon",
       label: title,
-      position: node.position || { x: 72 + (index % 4) * 190, y: 72 + Math.floor(index / 4) * 118 },
-      sourcePosition: Position.Bottom,
-      targetPosition: Position.Top,
+      position: node.position || dagNodePosition(index),
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: {
         type: node.type || "task",
         icon: nodeTypeIcon(String(node.type || "task")),
@@ -1433,7 +1504,12 @@ const flowEdges = computed(() => {
     id: `edge-${index}`,
     source: String(edge.source),
     target: String(edge.target),
+    sourceHandle: String(edge.sourceHandle || "out"),
+    targetHandle: String(edge.targetHandle || "in"),
+    type: "step",
     animated: selectedPipeline.value?.status === "active",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#64748b", width: 15, height: 15 },
+    style: { stroke: "#64748b", strokeWidth: 2 },
   }))
 })
 const aggregationConfig = computed(() => {
@@ -1528,9 +1604,9 @@ const defaultDag = () => ({
     { id: "load", type: "load", label: "写入目标数据集", position: { x: 740, y: 120 }, config: { mode: "dataset_refresh", target_table: "" } },
   ],
   edges: [
-    { source: "extract", target: "transform" },
-    { source: "transform", target: "quality" },
-    { source: "quality", target: "load" },
+    { source: "extract", target: "transform", sourceHandle: "out", targetHandle: "in" },
+    { source: "transform", target: "quality", sourceHandle: "out", targetHandle: "in" },
+    { source: "quality", target: "load", sourceHandle: "out", targetHandle: "in" },
   ],
 })
 
@@ -1590,7 +1666,12 @@ const onConnect = (connection: any) => {
   const exists = selectedPipeline.value.dag_json.edges.some((edge) => String(edge.source) === String(connection.source) && String(edge.target) === String(connection.target))
   if (!exists) {
     recordDagSnapshot()
-    selectedPipeline.value.dag_json.edges.push({ source: String(connection.source), target: String(connection.target) })
+    selectedPipeline.value.dag_json.edges.push({
+      source: String(connection.source),
+      target: String(connection.target),
+      sourceHandle: String(connection.sourceHandle || "out"),
+      targetHandle: String(connection.targetHandle || "in"),
+    })
   }
 }
 const onNodeDragStop = ({ node }: any) => {
@@ -1656,8 +1737,9 @@ const autoLayoutDag = () => {
   if (!selectedPipeline.value) return
   recordDagSnapshot()
   const nodes = selectedPipeline.value.dag_json.nodes || []
+  const layout = buildOrthogonalLayout(nodes, selectedPipeline.value.dag_json.edges || [])
   nodes.forEach((node, index) => {
-    node.position = { x: 90 + (index % 4) * 230, y: 96 + Math.floor(index / 4) * 150 }
+    node.position = layout.get(String(node.id)) || dagNodePosition(index)
   })
 }
 const fitCanvasView = () => {
@@ -1683,14 +1765,15 @@ const addNode = (type: string, position?: { x: number; y: number }) => {
   const index = selectedPipeline.value.dag_json.nodes.length + 1
   const id = `${type}_${Date.now()}`
   const previous = selectedPipeline.value.dag_json.nodes[selectedPipeline.value.dag_json.nodes.length - 1]
+  const previousPosition = previous?.position || dagNodePosition(index - 2)
   selectedPipeline.value.dag_json.nodes.push({
     id,
     type,
     label: `${nodeTypeLabel(type)}节点 ${index}`,
-    position: position || { x: 80 + (index - 1) * 190, y: 120 + Math.floor((index - 1) / 4) * 120 },
+    position: position || { x: previousPosition.x + 230, y: previousPosition.y },
     config: defaultNodeConfig(type),
   })
-  if (previous) selectedPipeline.value.dag_json.edges.push({ source: previous.id, target: id })
+  if (previous) selectedPipeline.value.dag_json.edges.push({ source: previous.id, target: id, sourceHandle: "out", targetHandle: "in" })
   selectedNodeId.value = id
   nodeDrawerVisible.value = true
 }
@@ -3401,19 +3484,30 @@ onMounted(loadAll)
 }
 
 .pipeline-flow :deep(.vue-flow__handle) {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   border: 2px solid #fff;
+  border-radius: 999px;
   background: var(--app-primary);
-  opacity: 0.88;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16), 0 4px 10px rgba(15, 23, 42, 0.14);
+  opacity: 0.96;
+  transition: transform var(--app-transition), box-shadow var(--app-transition), background var(--app-transition);
 }
 
-.pipeline-flow :deep(.vue-flow__handle-top) {
-  top: -4px;
+.pipeline-flow :deep(.vue-flow__handle-left) {
+  left: -6px;
 }
 
-.pipeline-flow :deep(.vue-flow__handle-bottom) {
-  bottom: -4px;
+.pipeline-flow :deep(.vue-flow__handle-right) {
+  right: -6px;
+}
+
+.pipeline-flow :deep(.vue-flow__handle:hover),
+.pipeline-flow :deep(.vue-flow__handle.connecting),
+.pipeline-flow :deep(.vue-flow__handle.valid) {
+  background: #0d9488;
+  box-shadow: 0 0 0 5px rgba(13, 148, 136, 0.18), 0 8px 18px rgba(15, 23, 42, 0.18);
+  transform: scale(1.08);
 }
 
 .etl-canvas-node {
@@ -3588,8 +3682,23 @@ onMounted(loadAll)
 }
 
 .pipeline-flow :deep(.vue-flow__edge-path) {
-  stroke: var(--app-primary);
+  stroke: #64748b;
   stroke-width: 2;
+}
+
+.pipeline-flow :deep(.vue-flow__edge.selected .vue-flow__edge-path),
+.pipeline-flow :deep(.vue-flow__edge:hover .vue-flow__edge-path) {
+  stroke: var(--app-primary);
+  stroke-width: 2.4;
+}
+
+.pipeline-flow :deep(.vue-flow__edge.animated .vue-flow__edge-path) {
+  stroke-dasharray: 8 5;
+}
+
+.pipeline-flow :deep(.vue-flow__connection-path) {
+  stroke: var(--app-primary);
+  stroke-width: 2.2;
 }
 
 .tab-surface-grid,

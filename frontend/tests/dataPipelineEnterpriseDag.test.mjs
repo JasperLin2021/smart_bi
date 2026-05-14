@@ -89,8 +89,8 @@ test("data pipeline canvas renders compact icon nodes instead of text rectangles
   const pipelines = read("src/views/DataPipelines.vue")
 
   assert.match(pipelines, /#node-etl-icon/)
-  assert.match(pipelines, /<Handle type="target"/)
-  assert.match(pipelines, /<Handle type="source"/)
+  assert.match(pipelines, /<Handle id="in" type="target" :position="Position\.Left"/)
+  assert.match(pipelines, /<Handle id="out" type="source" :position="Position\.Right"/)
   assert.match(pipelines, /etl-canvas-node__icon/)
   assert.match(pipelines, /<el-icon><component :is="data\.icon"/)
   assert.match(pipelines, /nodeTypeIcon/)
@@ -99,4 +99,20 @@ test("data pipeline canvas renders compact icon nodes instead of text rectangles
   assert.match(pipelines, /caption:\s*`\$\{typeLabel\} · \$\{rowsText \|\| statusText\}`/)
   assert.doesNotMatch(pipelines, /white-space:\s*pre-line/)
   assert.doesNotMatch(pipelines, /etl-canvas-node__glyph/)
+})
+
+test("data pipeline canvas uses orthogonal left-to-right connectors", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /sourcePosition:\s*Position\.Right/)
+  assert.match(pipelines, /targetPosition:\s*Position\.Left/)
+  assert.match(pipelines, /type:\s*"step"/)
+  assert.match(pipelines, /MarkerType\.ArrowClosed/)
+  assert.match(pipelines, /sourceHandle:\s*String\(edge\.sourceHandle \|\| "out"\)/)
+  assert.match(pipelines, /targetHandle:\s*String\(edge\.targetHandle \|\| "in"\)/)
+  assert.match(pipelines, /buildOrthogonalLayout/)
+  assert.match(pipelines, /vue-flow__handle-left/)
+  assert.match(pipelines, /vue-flow__handle-right/)
+  assert.doesNotMatch(pipelines, /:position="Position\.Top"/)
+  assert.doesNotMatch(pipelines, /:position="Position\.Bottom"/)
 })
