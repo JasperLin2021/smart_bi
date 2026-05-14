@@ -24,6 +24,8 @@ from app.models.user import User
 from app.schemas.pipeline import (
     PipelineCreate,
     PipelineDiagnostic,
+    PipelineInspectOut,
+    PipelineInspectRequest,
     PipelineLineageOut,
     PipelineOut,
     PipelinePreviewOut,
@@ -48,6 +50,174 @@ VALID_PIPELINE_PRIORITIES = {"low", "medium", "high", "critical"}
 ALLOWED_DAG_NODE_TYPES = {"source", "extract", "metadata_extract", "transform", "join", "union", "sql", "quality", "load", "sink", "reverse_etl"}
 FAN_IN_NODE_TYPES = {"join", "union", "sql"}
 SOURCE_NODE_TYPES = {"source", "extract", "metadata_extract"}
+PIPELINE_OPERATOR_CATALOG: list[dict[str, Any]] = [
+    {
+        "type": "extract",
+        "label": "抽取",
+        "category": "输入",
+        "icon": "UploadFilled",
+        "description": "从数据集或数据源抽取全量、增量或补数窗口数据。",
+        "input_ports": [],
+        "output_ports": ["rows"],
+        "default_config": {"mode": "full", "incremental_key": "", "batch_size": 5000},
+        "config_schema": {
+            "required": [],
+            "properties": {
+                "dataset_id": {"type": "integer", "title": "源数据集"},
+                "mode": {"type": "string", "enum": ["full", "incremental", "backfill"], "title": "抽取模式"},
+                "incremental_key": {"type": "string", "title": "增量字段"},
+                "batch_size": {"type": "integer", "title": "批次大小"},
+            },
+        },
+    },
+    {
+        "type": "metadata_extract",
+        "label": "元数据抽取",
+        "category": "治理/元数据",
+        "icon": "DocumentChecked",
+        "description": "读取数据源表和字段结构，可刷新数据源 schema 元数据。",
+        "input_ports": [],
+        "output_ports": ["metadata"],
+        "default_config": {"datasource_id": None, "tables": [], "refresh_schema": True, "write_to_catalog": True},
+        "config_schema": {
+            "required": [],
+            "properties": {
+                "datasource_id": {"type": "integer", "title": "数据源"},
+                "tables": {"type": "array", "items": {"type": "string"}, "title": "表名列表"},
+                "refresh_schema": {"type": "boolean", "title": "刷新元数据"},
+                "write_to_catalog": {"type": "boolean", "title": "同步目录"},
+            },
+        },
+    },
+    {
+        "type": "transform",
+        "label": "转换",
+        "category": "转换",
+        "icon": "SetUp",
+        "description": "字段映射、类型转换、过滤、派生列、去重和聚合。",
+        "input_ports": ["rows"],
+        "output_ports": ["rows"],
+        "default_config": {"field_mapping": [], "type_conversions": [], "filters": [], "derived_columns": [], "dedupe": {"keys": [], "keep": "first"}, "aggregations": {"group_by": [], "metrics": []}},
+        "config_schema": {
+            "required": [],
+            "properties": {
+                "field_mapping": {"type": "array", "title": "字段映射"},
+                "type_conversions": {"type": "array", "title": "类型转换"},
+                "filters": {"type": "array", "title": "过滤条件"},
+                "derived_columns": {"type": "array", "title": "派生列"},
+                "dedupe": {"type": "object", "title": "去重"},
+                "aggregations": {"type": "object", "title": "聚合"},
+            },
+        },
+    },
+    {
+        "type": "join",
+        "label": "关联",
+        "category": "转换",
+        "icon": "Link",
+        "description": "显式合并两个上游数据流。",
+        "input_ports": ["left", "right"],
+        "output_ports": ["rows"],
+        "default_config": {"left_node_id": "", "right_node_id": "", "left_key": "", "right_key": "", "join_type": "inner"},
+        "config_schema": {
+            "required": ["left_key", "right_key"],
+            "properties": {
+                "left_node_id": {"type": "string", "title": "左上游节点"},
+                "right_node_id": {"type": "string", "title": "右上游节点"},
+                "left_key": {"type": "string", "title": "左关联键"},
+                "right_key": {"type": "string", "title": "右关联键"},
+                "join_type": {"type": "string", "enum": ["inner", "left", "right", "outer"], "title": "连接方式"},
+            },
+        },
+    },
+    {
+        "type": "union",
+        "label": "汇合",
+        "category": "转换",
+        "icon": "Connection",
+        "description": "合并两个或更多上游分支，支持按键去重。",
+        "input_ports": ["input_1", "input_2"],
+        "output_ports": ["rows"],
+        "default_config": {"mode": "all", "keys": []},
+        "config_schema": {
+            "required": [],
+            "properties": {
+                "mode": {"type": "string", "enum": ["all", "distinct"], "title": "汇合模式"},
+                "keys": {"type": "array", "items": {"type": "string"}, "title": "去重键"},
+            },
+        },
+    },
+    {
+        "type": "sql",
+        "label": "SQL 算子",
+        "category": "SQL/ELT",
+        "icon": "DataAnalysis",
+        "description": "对上游输入执行只读 SELECT，或下推到数据库侧做大规模计算和物化。",
+        "input_ports": ["rows"],
+        "output_ports": ["rows"],
+        "default_config": {"execution_mode": "in_memory", "sql": "SELECT * FROM input", "datasource_id": None, "target_table": "", "mode": "replace"},
+        "config_schema": {
+            "required": ["sql"],
+            "properties": {
+                "sql": {"type": "string", "title": "SQL 查询"},
+                "execution_mode": {"type": "string", "enum": ["in_memory", "pushdown"], "title": "执行模式"},
+                "datasource_id": {"type": "integer", "title": "下推数据源"},
+                "target_table": {"type": "string", "title": "物化目标表"},
+                "mode": {"type": "string", "enum": ["replace", "append"], "title": "物化模式"},
+            },
+        },
+    },
+    {
+        "type": "quality",
+        "label": "质量闸门",
+        "category": "质量",
+        "icon": "Select",
+        "description": "运行字段、行数、新鲜度和自定义 SQL 质量规则。",
+        "input_ports": ["rows"],
+        "output_ports": ["rows"],
+        "default_config": {"fail_fast": True},
+        "config_schema": {"required": [], "properties": {"fail_fast": {"type": "boolean", "title": "失败阻断"}}},
+    },
+    {
+        "type": "load",
+        "label": "装载",
+        "category": "输出",
+        "icon": "Finished",
+        "description": "写入目标表或刷新 BI 数据集。",
+        "input_ports": ["rows"],
+        "output_ports": [],
+        "default_config": {"mode": "dataset_refresh", "target_table": ""},
+        "config_schema": {
+            "required": [],
+            "properties": {
+                "target_table": {"type": "string", "title": "目标表"},
+                "mode": {"type": "string", "enum": ["dataset_refresh", "replace", "append"], "title": "装载模式"},
+            },
+        },
+    },
+    {
+        "type": "reverse_etl",
+        "label": "反向 ETL",
+        "category": "反向 ETL",
+        "icon": "RefreshRight",
+        "description": "把分析结果回写业务库，支持追加、替换和按主键更新写入。",
+        "input_ports": ["rows"],
+        "output_ports": [],
+        "default_config": {"target_type": "database", "datasource_id": None, "target_table": "", "mode": "upsert", "primary_key": "", "upsert_keys": [], "field_mapping": []},
+        "config_schema": {
+            "required": ["target_table"],
+            "properties": {
+                "target_type": {"type": "string", "enum": ["database"], "title": "目标类型"},
+                "datasource_id": {"type": "integer", "title": "业务系统数据源"},
+                "target_table": {"type": "string", "title": "回写目标表"},
+                "mode": {"type": "string", "enum": ["append", "replace", "upsert"], "title": "回写模式"},
+                "primary_key": {"type": "string", "title": "主键字段"},
+                "upsert_keys": {"type": "array", "items": {"type": "string"}, "title": "更新键"},
+                "field_mapping": {"type": "array", "title": "字段映射"},
+            },
+        },
+    },
+]
 
 
 def _dataset_scope(query, user: User):
@@ -409,6 +579,68 @@ def _build_validation_result(pipeline: DataPipeline, diagnostics: list[dict[str,
     )
 
 
+def _profile_type(values: list[Any]) -> str:
+    non_null = [value for value in values if value is not None and value != ""]
+    if not non_null:
+        return "unknown"
+    if all(isinstance(value, bool) for value in non_null):
+        return "boolean"
+    if all(isinstance(value, int) and not isinstance(value, bool) for value in non_null):
+        return "integer"
+    if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in non_null):
+        return "number"
+    if all(_parse_datetime_value(value) is not None for value in non_null[:20]):
+        return "datetime"
+    return "string"
+
+
+def _build_row_profile(columns: list[str], rows: list[dict[str, Any]], total_count: int | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    row_count = int(total_count if total_count is not None else len(rows))
+    schema: list[dict[str, Any]] = []
+    profile: list[dict[str, Any]] = []
+    for column in columns:
+        values = [_row_value(row, column) for row in rows]
+        null_count = sum(1 for value in values if value is None or value == "")
+        data_type = _profile_type(values)
+        nullable = null_count > 0
+        unique_values = {str(value) for value in values if value is not None and value != ""}
+        sample_values: list[Any] = []
+        for value in values:
+            if value is None or value == "" or value in sample_values:
+                continue
+            sample_values.append(value)
+            if len(sample_values) >= 5:
+                break
+        schema.append({"name": column, "type": data_type, "nullable": nullable})
+        profile.append(
+            {
+                "name": column,
+                "type": data_type,
+                "null_count": null_count,
+                "null_ratio": round(null_count / row_count, 4) if row_count else 0,
+                "unique_count": len(unique_values),
+                "sample_values": sample_values,
+            }
+        )
+    return schema, profile
+
+
+def _execution_mode_for_node(node_id: str | None, dag_json: dict[str, Any], node_logs: dict[str, Any]) -> str:
+    for item in node_logs.get("nodes", []) or []:
+        if not node_id or str(item.get("node_id")) == str(node_id):
+            if item.get("execution_mode"):
+                return str(item["execution_mode"])
+            node_type = str(item.get("type") or "")
+            if node_type in {"sql", "reverse_etl"}:
+                return node_type
+            return "in_memory"
+    for node in dag_json.get("nodes", []) or []:
+        if isinstance(node, dict) and (not node_id or str(node.get("id")) == str(node_id)):
+            config = node.get("config") if isinstance(node.get("config"), dict) else {}
+            return str(config.get("execution_mode") or ("reverse_etl" if node.get("type") == "reverse_etl" else "in_memory"))
+    return "in_memory"
+
+
 def _row_value(row: dict[str, Any], field: str | None) -> Any:
     if not field:
         return None
@@ -738,6 +970,12 @@ def create_pipeline(
     return pipeline
 
 
+@router.get("/pipelines/operators")
+def list_pipeline_operators(current_user: User = Depends(get_current_user)):
+    require_action(current_user, "pipeline.read")
+    return PIPELINE_OPERATOR_CATALOG
+
+
 @router.get("/pipelines/{pipeline_id}", response_model=PipelineOut)
 def get_pipeline(
     pipeline_id: int,
@@ -980,18 +1218,14 @@ def list_pipeline_runs(
     )
 
 
-@router.post("/pipelines/{pipeline_id}/preview", response_model=PipelinePreviewOut)
-def preview_pipeline(
-    pipeline_id: int,
-    payload: PipelinePreviewRequest | None = None,
+def _execute_pipeline_preview(
+    pipeline: DataPipeline,
+    request: PipelinePreviewRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
-    require_action(current_user, "pipeline.read")
-    pipeline = _get_pipeline_for_user(db, pipeline_id, current_user)
+) -> tuple[Any, Dataset, dict[str, Any], int]:
     dataset = _get_dataset_for_user(db, pipeline.dataset_id, current_user)
     datasource = _get_datasource_for_user(db, dataset.datasource_id, current_user)
-    request = payload or PipelinePreviewRequest()
     limit = max(1, min(int(request.limit or 100), 500))
     dag_json = request.dag_json if isinstance(request.dag_json, dict) else pipeline.dag_json or {}
     if request.dag_json is not None:
@@ -1030,12 +1264,57 @@ def preview_pipeline(
         limit=limit,
         persist_load=False,
     )
+    return execution, dataset, dag_json, limit
+
+
+@router.post("/pipelines/{pipeline_id}/preview", response_model=PipelinePreviewOut)
+def preview_pipeline(
+    pipeline_id: int,
+    payload: PipelinePreviewRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_action(current_user, "pipeline.read")
+    pipeline = _get_pipeline_for_user(db, pipeline_id, current_user)
+    request = payload or PipelinePreviewRequest()
+    execution, _dataset, dag_json, limit = _execute_pipeline_preview(pipeline, request, db, current_user)
+    row_count = execution.node_logs.get("summary", {}).get("final_row_count", len(execution.rows))
+    schema, profile = _build_row_profile(execution.columns, execution.rows[:limit], row_count)
     return PipelinePreviewOut(
         pipeline_id=pipeline.id,
         node_id=request.node_id,
         columns=execution.columns,
         rows=execution.rows[:limit],
-        row_count=execution.node_logs.get("summary", {}).get("final_row_count", len(execution.rows)),
+        row_count=row_count,
+        schema=schema,
+        profile=profile,
+        execution_mode=_execution_mode_for_node(request.node_id, dag_json, execution.node_logs),
+        node_logs_json=execution.node_logs,
+    )
+
+
+@router.post("/pipelines/{pipeline_id}/inspect", response_model=PipelineInspectOut)
+def inspect_pipeline(
+    pipeline_id: int,
+    payload: PipelineInspectRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_action(current_user, "pipeline.read")
+    pipeline = _get_pipeline_for_user(db, pipeline_id, current_user)
+    request = payload or PipelineInspectRequest()
+    execution, _dataset, dag_json, limit = _execute_pipeline_preview(pipeline, request, db, current_user)
+    row_count = execution.node_logs.get("summary", {}).get("final_row_count", len(execution.rows))
+    schema, profile = _build_row_profile(execution.columns, execution.rows[:limit], row_count)
+    return PipelineInspectOut(
+        pipeline_id=pipeline.id,
+        node_id=request.node_id,
+        columns=execution.columns,
+        rows=execution.rows[:limit],
+        row_count=row_count,
+        schema=schema,
+        profile=profile,
+        execution_mode=_execution_mode_for_node(request.node_id, dag_json, execution.node_logs),
         node_logs_json=execution.node_logs,
     )
 

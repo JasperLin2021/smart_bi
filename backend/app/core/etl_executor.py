@@ -695,7 +695,26 @@ def _execute_sql_pushdown(
     }
 
 
-def _write_target_table(datasource: DataSource, table_name: str, columns: list[str], rows: list[dict[str, Any]], mode: str) -> int:
+def _target_write_keys(config: dict[str, Any], columns: list[str]) -> list[str]:
+    keys: list[str] = []
+    raw_keys = config.get("upsert_keys")
+    if isinstance(raw_keys, list):
+        keys.extend(str(item).strip() for item in raw_keys if str(item).strip())
+    primary_key = str(config.get("primary_key") or "").strip()
+    if primary_key:
+        keys.append(primary_key)
+    return [key for key in dict.fromkeys(keys) if key in columns and SAFE_TABLE_RE.match(key)]
+
+
+def _write_target_table(
+    datasource: DataSource,
+    table_name: str,
+    columns: list[str],
+    rows: list[dict[str, Any]],
+    mode: str,
+    *,
+    upsert_keys: list[str] | None = None,
+) -> int:
     if not table_name or mode == "dataset_refresh":
         return len(rows)
     engine = get_datasource_engine(datasource.database_url)
@@ -703,16 +722,33 @@ def _write_target_table(datasource: DataSource, table_name: str, columns: list[s
     normalized_columns = [column for column in columns if SAFE_TABLE_RE.match(column)]
     if not normalized_columns:
         return 0
+    normalized_columns = list(dict.fromkeys(normalized_columns))
+    write_mode = str(mode or "replace").strip().lower()
+    if write_mode not in {"append", "replace", "upsert"}:
+        raise ValueError(f"unsupported write mode: {write_mode}")
+    safe_upsert_keys = [key for key in upsert_keys or [] if key in normalized_columns and SAFE_TABLE_RE.match(key)]
+    if write_mode == "upsert" and not safe_upsert_keys:
+        raise ValueError("upsert write mode requires primary_key or upsert_keys")
     definitions = [
         f"{_quote_identifier(engine, column)} {_sql_type_for([row.get(column) for row in rows])}"
         for column in normalized_columns
     ]
     prepared_rows = [{column: row.get(column) for column in normalized_columns} for row in rows]
+    if write_mode == "upsert" and safe_upsert_keys:
+        by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for row in prepared_rows:
+            by_key[tuple(row.get(key) for key in safe_upsert_keys)] = row
+        prepared_rows = list(by_key.values())
     with engine.begin() as conn:
-        if mode != "append":
+        if write_mode == "replace":
             conn.execute(text(f"DROP TABLE IF EXISTS {table_identifier}"))
         conn.execute(text(f"CREATE TABLE IF NOT EXISTS {table_identifier} ({', '.join(definitions)})"))
         if prepared_rows:
+            if write_mode == "upsert":
+                where_sql = " AND ".join(f"{_quote_identifier(engine, key)} = :_upsert_{key}" for key in safe_upsert_keys)
+                for row in prepared_rows:
+                    params = {f"_upsert_{key}": row.get(key) for key in safe_upsert_keys}
+                    conn.execute(text(f"DELETE FROM {table_identifier} WHERE {where_sql}"), params)
             columns_sql = ", ".join(_quote_identifier(engine, column) for column in normalized_columns)
             values_sql = ", ".join(f":{column}" for column in normalized_columns)
             conn.execute(text(f"INSERT INTO {table_identifier} ({columns_sql}) VALUES ({values_sql})"), prepared_rows)
@@ -869,8 +905,8 @@ def execute_pipeline_dag(
                         )
                         records_written += node_records_written
                 elif node_type == "reverse_etl":
-                    rows = input_rows
-                    columns = input_columns
+                    rows = _apply_mapping(input_rows, config.get("field_mapping") or config.get("mappings") or [])
+                    columns = _columns_for(rows, input_columns)
                     target_type = str(config.get("target_type") or "database").lower()
                     if target_type != "database":
                         raise ValueError(f"unsupported reverse_etl target_type: {target_type}")
@@ -888,6 +924,7 @@ def execute_pipeline_dag(
                             _columns_for(rows, columns),
                             rows,
                             str(config.get("mode") or "append").strip(),
+                            upsert_keys=_target_write_keys(config, _columns_for(rows, columns)),
                         )
                         records_written += node_records_written
             except Exception as exc:

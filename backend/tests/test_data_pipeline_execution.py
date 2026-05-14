@@ -320,6 +320,22 @@ class DataPipelineExecutionTests(unittest.TestCase):
             },
         )
 
+    def test_pipeline_operator_catalog_exposes_enterprise_low_code_contract(self):
+        from app.api.pipelines import list_pipeline_operators
+
+        operators = list_pipeline_operators(current_user=SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1))
+        by_type = {item["type"]: item for item in operators}
+
+        self.assertIn("extract", by_type)
+        self.assertIn("metadata_extract", by_type)
+        self.assertIn("sql", by_type)
+        self.assertIn("reverse_etl", by_type)
+        self.assertEqual(by_type["sql"]["category"], "SQL/ELT")
+        self.assertIn("execution_mode", by_type["sql"]["config_schema"]["properties"])
+        self.assertIn("primary_key", by_type["reverse_etl"]["config_schema"]["properties"])
+        self.assertEqual(by_type["reverse_etl"]["default_config"]["mode"], "upsert")
+        self.assertGreaterEqual(len(by_type["join"]["input_ports"]), 2)
+
     def test_pipeline_run_extracts_real_dataset_rows_and_refreshes_dataset(self):
         from app.api.pipelines import create_pipeline, run_pipeline
         from app.models.audit_log import AuditLog
@@ -1104,6 +1120,193 @@ class DataPipelineExecutionTests(unittest.TestCase):
 
             self.assertEqual(preview.row_count, 1)
             self.assertEqual(preview.rows[0]["region"], "West")
+        finally:
+            os.unlink(source_path)
+
+    def test_pipeline_inspect_profiles_selected_node_without_persisting_output(self):
+        from app.api.pipelines import create_pipeline, inspect_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineInspectRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="Inspect 节点画像管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {
+                                "id": "paid_orders",
+                                "type": "transform",
+                                "label": "已支付订单",
+                                "config": {
+                                    "filters": [{"field": "status", "operator": "in", "value": ["PAID", "COMPLETE"]}],
+                                    "field_mapping": [{"source": "region", "target": "area"}],
+                                },
+                            },
+                            {"id": "load_orders", "type": "load", "label": "写入结果", "config": {"target_table": "inspect_should_not_exist"}},
+                        ],
+                        "edges": [
+                            {"source": "extract_orders", "target": "paid_orders"},
+                            {"source": "paid_orders", "target": "load_orders"},
+                        ],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            inspected = inspect_pipeline(
+                pipeline.id,
+                PipelineInspectRequest(node_id="paid_orders", limit=10),
+                db=db,
+                current_user=admin,
+            )
+
+            self.assertEqual(inspected.node_id, "paid_orders")
+            self.assertEqual(inspected.execution_mode, "in_memory")
+            self.assertIn({"name": "area", "type": "string", "nullable": False}, inspected.schema)
+            area_profile = next(item for item in inspected.profile if item["name"] == "area")
+            self.assertEqual(area_profile["unique_count"], 2)
+            self.assertEqual(area_profile["null_count"], 0)
+            self.assertEqual(inspected.row_count, 3)
+            self.assertEqual(db.query(DataPipelineRun).count(), 0)
+            engine = create_engine(f"sqlite:///{source_path}")
+            with engine.connect() as conn:
+                target_exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='inspect_should_not_exist'")).first()
+            engine.dispose()
+            self.assertIsNone(target_exists)
+        finally:
+            os.unlink(source_path)
+
+    def test_pipeline_reverse_etl_upserts_rows_with_field_mapping(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        engine = create_engine(f"sqlite:///{source_path}")
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE crm_paid_orders_upsert (
+                      crm_order_id TEXT NOT NULL,
+                      crm_status TEXT,
+                      amount REAL,
+                      discount REAL,
+                      region TEXT,
+                      updated_at TEXT
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO crm_paid_orders_upsert (crm_order_id, crm_status, amount, discount, region, updated_at)
+                    VALUES (:crm_order_id, :crm_status, :amount, :discount, :region, :updated_at)
+                    """
+                ),
+                [
+                    {"crm_order_id": "O001", "crm_status": "OLD", "amount": 1.0, "discount": 0.0, "region": "Legacy", "updated_at": "2026-04-01T00:00:00"},
+                    {"crm_order_id": "O999", "crm_status": "KEEP", "amount": 9.0, "discount": 0.0, "region": "North", "updated_at": "2026-04-01T00:00:00"},
+                ],
+            )
+        engine.dispose()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="反向 ETL 主键回写管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {"id": "paid_orders", "type": "transform", "label": "已支付订单", "config": {"filters": [{"field": "status", "operator": "=", "value": "PAID"}]}},
+                            {
+                                "id": "sync_crm",
+                                "type": "reverse_etl",
+                                "label": "回写 CRM",
+                                "config": {
+                                    "target_type": "database",
+                                    "datasource_id": 101,
+                                    "target_table": "crm_paid_orders_upsert",
+                                    "mode": "upsert",
+                                    "upsert_keys": ["crm_order_id"],
+                                    "field_mapping": [
+                                        {"source": "order_id", "target": "crm_order_id"},
+                                        {"source": "status", "target": "crm_status"},
+                                    ],
+                                },
+                            },
+                        ],
+                        "edges": [
+                            {"source": "extract_orders", "target": "paid_orders"},
+                            {"source": "paid_orders", "target": "sync_crm"},
+                        ],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.node_logs_json["nodes"][-1]["execution_mode"], "reverse_etl")
+            engine = create_engine(f"sqlite:///{source_path}")
+            with engine.connect() as conn:
+                rows = [dict(row._mapping) for row in conn.execute(text("SELECT crm_order_id, crm_status, region FROM crm_paid_orders_upsert ORDER BY crm_order_id")).fetchall()]
+            engine.dispose()
+            self.assertEqual(
+                rows,
+                [
+                    {"crm_order_id": "O001", "crm_status": "PAID", "region": "East"},
+                    {"crm_order_id": "O999", "crm_status": "KEEP", "region": "North"},
+                ],
+            )
         finally:
             os.unlink(source_path)
 

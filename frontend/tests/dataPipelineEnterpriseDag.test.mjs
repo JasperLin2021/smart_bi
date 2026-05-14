@@ -38,3 +38,35 @@ test("data pipeline workbench uses a left operator console and drawer node editi
   assert.match(pipelines, /nodeDrawerVisible\.value = true/)
   assert.doesNotMatch(pipelines, /grid-template-columns:\s*292px minmax\(0, 1fr\) 360px/)
 })
+
+test("data pipeline workbench loads operator catalog and canvas productivity tools", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /\/api\/pipelines\/operators/)
+  assert.match(pipelines, /operatorCatalog/)
+  assert.match(pipelines, /operatorGroups/)
+  assert.match(pipelines, /MiniMap/)
+  assert.match(pipelines, /Controls/)
+  assert.match(pipelines, /Background/)
+  assert.match(pipelines, /undoDagChange/)
+  assert.match(pipelines, /redoDagChange/)
+  assert.match(pipelines, /copySelectedNode/)
+  assert.match(pipelines, /deleteSelectedNode/)
+  assert.match(pipelines, /autoLayoutDag/)
+  assert.match(pipelines, /nodeSearch/)
+  assert.match(pipelines, /locateSearchedNode/)
+})
+
+test("data pipeline workbench exposes inspect/profile and SQL editor affordances", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /\/inspect/)
+  assert.match(pipelines, /inspectSelectedNode/)
+  assert.match(pipelines, /inspectProfile/)
+  assert.match(pipelines, /字段画像/)
+  assert.match(pipelines, /CodeMirror/)
+  assert.match(pipelines, /sqlEditorExtensions/)
+  assert.match(pipelines, /primary_key/)
+  assert.match(pipelines, /upsert_keys/)
+  assert.match(pipelines, /更新写入/)
+})

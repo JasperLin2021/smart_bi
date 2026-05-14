@@ -91,13 +91,24 @@ class PipelinePreviewRequest(BaseModel):
     dag_json: Optional[dict[str, Any]] = None
 
 
+class PipelineInspectRequest(PipelinePreviewRequest):
+    pass
+
+
 class PipelinePreviewOut(BaseModel):
     pipeline_id: int
     node_id: Optional[str] = None
     columns: list[str] = []
     rows: list[dict[str, Any]] = []
     row_count: int = 0
+    schema: list[dict[str, Any]] = []
+    profile: list[dict[str, Any]] = []
+    execution_mode: str = "in_memory"
     node_logs_json: Optional[dict[str, Any]] = None
+
+
+class PipelineInspectOut(PipelinePreviewOut):
+    pass
 
 
 class PipelineLineageOut(BaseModel):

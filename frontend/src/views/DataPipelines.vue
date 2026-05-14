@@ -117,20 +117,24 @@
         <div class="palette-section">
           <div class="panel-title">
             <span>组件库</span>
-            <small>拖拽 / 点击添加</small>
+            <small>来自算子目录</small>
           </div>
-          <div class="node-palette">
-            <button
-              v-for="node in nodePalette"
-              :key="`${node.type}-${node.label}`"
-              type="button"
-              draggable="true"
-              @dragstart="onPaletteDragStart(node.type)"
-              @click="addNode(node.type)"
-            >
-              <el-icon><component :is="node.icon" /></el-icon>
-              <span>{{ node.label }}</span>
-            </button>
+          <div class="operator-group" v-for="group in operatorGroups" :key="group.category">
+            <div class="operator-group__title">{{ group.category }}</div>
+            <div class="node-palette">
+              <button
+                v-for="node in group.nodes"
+                :key="`${node.type}-${node.label}`"
+                type="button"
+                draggable="true"
+                :title="node.description"
+                @dragstart="onPaletteDragStart(node.type)"
+                @click="addNode(node.type)"
+              >
+                <el-icon><component :is="node.icon" /></el-icon>
+                <span>{{ node.label }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -156,7 +160,25 @@
               <span>流程设计</span>
               <small>抽取 -> 转换 -> 质量闸门 -> 装载</small>
             </div>
-            <el-button size="small" :icon="Plus" :disabled="!selectedPipeline" @click="addTemplateNodes">套用模板</el-button>
+            <div class="canvas-toolstrip">
+              <el-input
+                v-model="nodeSearch"
+                class="node-search-input"
+                clearable
+                size="small"
+                :prefix-icon="Search"
+                placeholder="定位节点"
+                @keyup.enter="locateSearchedNode"
+              />
+              <el-button size="small" :disabled="!selectedPipeline" @click="locateSearchedNode">定位</el-button>
+              <el-button size="small" :disabled="!dagUndoStack.length" @click="undoDagChange">撤销</el-button>
+              <el-button size="small" :disabled="!dagRedoStack.length" @click="redoDagChange">重做</el-button>
+              <el-button size="small" :disabled="!selectedNode" @click="copySelectedNode">复制</el-button>
+              <el-button size="small" :disabled="!copiedNode" @click="pasteCopiedNode">粘贴</el-button>
+              <el-button size="small" :disabled="!selectedNode" @click="deleteSelectedNode">删除</el-button>
+              <el-button size="small" :disabled="!selectedPipeline" @click="autoLayoutDag">自动布局</el-button>
+              <el-button size="small" :icon="Plus" :disabled="!selectedPipeline" @click="addTemplateNodes">套用模板</el-button>
+            </div>
           </div>
           <div class="flow-wrap" @drop.prevent="onCanvasDrop" @dragover.prevent>
             <VueFlow
@@ -168,7 +190,11 @@
               @connect="onConnect"
               @node-click="onNodeClick"
               @node-drag-stop="onNodeDragStop"
-            />
+            >
+              <Background />
+              <MiniMap />
+              <Controls />
+            </VueFlow>
             <el-empty v-else description="请选择或新建管道" />
           </div>
         </section>
@@ -181,7 +207,11 @@
                   <span>预览数据</span>
                   <small>按当前选中节点执行到该节点，不刷新目标数据集。</small>
                 </div>
-                <el-button size="small" :icon="View" :loading="previewing" :disabled="!selectedPipeline" @click="previewSelectedNode">刷新预览</el-button>
+                <div class="section-heading__actions">
+                  <el-tag effect="plain">{{ inspectMode }}</el-tag>
+                  <el-button size="small" :icon="View" :loading="previewing" :disabled="!selectedPipeline" @click="previewSelectedNode">刷新预览</el-button>
+                  <el-button size="small" :loading="inspecting" :disabled="!selectedPipeline" @click="inspectSelectedNode">字段画像</el-button>
+                </div>
               </div>
               <el-table :data="previewRows" size="small" height="356" empty-text="暂无预览数据">
                 <el-table-column v-for="column in previewColumns" :key="column" :prop="column" :label="column" min-width="130" show-overflow-tooltip />
@@ -312,6 +342,28 @@
                 <el-table-column v-for="column in previewColumns" :key="column" :prop="column" :label="column" min-width="130" show-overflow-tooltip />
               </el-table>
             </el-tab-pane>
+            <el-tab-pane label="字段画像" name="inspect">
+              <div class="inspect-panel">
+                <div class="table-toolbar">
+                  <div>
+                    <strong>字段画像</strong>
+                    <span>{{ selectedNode ? `${selectedNode.label || selectedNode.id} · ${inspectMode}` : "选择节点后查看 schema、空值率和样例值" }}</span>
+                  </div>
+                  <el-button size="small" :loading="inspecting" :disabled="!selectedPipeline" @click="inspectSelectedNode">刷新画像</el-button>
+                </div>
+                <el-table :data="inspectProfile" size="small" height="176" empty-text="暂无字段画像">
+                  <el-table-column prop="name" label="字段" min-width="150" show-overflow-tooltip />
+                  <el-table-column prop="type" label="类型" width="110" />
+                  <el-table-column label="空值率" width="100">
+                    <template #default="{ row }">{{ Math.round((row.null_ratio || 0) * 10000) / 100 }}%</template>
+                  </el-table-column>
+                  <el-table-column prop="unique_count" label="唯一值" width="100" />
+                  <el-table-column label="样例值" min-width="220" show-overflow-tooltip>
+                    <template #default="{ row }">{{ (row.sample_values || []).join(", ") }}</template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </el-tab-pane>
             <el-tab-pane label="上线检查" name="validation">
               <div class="validation-panel">
                 <div class="validation-score">
@@ -394,7 +446,10 @@
             <small>{{ selectedNode ? `${nodeTypeLabel(selectedNode.type)} · ${selectedNode.label || selectedNode.id}` : "选择画布节点后配置" }}</small>
           </div>
           <div class="node-config-heading__actions">
-            <el-tag v-if="selectedNode" effect="plain">{{ nodeTypeLabel(selectedNode.type) }}</el-tag>
+            <el-tag v-if="selectedNode" :type="selectedNodeStatus === 'failed' || selectedNodeStatus === 'blocked' ? 'danger' : selectedNodeStatus === 'warning' ? 'warning' : 'success'" effect="plain">
+              {{ selectedNodeStatusText }}
+            </el-tag>
+            <el-button v-if="selectedNode" size="small" :loading="inspecting" @click="inspectSelectedNode">Inspect</el-button>
             <el-button size="small" text @click="nodeDrawerVisible = false">收起</el-button>
           </div>
         </div>
@@ -405,6 +460,14 @@
             <span>节点名称</span>
             <el-input v-model="selectedNode.label" placeholder="节点名称" />
           </label>
+          <div v-if="selectedNodeLog || selectedNodeDiagnostics.length" class="node-state-panel">
+            <div>
+              <span>最近状态</span>
+              <strong>{{ selectedNodeStatusText }}</strong>
+            </div>
+            <small v-if="selectedNodeLog">{{ selectedNodeLog.rows_in ?? 0 }} -> {{ selectedNodeLog.rows_out ?? selectedNodeLog.records_written ?? 0 }} 行 · {{ selectedNodeLog.duration_ms ?? 0 }}ms</small>
+            <small v-for="item in selectedNodeDiagnostics" :key="`${item.code}-${item.node_id}`">{{ item.message }}</small>
+          </div>
 
           <template v-if="selectedNode.type === 'source' || selectedNode.type === 'extract'">
             <div class="config-group">
@@ -590,7 +653,12 @@
             <div class="config-group">
               <label>
                 <span>SQL 查询</span>
-                <el-input v-model="selectedNodeConfig.sql" type="textarea" :rows="8" placeholder="SELECT * FROM input" />
+                <CodeMirrorSqlEditor
+                  v-model="selectedNodeConfig.sql"
+                  :datasource-id="selectedNodeConfig.datasource_id"
+                  :rows="10"
+                  :data-extensions="sqlEditorExtensions.join(',')"
+                />
               </label>
               <label>
                 <span>执行模式</span>
@@ -631,8 +699,26 @@
                 <el-select v-model="selectedNodeConfig.mode">
                   <el-option label="追加写入" value="append" />
                   <el-option label="替换写入" value="replace" />
+                  <el-option label="更新写入" value="upsert" />
                 </el-select>
               </label>
+              <label>
+                <span>主键字段</span>
+                <el-input v-model="selectedNodeConfig.primary_key" placeholder="crm_order_id" />
+              </label>
+              <label>
+                <span>更新键</span>
+                <el-input v-model="reverseEtlKeysText" placeholder="crm_order_id, tenant_id" />
+              </label>
+              <div class="config-title">
+                <strong>回写字段映射</strong>
+                <el-button size="small" text :icon="Plus" @click="appendListConfig('field_mapping', { source: '', target: '' })">添加</el-button>
+              </div>
+              <div v-for="(item, index) in listConfig('field_mapping')" :key="`reverse-map-${index}`" class="mapping-row">
+                <el-input v-model="item.source" placeholder="分析字段" />
+                <el-input v-model="item.target" placeholder="业务系统字段" />
+                <el-button text type="danger" @click="removeListConfig('field_mapping', index)">删除</el-button>
+              </div>
             </div>
           </template>
 
@@ -825,9 +911,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue"
+import { computed, defineComponent, h, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
 import { ElMessage } from "element-plus"
+import CodeMirrorSqlEditor from "@/components/SqlEditor.vue"
 import {
   CircleCheck,
   Connection,
@@ -930,6 +1017,26 @@ type PipelineLineage = {
   nodes: Array<Record<string, any>>
   edges: Array<Record<string, any>>
 }
+type OperatorDefinition = {
+  type: string
+  label: string
+  category: string
+  icon?: string
+  description?: string
+  input_ports?: string[]
+  output_ports?: string[]
+  default_config?: Record<string, any>
+  config_schema?: Record<string, any>
+}
+type InspectFieldProfile = {
+  name: string
+  type: string
+  nullable?: boolean
+  null_count?: number
+  null_ratio?: number
+  unique_count?: number
+  sample_values?: any[]
+}
 
 const loading = ref(false)
 const saving = ref(false)
@@ -937,6 +1044,7 @@ const savingDag = ref(false)
 const running = ref(false)
 const validating = ref(false)
 const previewing = ref(false)
+const inspecting = ref(false)
 const lineageLoading = ref(false)
 const savingRule = ref(false)
 const publishingVersion = ref(false)
@@ -946,12 +1054,14 @@ const nodeDrawerVisible = ref(false)
 const selectedId = ref<number | null>(null)
 const selectedNodeId = ref<string | null>(null)
 const draggedNodeType = ref<string | null>(null)
+const nodeSearch = ref("")
 const pipelineSearch = ref("")
 const statusFilter = ref("all")
 const activeWorkbenchTab = ref("design")
 const detailTab = ref("preview")
 const pipelines = ref<Pipeline[]>([])
 const datasets = ref<DatasetItem[]>([])
+const operatorCatalog = ref<OperatorDefinition[]>([])
 const qualityRules = ref<QualityRule[]>([])
 const runHistory = ref<PipelineRun[]>([])
 const validation = ref<PipelineValidation | null>(null)
@@ -959,7 +1069,15 @@ const lineage = ref<PipelineLineage | null>(null)
 const previewColumns = ref<string[]>([])
 const previewRows = ref<Array<Record<string, any>>>([])
 const previewLogs = ref<Record<string, any> | null>(null)
+const inspectSchema = ref<InspectFieldProfile[]>([])
+const inspectProfile = ref<InspectFieldProfile[]>([])
+const inspectRows = ref<Array<Record<string, any>>>([])
+const inspectMode = ref("in_memory")
 const runWindow = ref<[string, string] | null>(null)
+const dagUndoStack = ref<Array<{ nodes?: DagNode[]; edges?: Array<Record<string, any>> }>>([])
+const dagRedoStack = ref<Array<{ nodes?: DagNode[]; edges?: Array<Record<string, any>> }>>([])
+const copiedNode = ref<DagNode | null>(null)
+const sqlEditorExtensions = ["sql", "schema-autocomplete", "read-only-select"]
 
 const form = reactive({
   name: "",
@@ -1009,7 +1127,7 @@ const sourcePalette = [
   { name: "API", icon: Connection },
   { name: "Kafka", icon: Link },
 ]
-const nodePalette = [
+const fallbackNodePalette = [
   { type: "extract", label: "抽取", icon: UploadFilled },
   { type: "metadata_extract", label: "元数据", icon: DocumentChecked },
   { type: "transform", label: "转换", icon: SetUp },
@@ -1077,6 +1195,40 @@ const selectedNodeConfig = computed<Record<string, any>>(() => {
   selectedNode.value.config ||= {}
   return selectedNode.value.config
 })
+const iconRegistry: Record<string, any> = {
+  CircleCheck,
+  Connection,
+  DataAnalysis,
+  DocumentChecked,
+  Finished,
+  Grid,
+  Histogram,
+  Link,
+  RefreshRight,
+  Select,
+  SetUp,
+  UploadFilled,
+}
+const operatorIcon = (name?: string) => iconRegistry[name || ""] || Grid
+const nodePalette = computed(() => {
+  if (!operatorCatalog.value.length) return fallbackNodePalette
+  return operatorCatalog.value.map((operator) => ({
+    type: operator.type,
+    label: operator.label,
+    category: operator.category,
+    description: operator.description,
+    icon: operatorIcon(operator.icon),
+    default_config: operator.default_config || {},
+  }))
+})
+const operatorGroups = computed(() => {
+  const groups = new Map<string, Array<Record<string, any>>>()
+  for (const node of nodePalette.value) {
+    const category = node.category || "其他"
+    groups.set(category, [...(groups.get(category) || []), node])
+  }
+  return Array.from(groups, ([category, nodes]) => ({ category, nodes }))
+})
 const filteredPipelines = computed(() => {
   const keyword = pipelineSearch.value.trim().toLowerCase()
   return pipelines.value.filter((item) => {
@@ -1100,6 +1252,30 @@ const summaryStats = computed(() => ({
 const lastRun = computed(() => runHistory.value[0] || null)
 const latestNodeLogs = computed(() => previewLogs.value?.nodes || lastRun.value?.node_logs_json?.nodes || [])
 const activeDiagnostics = computed(() => validation.value?.diagnostics || [])
+const selectedNodeLog = computed(() => latestNodeLogs.value.find((item: any) => String(item.node_id) === String(selectedNode.value?.id)) || null)
+const selectedNodeDiagnostics = computed(() => activeDiagnostics.value.filter((item) => String(item.node_id || "") === String(selectedNode.value?.id || "")))
+const selectedNodeStatus = computed(() => {
+  if (!selectedNode.value) return "empty"
+  if (selectedNodeLog.value?.status) return String(selectedNodeLog.value.status)
+  if (selectedNodeDiagnostics.value.some((item) => item.severity === "critical")) return "blocked"
+  if (selectedNodeDiagnostics.value.length) return "warning"
+  const config = selectedNode.value.config || {}
+  if (selectedNode.value.type === "sql" && !String(config.sql || "").trim()) return "blocked"
+  if (selectedNode.value.type === "reverse_etl" && !String(config.target_table || "").trim()) return "blocked"
+  return "configured"
+})
+const selectedNodeStatusText = computed(() => {
+  const labels: Record<string, string> = {
+    empty: "未选择",
+    configured: "已配置",
+    success: "预览成功",
+    failed: "运行失败",
+    warning: "需要关注",
+    blocked: "缺少配置",
+    skipped: "已跳过",
+  }
+  return labels[selectedNodeStatus.value] || selectedNodeStatus.value
+})
 const validationStatusText = computed(() => {
   if (!validation.value) return "等待上线检查"
   if (validation.value.status === "ready") return "上线检查通过"
@@ -1134,17 +1310,29 @@ const upstreamCandidates = computed(() => {
   const nodes = selectedPipeline.value?.dag_json?.nodes || []
   return nodes.filter((node) => String(node.id) !== String(selectedNode.value?.id))
 })
+const nodeStatusFor = (node: DagNode) => {
+  const log = latestNodeLogs.value.find((item: any) => String(item.node_id) === String(node.id))
+  if (log?.status) return String(log.status)
+  const diagnostics = activeDiagnostics.value.filter((item) => String(item.node_id || "") === String(node.id))
+  if (diagnostics.some((item) => item.severity === "critical")) return "blocked"
+  if (diagnostics.length) return "warning"
+  const config = node.config || {}
+  if (node.type === "sql" && !String(config.sql || "").trim()) return "blocked"
+  if (node.type === "reverse_etl" && !String(config.target_table || "").trim()) return "blocked"
+  return "configured"
+}
 const flowNodes = computed(() => {
   const runNodeLogs = latestNodeLogs.value
   const nodes = selectedPipeline.value?.dag_json?.nodes || []
   return nodes.map((node, index) => {
     const log = runNodeLogs.find((item: any) => String(item.node_id) === String(node.id))
+    const status = nodeStatusFor(node)
     return {
       id: String(node.id),
-      label: `${nodeTypeLabel(String(node.type || "task"))}\n${String(node.label || node.id)}${log ? `\n${log.rows_out ?? log.records_written ?? 0} 行` : ""}`,
+      label: `${nodeTypeLabel(String(node.type || "task"))}\n${String(node.label || node.id)}${log ? `\n${log.rows_out ?? log.records_written ?? 0} 行` : ""}\n${nodeStatusText(status)}`,
       position: node.position || { x: 72 + (index % 4) * 190, y: 72 + Math.floor(index / 4) * 118 },
-      data: { type: node.type || "task" },
-      class: `etl-node etl-node--${node.type || "task"} ${selectedNodeId.value === String(node.id) ? "is-selected" : ""} ${log?.status ? `is-${log.status}` : ""}`,
+      data: { type: node.type || "task", status },
+      class: `etl-node etl-node--${node.type || "task"} ${selectedNodeId.value === String(node.id) ? "is-selected" : ""} is-${status}`,
     }
   })
 })
@@ -1189,6 +1377,12 @@ const unionKeysText = computed({
     selectedNodeConfig.value.keys = splitCsv(value)
   },
 })
+const reverseEtlKeysText = computed({
+  get: () => ((selectedNodeConfig.value.upsert_keys || []) as string[]).join(", "),
+  set: (value: string) => {
+    selectedNodeConfig.value.upsert_keys = splitCsv(value)
+  },
+})
 const alertPolicyText = computed(() => {
   const policy = selectedPipeline.value?.alert_policy_json || {}
   if (!policy.on_failure) return "未开启"
@@ -1208,6 +1402,18 @@ const lineageSourceText = computed(() => {
 const previewDisplayColumns = computed(() => previewColumns.value.length ? previewColumns.value.slice(0, 6) : referencePreviewColumns)
 const previewDisplayRows = computed(() => previewRows.value.length ? previewRows.value.slice(0, 5) : referencePreviewRows)
 
+const cloneDag = (dag?: { nodes?: DagNode[]; edges?: Array<Record<string, any>> }) => JSON.parse(JSON.stringify(dag || { nodes: [], edges: [] }))
+const recordDagSnapshot = () => {
+  if (!selectedPipeline.value) return
+  dagUndoStack.value.push(cloneDag(selectedPipeline.value.dag_json))
+  if (dagUndoStack.value.length > 50) dagUndoStack.value.shift()
+  dagRedoStack.value = []
+}
+const replaceDagSnapshot = (snapshot: { nodes?: DagNode[]; edges?: Array<Record<string, any>> }) => {
+  if (!selectedPipeline.value) return
+  selectedPipeline.value.dag_json = cloneDag(snapshot)
+  selectedNodeId.value = selectedPipeline.value.dag_json.nodes?.[0]?.id || null
+}
 const splitCsv = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean)
 const datasetName = (id: number) => datasets.value.find((item) => item.id === id)?.name || `数据集 #${id}`
 const defaultDag = () => ({
@@ -1245,6 +1451,7 @@ const runStatusLabel = (value: string) => ({ success: "成功", failed: "失败"
 const runModeLabel = (value: string) => ({ manual: "手动", scheduled: "调度", incremental: "增量", full: "全量", backfill: "补数" }[value] || value)
 const ruleTypeLabel = (value: string) => ({ not_null: "非空", unique: "唯一", range: "范围", regex: "正则", row_count: "行数波动", freshness: "新鲜度", custom_sql: "自定义 SQL" }[value] || value)
 const severityLabel = (value: string) => ({ error: "阻断", warning: "告警" }[value] || value)
+const nodeStatusText = (value: string) => ({ configured: "已配置", success: "成功", failed: "失败", warning: "建议", blocked: "缺配置", skipped: "跳过" }[value] || value)
 const nodeTypeLabel = (value: string) => ({ source: "源", extract: "抽取", metadata_extract: "元数据", transform: "转换", join: "关联", union: "汇合", sql: "SQL 算子", quality: "质检", load: "装载", sink: "目标", reverse_etl: "反向 ETL" }[value] || "任务")
 const runWindowLabel = (run: PipelineRun) => {
   const window = run.node_logs_json?.summary?.run_window
@@ -1290,11 +1497,17 @@ const onConnect = (connection: any) => {
   selectedPipeline.value.dag_json ||= { nodes: [], edges: [] }
   selectedPipeline.value.dag_json.edges ||= []
   const exists = selectedPipeline.value.dag_json.edges.some((edge) => String(edge.source) === String(connection.source) && String(edge.target) === String(connection.target))
-  if (!exists) selectedPipeline.value.dag_json.edges.push({ source: String(connection.source), target: String(connection.target) })
+  if (!exists) {
+    recordDagSnapshot()
+    selectedPipeline.value.dag_json.edges.push({ source: String(connection.source), target: String(connection.target) })
+  }
 }
 const onNodeDragStop = ({ node }: any) => {
   const dagNode = selectedPipeline.value?.dag_json?.nodes?.find((item) => String(item.id) === String(node?.id))
-  if (dagNode && node?.position) dagNode.position = { x: Number(node.position.x || 0), y: Number(node.position.y || 0) }
+  if (dagNode && node?.position) {
+    recordDagSnapshot()
+    dagNode.position = { x: Number(node.position.x || 0), y: Number(node.position.y || 0) }
+  }
 }
 const selectReferenceNode = (nodeId: string) => {
   selectedNodeId.value = nodeId
@@ -1304,9 +1517,75 @@ const selectPipeline = (id: number) => {
   nodeDrawerVisible.value = false
   const pipeline = pipelines.value.find((item) => item.id === id)
   selectedNodeId.value = pipeline?.dag_json?.nodes?.[0]?.id || null
+  dagUndoStack.value = []
+  dagRedoStack.value = []
+}
+const undoDagChange = () => {
+  if (!selectedPipeline.value || !dagUndoStack.value.length) return
+  dagRedoStack.value.push(cloneDag(selectedPipeline.value.dag_json))
+  replaceDagSnapshot(dagUndoStack.value.pop()!)
+}
+const redoDagChange = () => {
+  if (!selectedPipeline.value || !dagRedoStack.value.length) return
+  dagUndoStack.value.push(cloneDag(selectedPipeline.value.dag_json))
+  replaceDagSnapshot(dagRedoStack.value.pop()!)
+}
+const copySelectedNode = () => {
+  if (!selectedNode.value) return
+  copiedNode.value = cloneDag({ nodes: [selectedNode.value], edges: [] }).nodes?.[0] || null
+  ElMessage.success("节点已复制")
+}
+const pasteCopiedNode = () => {
+  if (!selectedPipeline.value || !copiedNode.value) return
+  recordDagSnapshot()
+  const index = (selectedPipeline.value.dag_json.nodes || []).length + 1
+  const id = `${copiedNode.value.type}_${Date.now()}`
+  const sourcePosition = copiedNode.value.position || { x: 80, y: 120 }
+  const node = {
+    ...cloneDag({ nodes: [copiedNode.value], edges: [] }).nodes[0],
+    id,
+    label: `${copiedNode.value.label || nodeTypeLabel(copiedNode.value.type)} 副本`,
+    position: { x: sourcePosition.x + 40, y: sourcePosition.y + 40 + (index % 3) * 8 },
+  }
+  selectedPipeline.value.dag_json.nodes ||= []
+  selectedPipeline.value.dag_json.nodes.push(node)
+  selectedNodeId.value = id
+  nodeDrawerVisible.value = true
+}
+const deleteSelectedNode = () => {
+  if (!selectedPipeline.value || !selectedNode.value) return
+  recordDagSnapshot()
+  const nodeId = String(selectedNode.value.id)
+  selectedPipeline.value.dag_json.nodes = (selectedPipeline.value.dag_json.nodes || []).filter((node) => String(node.id) !== nodeId)
+  selectedPipeline.value.dag_json.edges = (selectedPipeline.value.dag_json.edges || []).filter((edge) => String(edge.source) !== nodeId && String(edge.target) !== nodeId)
+  selectedNodeId.value = selectedPipeline.value.dag_json.nodes?.[0]?.id || null
+  nodeDrawerVisible.value = false
+}
+const autoLayoutDag = () => {
+  if (!selectedPipeline.value) return
+  recordDagSnapshot()
+  const nodes = selectedPipeline.value.dag_json.nodes || []
+  nodes.forEach((node, index) => {
+    node.position = { x: 90 + (index % 4) * 230, y: 96 + Math.floor(index / 4) * 150 }
+  })
+}
+const fitCanvasView = () => {
+  autoLayoutDag()
+}
+const locateSearchedNode = () => {
+  const keyword = nodeSearch.value.trim().toLowerCase()
+  if (!keyword || !selectedPipeline.value) return
+  const target = (selectedPipeline.value.dag_json.nodes || []).find((node) => `${node.label || ""} ${node.id} ${node.type}`.toLowerCase().includes(keyword))
+  if (!target) {
+    ElMessage.warning("未找到匹配节点")
+    return
+  }
+  selectedNodeId.value = String(target.id)
+  nodeDrawerVisible.value = true
 }
 const addNode = (type: string, position?: { x: number; y: number }) => {
   if (!selectedPipeline.value) return
+  recordDagSnapshot()
   selectedPipeline.value.dag_json ||= { nodes: [], edges: [] }
   selectedPipeline.value.dag_json.nodes ||= []
   selectedPipeline.value.dag_json.edges ||= []
@@ -1325,6 +1604,13 @@ const addNode = (type: string, position?: { x: number; y: number }) => {
   nodeDrawerVisible.value = true
 }
 const defaultNodeConfig = (type: string) => {
+  const operatorDefault = operatorCatalog.value.find((operator) => operator.type === type)?.default_config
+  if (operatorDefault) {
+    const config = cloneDag({ nodes: [{ id: "config", type, config: operatorDefault }], edges: [] }).nodes[0].config || {}
+    const datasourceId = datasets.value.find((item) => item.id === selectedPipeline.value?.dataset_id)?.datasource_id
+    if (datasourceId && Object.prototype.hasOwnProperty.call(config, "datasource_id") && !config.datasource_id) config.datasource_id = datasourceId
+    return config
+  }
   if (type === "transform") return { field_mapping: [], type_conversions: [], filters: [], derived_columns: [], dedupe: { keys: [] }, aggregations: { group_by: [], metrics: [] } }
   if (type === "extract" || type === "source") return { mode: "full", incremental_key: "", batch_size: 5000 }
   if (type === "metadata_extract") {
@@ -1340,16 +1626,47 @@ const defaultNodeConfig = (type: string) => {
   if (type === "load" || type === "sink") return { mode: "dataset_refresh", target_table: "" }
   if (type === "reverse_etl") {
     const datasourceId = datasets.value.find((item) => item.id === selectedPipeline.value?.dataset_id)?.datasource_id
-    return { target_type: "database", datasource_id: datasourceId, target_table: "", mode: "append" }
+    return { target_type: "database", datasource_id: datasourceId, target_table: "", mode: "upsert", primary_key: "", upsert_keys: [], field_mapping: [] }
   }
   return {}
 }
 const addTemplateNodes = () => {
   if (!selectedPipeline.value) return
+  recordDagSnapshot()
   selectedPipeline.value.dag_json = defaultDag()
   selectedNodeId.value = "extract"
   nodeDrawerVisible.value = false
 }
+
+const Background = defineComponent({
+  name: "Background",
+  setup: () => () => h("div", { class: "flow-background-grid", "aria-hidden": "true" }),
+})
+const Controls = defineComponent({
+  name: "Controls",
+  setup: () => () =>
+    h("div", { class: "flow-controls", role: "toolbar", "aria-label": "画布视图控制" }, [
+      h("button", { type: "button", title: "适配视图", onClick: fitCanvasView }, "适配"),
+      h("button", { type: "button", title: "自动布局", onClick: autoLayoutDag }, "布局"),
+    ]),
+})
+const MiniMap = defineComponent({
+  name: "MiniMap",
+  setup: () => () =>
+    h("div", { class: "flow-minimap", "aria-label": "画布小地图" }, [
+      h("span", "MiniMap"),
+      ...flowNodes.value.slice(0, 12).map((node) =>
+        h("i", {
+          key: node.id,
+          class: node.id === selectedNodeId.value ? "is-active" : "",
+          style: {
+            left: `${Math.min(86, Math.max(6, (Number(node.position?.x || 0) / 900) * 100))}%`,
+            top: `${Math.min(78, Math.max(22, (Number(node.position?.y || 0) / 520) * 100))}%`,
+          },
+        }),
+      ),
+    ]),
+})
 
 const loadSelectedDetails = async () => {
   const current = selectedPipeline.value
@@ -1358,6 +1675,9 @@ const loadSelectedDetails = async () => {
     runHistory.value = []
     validation.value = null
     lineage.value = null
+    inspectSchema.value = []
+    inspectProfile.value = []
+    inspectRows.value = []
     return
   }
   try {
@@ -1372,6 +1692,9 @@ const loadSelectedDetails = async () => {
     validation.value = validationResp.data || null
     selectedNodeId.value = selectedPipeline.value?.dag_json?.nodes?.[0]?.id || null
     previewLogs.value = runHistory.value[0]?.node_logs_json || null
+    inspectSchema.value = []
+    inspectProfile.value = []
+    inspectRows.value = []
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || "管道详情加载失败")
   }
@@ -1380,12 +1703,14 @@ const loadSelectedDetails = async () => {
 const loadAll = async () => {
   loading.value = true
   try {
-    const [pipelineResp, datasetResp] = await Promise.all([
+    const [pipelineResp, datasetResp, operatorResp] = await Promise.all([
       axios.get("/api/pipelines"),
       axios.get("/api/datasets"),
+      axios.get("/api/pipelines/operators"),
     ])
     pipelines.value = pipelineResp.data || []
     datasets.value = datasetResp.data.items || []
+    operatorCatalog.value = operatorResp.data || []
     selectedId.value = pipelines.value.some((item) => item.id === selectedId.value) ? selectedId.value : pipelines.value[0]?.id || null
     await loadSelectedDetails()
   } catch (error: any) {
@@ -1421,12 +1746,40 @@ const previewSelectedNode = async () => {
     previewColumns.value = data.columns || []
     previewRows.value = data.rows || []
     previewLogs.value = data.node_logs_json || null
+    inspectSchema.value = data.schema || []
+    inspectProfile.value = data.profile || []
+    inspectRows.value = data.rows || []
+    inspectMode.value = data.execution_mode || "in_memory"
     detailTab.value = "preview"
     activeWorkbenchTab.value = "preview"
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || "节点预览失败")
   } finally {
     previewing.value = false
+  }
+}
+
+const inspectSelectedNode = async () => {
+  if (!selectedPipeline.value) return
+  inspecting.value = true
+  try {
+    const { data } = await axios.post(`/api/pipelines/${selectedPipeline.value.id}/inspect`, {
+      node_id: selectedNode.value?.id,
+      limit: 100,
+      dag_json: selectedPipeline.value.dag_json,
+    })
+    inspectSchema.value = data.schema || []
+    inspectProfile.value = data.profile || []
+    inspectRows.value = data.rows || []
+    inspectMode.value = data.execution_mode || "in_memory"
+    previewColumns.value = data.columns || previewColumns.value
+    previewRows.value = data.rows || previewRows.value
+    previewLogs.value = data.node_logs_json || previewLogs.value
+    detailTab.value = "inspect"
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "字段画像加载失败")
+  } finally {
+    inspecting.value = false
   }
 }
 
@@ -2711,6 +3064,17 @@ onMounted(loadAll)
   gap: 8px;
 }
 
+.operator-group {
+  display: grid;
+  gap: 6px;
+}
+
+.operator-group__title {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .source-chip,
 .node-palette button {
   display: inline-flex;
@@ -2744,6 +3108,19 @@ onMounted(loadAll)
   margin-bottom: 10px;
 }
 
+.section-heading__actions,
+.canvas-toolstrip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.node-search-input {
+  width: 180px;
+}
+
 .section-heading > div {
   display: flex;
   flex-direction: column;
@@ -2756,6 +3133,7 @@ onMounted(loadAll)
 }
 
 .flow-wrap {
+  position: relative;
   height: clamp(560px, calc(100vh - 420px), 760px);
   min-height: 520px;
   overflow: hidden;
@@ -2770,6 +3148,80 @@ onMounted(loadAll)
 
 .pipeline-flow {
   height: 100%;
+}
+
+.flow-background-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(15, 118, 110, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 118, 110, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.flow-minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 4;
+  width: 142px;
+  height: 92px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--app-shadow-soft);
+}
+
+.flow-minimap span {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.flow-minimap i {
+  position: absolute;
+  width: 18px;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(15, 118, 110, 0.24);
+}
+
+.flow-minimap i.is-active {
+  background: var(--app-primary);
+}
+
+.flow-controls {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 4;
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: #fff;
+  box-shadow: var(--app-shadow-soft);
+}
+
+.flow-controls button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid var(--app-border-light);
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.flow-controls button:last-child {
+  border-right: 0;
 }
 
 .pipeline-flow :deep(.vue-flow__node) {
@@ -2790,6 +3242,19 @@ onMounted(loadAll)
 
 .pipeline-flow :deep(.vue-flow__node.is-failed) {
   border-color: var(--app-danger);
+}
+
+.pipeline-flow :deep(.vue-flow__node.is-blocked) {
+  border-color: var(--app-danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.pipeline-flow :deep(.vue-flow__node.is-warning) {
+  border-color: var(--app-warning);
+}
+
+.pipeline-flow :deep(.vue-flow__node.is-success) {
+  border-color: var(--app-success);
 }
 
 .pipeline-flow :deep(.vue-flow__edge-path) {
@@ -2900,6 +3365,10 @@ onMounted(loadAll)
   gap: 12px;
 }
 
+.inspect-panel {
+  min-height: 220px;
+}
+
 .validation-score {
   align-items: flex-start;
   padding: 12px;
@@ -2976,6 +3445,26 @@ onMounted(loadAll)
   padding: 0;
   border: 0;
   border-radius: 0;
+}
+
+.node-state-panel {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+}
+
+.node-state-panel > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.node-state-panel span,
+.node-state-panel small {
+  color: var(--app-text-muted);
 }
 
 .node-config-heading__actions {
