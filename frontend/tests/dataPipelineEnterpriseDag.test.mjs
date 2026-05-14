@@ -129,3 +129,16 @@ test("data pipeline operator console uses consistent icon-over-text palette card
   assert.match(pipelines, /\.palette-card__copy strong/)
   assert.match(pipelines, /\.palette-card__copy small/)
 })
+
+test("data pipeline minimap is a visible canvas overview outside VueFlow internals", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /<\/VueFlow>\s*<MiniMap v-if="selectedPipeline" \/>/)
+  assert.match(pipelines, /画布概览/)
+  assert.match(pipelines, /miniMapNodes/)
+  assert.match(pipelines, /miniMapSummary/)
+  assert.match(pipelines, /flow-minimap__map/)
+  assert.match(pipelines, /flow-minimap__node/)
+  assert.match(pipelines, /\.flow-minimap\s*\{[\s\S]*?z-index:\s*20/)
+  assert.match(pipelines, /role:\s*"img"/)
+})

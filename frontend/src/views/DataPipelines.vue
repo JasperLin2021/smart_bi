@@ -244,9 +244,9 @@
                 <Handle id="out" type="source" :position="Position.Right" :connectable="connectable" />
               </template>
               <Background />
-              <MiniMap />
               <Controls />
             </VueFlow>
+            <MiniMap v-if="selectedPipeline" />
             <el-empty v-else description="请选择或新建管道" />
           </div>
         </section>
@@ -1866,21 +1866,54 @@ const Controls = defineComponent({
       }),
     ]),
 })
+const miniMapNodes = computed(() => {
+  const nodes = flowNodes.value
+  if (!nodes.length) return []
+
+  const nodeWidth = 120
+  const nodeHeight = 88
+  const minX = Math.min(...nodes.map((node) => Number(node.position?.x || 0)))
+  const minY = Math.min(...nodes.map((node) => Number(node.position?.y || 0)))
+  const maxX = Math.max(...nodes.map((node) => Number(node.position?.x || 0) + nodeWidth))
+  const maxY = Math.max(...nodes.map((node) => Number(node.position?.y || 0) + nodeHeight))
+  const spanX = Math.max(1, maxX - minX)
+  const spanY = Math.max(1, maxY - minY)
+
+  return nodes.slice(0, 18).map((node) => {
+    const x = Number(node.position?.x || 0)
+    const y = Number(node.position?.y || 0)
+    return {
+      id: node.id,
+      active: node.id === selectedNodeId.value,
+      left: `${12 + ((x - minX) / spanX) * 76}%`,
+      top: `${28 + ((y - minY) / spanY) * 54}%`,
+      width: `${Math.min(22, Math.max(10, (nodeWidth / spanX) * 76))}%`,
+    }
+  })
+})
+const miniMapSummary = computed(() => `${flowNodes.value.length} 节点 · ${flowEdges.value.length} 连线`)
 const MiniMap = defineComponent({
   name: "MiniMap",
   setup: () => () =>
-    h("div", { class: "flow-minimap", "aria-label": "画布小地图" }, [
-      h("span", "MiniMap"),
-      ...flowNodes.value.slice(0, 12).map((node) =>
-        h("i", {
-          key: node.id,
-          class: node.id === selectedNodeId.value ? "is-active" : "",
-          style: {
-            left: `${Math.min(86, Math.max(6, (Number(node.position?.x || 0) / 900) * 100))}%`,
-            top: `${Math.min(78, Math.max(22, (Number(node.position?.y || 0) / 520) * 100))}%`,
-          },
-        }),
-      ),
+    h("div", { class: "flow-minimap", role: "img", "aria-label": `画布概览，${miniMapSummary.value}` }, [
+      h("div", { class: "flow-minimap__head" }, [
+        h("strong", "画布概览"),
+        h("small", miniMapSummary.value),
+      ]),
+      h("div", { class: "flow-minimap__map", "aria-hidden": "true" }, [
+        h("b", { class: "flow-minimap__viewport" }),
+        ...miniMapNodes.value.map((node) =>
+          h("i", {
+            key: node.id,
+            class: ["flow-minimap__node", node.active ? "is-active" : ""],
+            style: {
+              left: node.left,
+              top: node.top,
+              width: node.width,
+            },
+          }),
+        ),
+      ]),
     ]),
 })
 
@@ -3505,34 +3538,74 @@ onMounted(loadAll)
   position: absolute;
   right: 14px;
   bottom: 14px;
-  z-index: 4;
-  width: 142px;
-  height: 92px;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  width: 176px;
+  min-height: 124px;
+  padding: 10px;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm);
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--app-shadow-soft);
+  pointer-events: none;
 }
 
-.flow-minimap span {
-  position: absolute;
-  top: 6px;
-  left: 8px;
+.flow-minimap__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flow-minimap__head strong {
+  color: var(--app-text);
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.flow-minimap__head small {
   color: var(--app-text-muted);
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
-.flow-minimap i {
+.flow-minimap__map {
+  position: relative;
+  height: 74px;
+  overflow: hidden;
+  border: 1px solid var(--app-border-light);
+  border-radius: 7px;
+  background:
+    linear-gradient(rgba(15, 118, 110, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 118, 110, 0.07) 1px, transparent 1px),
+    #f8fafc;
+  background-size: 12px 12px;
+}
+
+.flow-minimap__viewport {
   position: absolute;
-  width: 18px;
-  height: 10px;
-  border-radius: 3px;
-  background: rgba(15, 118, 110, 0.24);
+  inset: 14px 18px 12px;
+  border: 1px solid rgba(15, 118, 110, 0.36);
+  border-radius: 5px;
+  background: rgba(15, 118, 110, 0.06);
 }
 
-.flow-minimap i.is-active {
+.flow-minimap__node {
+  position: absolute;
+  min-width: 11px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
+  transform: translate(-50%, -50%);
+}
+
+.flow-minimap__node.is-active {
   background: var(--app-primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.2), 0 2px 5px rgba(15, 23, 42, 0.16);
 }
 
 .flow-controls {
