@@ -222,9 +222,13 @@
               <template #node-etl-icon="{ data, selected, connectable }">
                 <Handle type="target" :position="Position.Top" :connectable="connectable" />
                 <div class="etl-canvas-node" :class="[`is-${data.status}`, { 'is-selected': selected }]">
-                  <span class="etl-canvas-node__icon" aria-hidden="true">
-                    <el-icon><component :is="data.icon" /></el-icon>
-                    <i />
+                  <span class="etl-canvas-node__icon" :class="`etl-canvas-node__icon--${data.tone}`" aria-hidden="true">
+                    <span class="etl-canvas-node__glyph" :class="`etl-canvas-node__glyph--${data.iconKey}`">
+                      <span />
+                      <span />
+                      <b v-if="data.iconKey === 'sql'">SQL</b>
+                    </span>
+                    <i class="etl-canvas-node__status" />
                   </span>
                   <span class="etl-canvas-node__title">{{ data.title }}</span>
                   <small>{{ data.caption }}</small>
@@ -1259,19 +1263,32 @@ const iconRegistry: Record<string, any> = {
   UploadFilled,
 }
 const operatorIcon = (name?: string) => iconRegistry[name || ""] || Grid
-const nodeTypeIcon = (type: string) => ({
-  source: DataAnalysis,
-  extract: UploadFilled,
-  metadata_extract: DocumentChecked,
-  transform: SetUp,
-  join: Link,
-  union: Connection,
-  sql: DataAnalysis,
-  quality: Select,
-  load: Finished,
-  sink: Finished,
-  reverse_etl: RefreshRight,
-}[type] || Grid)
+const nodeIconKey = (type: string) => ({
+  source: "source",
+  extract: "extract",
+  metadata_extract: "metadata",
+  transform: "transform",
+  join: "join",
+  union: "union",
+  sql: "sql",
+  quality: "quality",
+  load: "load",
+  sink: "load",
+  reverse_etl: "reverse",
+}[type] || "task")
+const nodeTone = (type: string) => ({
+  source: "blue",
+  extract: "blue",
+  metadata_extract: "indigo",
+  transform: "teal",
+  join: "violet",
+  union: "cyan",
+  sql: "slate",
+  quality: "amber",
+  load: "emerald",
+  sink: "emerald",
+  reverse_etl: "rose",
+}[type] || "teal")
 const nodePalette = computed(() => {
   if (!operatorCatalog.value.length) return fallbackNodePalette
   return operatorCatalog.value.map((operator) => ({
@@ -1402,7 +1419,8 @@ const flowNodes = computed(() => {
       targetPosition: Position.Top,
       data: {
         type: node.type || "task",
-        icon: nodeTypeIcon(String(node.type || "task")),
+        iconKey: nodeIconKey(String(node.type || "task")),
+        tone: nodeTone(String(node.type || "task")),
         title,
         caption: `${typeLabel} · ${rowsText || statusText}`,
         status,
@@ -3414,32 +3432,428 @@ onMounted(loadAll)
 }
 
 .etl-canvas-node__icon {
+  --node-accent: var(--app-primary);
+  --node-accent-soft: rgba(15, 118, 110, 0.14);
+  --node-accent-mid: rgba(15, 118, 110, 0.36);
   position: relative;
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border: 1px solid var(--app-border);
+  width: 50px;
+  height: 50px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.38);
   border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-  transition: border-color var(--app-transition), box-shadow var(--app-transition), transform var(--app-transition);
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.96) 0 20%, transparent 36%),
+    linear-gradient(145deg, #ffffff 0%, #f7fbff 56%, var(--node-accent-soft) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 22px rgba(15, 23, 42, 0.14);
+  transition: border-color var(--app-transition), box-shadow var(--app-transition), transform var(--app-transition), background var(--app-transition);
 }
 
-.etl-canvas-node__icon .el-icon {
-  color: var(--app-primary);
-  font-size: 22px;
-}
-
-.etl-canvas-node__icon i {
+.etl-canvas-node__icon::after {
   position: absolute;
-  right: 1px;
-  bottom: 2px;
+  inset: 8px;
+  border: 1px solid var(--node-accent-soft);
+  border-radius: inherit;
+  content: "";
+}
+
+.etl-canvas-node__icon--blue {
+  --node-accent: #2563eb;
+  --node-accent-soft: rgba(37, 99, 235, 0.15);
+  --node-accent-mid: rgba(37, 99, 235, 0.42);
+}
+
+.etl-canvas-node__icon--indigo {
+  --node-accent: #4f46e5;
+  --node-accent-soft: rgba(79, 70, 229, 0.15);
+  --node-accent-mid: rgba(79, 70, 229, 0.42);
+}
+
+.etl-canvas-node__icon--teal {
+  --node-accent: #0f766e;
+  --node-accent-soft: rgba(15, 118, 110, 0.15);
+  --node-accent-mid: rgba(15, 118, 110, 0.42);
+}
+
+.etl-canvas-node__icon--violet {
+  --node-accent: #7c3aed;
+  --node-accent-soft: rgba(124, 58, 237, 0.15);
+  --node-accent-mid: rgba(124, 58, 237, 0.42);
+}
+
+.etl-canvas-node__icon--cyan {
+  --node-accent: #0891b2;
+  --node-accent-soft: rgba(8, 145, 178, 0.15);
+  --node-accent-mid: rgba(8, 145, 178, 0.42);
+}
+
+.etl-canvas-node__icon--slate {
+  --node-accent: #334155;
+  --node-accent-soft: rgba(51, 65, 85, 0.16);
+  --node-accent-mid: rgba(51, 65, 85, 0.44);
+}
+
+.etl-canvas-node__icon--amber {
+  --node-accent: #d97706;
+  --node-accent-soft: rgba(217, 119, 6, 0.16);
+  --node-accent-mid: rgba(217, 119, 6, 0.44);
+}
+
+.etl-canvas-node__icon--emerald {
+  --node-accent: #059669;
+  --node-accent-soft: rgba(5, 150, 105, 0.15);
+  --node-accent-mid: rgba(5, 150, 105, 0.42);
+}
+
+.etl-canvas-node__icon--rose {
+  --node-accent: #e11d48;
+  --node-accent-soft: rgba(225, 29, 72, 0.15);
+  --node-accent-mid: rgba(225, 29, 72, 0.42);
+}
+
+.etl-canvas-node__status {
+  position: absolute;
+  right: 2px;
+  bottom: 3px;
+  z-index: 3;
   width: 10px;
   height: 10px;
   border: 2px solid #fff;
   border-radius: 999px;
   background: var(--app-success);
+}
+
+.etl-canvas-node__glyph,
+.etl-canvas-node__glyph::before,
+.etl-canvas-node__glyph::after,
+.etl-canvas-node__glyph span {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.etl-canvas-node__glyph {
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  color: var(--node-accent);
+}
+
+.etl-canvas-node__glyph::before,
+.etl-canvas-node__glyph::after,
+.etl-canvas-node__glyph span {
+  content: "";
+}
+
+.etl-canvas-node__glyph b {
+  position: absolute;
+  inset: 7px 3px auto;
+  color: var(--node-accent);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.etl-canvas-node__glyph--source::before {
+  top: 3px;
+  left: 4px;
+  width: 20px;
+  height: 8px;
+  border: 2px solid var(--node-accent);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.etl-canvas-node__glyph--source span:first-child {
+  top: 7px;
+  left: 4px;
+  width: 20px;
+  height: 15px;
+  border-right: 2px solid var(--node-accent);
+  border-bottom: 2px solid var(--node-accent);
+  border-left: 2px solid var(--node-accent);
+  border-radius: 0 0 10px 10px;
+  background: linear-gradient(180deg, var(--node-accent-soft), rgba(255, 255, 255, 0.36));
+}
+
+.etl-canvas-node__glyph--source::after {
+  top: 14px;
+  left: 8px;
+  width: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--node-accent-mid);
+  box-shadow: 0 4px 0 var(--node-accent-mid);
+}
+
+.etl-canvas-node__glyph--extract::before {
+  top: 4px;
+  left: 12px;
+  width: 4px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--node-accent);
+}
+
+.etl-canvas-node__glyph--extract::after {
+  top: 13px;
+  left: 7px;
+  width: 14px;
+  height: 14px;
+  border-right: 4px solid var(--node-accent);
+  border-bottom: 4px solid var(--node-accent);
+  transform: rotate(45deg);
+}
+
+.etl-canvas-node__glyph--extract span:first-child {
+  right: 3px;
+  bottom: 2px;
+  left: 3px;
+  height: 5px;
+  border: 2px solid var(--node-accent-mid);
+  border-top: 0;
+  border-radius: 0 0 7px 7px;
+}
+
+.etl-canvas-node__glyph--metadata::before {
+  inset: 3px 6px 3px 5px;
+  border: 2px solid var(--node-accent);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.etl-canvas-node__glyph--metadata::after {
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid var(--node-accent-mid);
+  border-right: 2px solid var(--node-accent-mid);
+}
+
+.etl-canvas-node__glyph--metadata span:first-child {
+  top: 12px;
+  left: 9px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--node-accent);
+  box-shadow: 6px 0 0 var(--node-accent), 0 6px 0 var(--node-accent-mid), 6px 6px 0 var(--node-accent-mid);
+}
+
+.etl-canvas-node__glyph--transform::before,
+.etl-canvas-node__glyph--transform::after {
+  left: 4px;
+  width: 20px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--node-accent-mid);
+}
+
+.etl-canvas-node__glyph--transform::before {
+  top: 8px;
+}
+
+.etl-canvas-node__glyph--transform::after {
+  bottom: 8px;
+}
+
+.etl-canvas-node__glyph--transform span:first-child,
+.etl-canvas-node__glyph--transform span:last-child {
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--node-accent);
+  box-shadow: 0 2px 5px var(--node-accent-soft);
+}
+
+.etl-canvas-node__glyph--transform span:first-child {
+  top: 5px;
+  left: 7px;
+}
+
+.etl-canvas-node__glyph--transform span:last-child {
+  right: 6px;
+  bottom: 5px;
+}
+
+.etl-canvas-node__glyph--join::before,
+.etl-canvas-node__glyph--join::after,
+.etl-canvas-node__glyph--join span:first-child {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--node-accent);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.etl-canvas-node__glyph--join::before {
+  top: 5px;
+  left: 4px;
+}
+
+.etl-canvas-node__glyph--join::after {
+  bottom: 5px;
+  left: 4px;
+}
+
+.etl-canvas-node__glyph--join span:first-child {
+  top: 10px;
+  right: 4px;
+  background: var(--node-accent);
+}
+
+.etl-canvas-node__glyph--join span:last-child {
+  top: 10px;
+  left: 12px;
+  width: 10px;
+  height: 8px;
+  border-top: 2px solid var(--node-accent-mid);
+  border-bottom: 2px solid var(--node-accent-mid);
+  transform: skewX(-22deg);
+}
+
+.etl-canvas-node__glyph--union::before,
+.etl-canvas-node__glyph--union::after {
+  top: 5px;
+  width: 11px;
+  height: 17px;
+  border-top: 2px solid var(--node-accent);
+  border-bottom: 2px solid var(--node-accent);
+}
+
+.etl-canvas-node__glyph--union::before {
+  left: 5px;
+  border-left: 2px solid var(--node-accent);
+  border-radius: 8px 0 0 8px;
+}
+
+.etl-canvas-node__glyph--union::after {
+  right: 5px;
+  border-right: 2px solid var(--node-accent);
+  border-radius: 0 8px 8px 0;
+}
+
+.etl-canvas-node__glyph--union span:first-child {
+  top: 13px;
+  left: 6px;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--node-accent);
+}
+
+.etl-canvas-node__glyph--sql::before,
+.etl-canvas-node__glyph--sql::after {
+  top: 5px;
+  width: 6px;
+  height: 18px;
+  border: 2px solid var(--node-accent);
+}
+
+.etl-canvas-node__glyph--sql::before {
+  left: 3px;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+}
+
+.etl-canvas-node__glyph--sql::after {
+  right: 3px;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.etl-canvas-node__glyph--quality::before {
+  top: 3px;
+  left: 6px;
+  width: 16px;
+  height: 20px;
+  border: 2px solid var(--node-accent);
+  border-radius: 9px 9px 12px 12px;
+  background: var(--node-accent-soft);
+}
+
+.etl-canvas-node__glyph--quality::after {
+  top: 10px;
+  left: 11px;
+  width: 11px;
+  height: 7px;
+  border-bottom: 3px solid var(--node-accent);
+  border-left: 3px solid var(--node-accent);
+  transform: rotate(-45deg);
+}
+
+.etl-canvas-node__glyph--load::before {
+  right: 4px;
+  bottom: 3px;
+  left: 4px;
+  height: 12px;
+  border: 2px solid var(--node-accent);
+  border-radius: 4px 4px 8px 8px;
+  background: var(--node-accent-soft);
+}
+
+.etl-canvas-node__glyph--load::after {
+  top: 4px;
+  left: 11px;
+  width: 6px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--node-accent);
+}
+
+.etl-canvas-node__glyph--load span:first-child {
+  top: 4px;
+  left: 7px;
+  width: 14px;
+  height: 14px;
+  border-top: 4px solid var(--node-accent);
+  border-left: 4px solid var(--node-accent);
+  transform: rotate(45deg);
+}
+
+.etl-canvas-node__glyph--reverse::before {
+  inset: 4px;
+  border: 3px solid var(--node-accent-mid);
+  border-right-color: var(--node-accent);
+  border-bottom-color: var(--node-accent);
+  border-radius: 999px;
+  transform: rotate(-24deg);
+}
+
+.etl-canvas-node__glyph--reverse::after {
+  top: 5px;
+  right: 3px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--node-accent);
+  transform: rotate(24deg);
+}
+
+.etl-canvas-node__glyph--reverse span:first-child {
+  bottom: 5px;
+  left: 3px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-right: 7px solid var(--node-accent-mid);
+  border-bottom: 5px solid transparent;
+  transform: rotate(24deg);
+}
+
+.etl-canvas-node__glyph--task::before {
+  inset: 5px;
+  border: 2px solid var(--node-accent);
+  border-radius: 6px;
+  background:
+    linear-gradient(var(--node-accent-soft) 0 0) 50% 50% / 2px 100% no-repeat,
+    linear-gradient(90deg, var(--node-accent-soft) 0 0) 50% 50% / 100% 2px no-repeat;
 }
 
 .etl-canvas-node__title {
@@ -3476,28 +3890,25 @@ onMounted(loadAll)
 
 .etl-canvas-node.is-blocked .etl-canvas-node__icon,
 .etl-canvas-node.is-failed .etl-canvas-node__icon {
+  --node-accent: var(--app-danger);
+  --node-accent-soft: rgba(220, 38, 38, 0.15);
+  --node-accent-mid: rgba(220, 38, 38, 0.44);
   border-color: var(--app-danger);
 }
 
-.etl-canvas-node.is-blocked .etl-canvas-node__icon .el-icon,
-.etl-canvas-node.is-failed .etl-canvas-node__icon .el-icon {
-  color: var(--app-danger);
-}
-
-.etl-canvas-node.is-blocked .etl-canvas-node__icon i,
-.etl-canvas-node.is-failed .etl-canvas-node__icon i {
+.etl-canvas-node.is-blocked .etl-canvas-node__status,
+.etl-canvas-node.is-failed .etl-canvas-node__status {
   background: var(--app-danger);
 }
 
 .etl-canvas-node.is-warning .etl-canvas-node__icon {
+  --node-accent: var(--app-warning);
+  --node-accent-soft: rgba(217, 119, 6, 0.16);
+  --node-accent-mid: rgba(217, 119, 6, 0.44);
   border-color: var(--app-warning);
 }
 
-.etl-canvas-node.is-warning .etl-canvas-node__icon .el-icon {
-  color: var(--app-warning);
-}
-
-.etl-canvas-node.is-warning .etl-canvas-node__icon i {
+.etl-canvas-node.is-warning .etl-canvas-node__status {
   background: var(--app-warning);
 }
 
