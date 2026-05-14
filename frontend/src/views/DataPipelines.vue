@@ -219,6 +219,18 @@
               @node-click="onNodeClick"
               @node-drag-stop="onNodeDragStop"
             >
+              <template #node-etl-icon="{ data, selected, connectable }">
+                <Handle type="target" :position="Position.Top" :connectable="connectable" />
+                <div class="etl-canvas-node" :class="[`is-${data.status}`, { 'is-selected': selected }]">
+                  <span class="etl-canvas-node__icon" aria-hidden="true">
+                    <el-icon><component :is="data.icon" /></el-icon>
+                    <i />
+                  </span>
+                  <span class="etl-canvas-node__title">{{ data.title }}</span>
+                  <small>{{ data.caption }}</small>
+                </div>
+                <Handle type="source" :position="Position.Bottom" :connectable="connectable" />
+              </template>
               <Background />
               <MiniMap />
               <Controls />
@@ -974,7 +986,7 @@ import {
   View,
   Warning,
 } from "@element-plus/icons-vue"
-import { VueFlow } from "@vue-flow/core"
+import { Handle, Position, VueFlow } from "@vue-flow/core"
 import "@vue-flow/core/dist/style.css"
 import "@vue-flow/core/dist/theme-default.css"
 
@@ -1247,6 +1259,19 @@ const iconRegistry: Record<string, any> = {
   UploadFilled,
 }
 const operatorIcon = (name?: string) => iconRegistry[name || ""] || Grid
+const nodeTypeIcon = (type: string) => ({
+  source: DataAnalysis,
+  extract: UploadFilled,
+  metadata_extract: DocumentChecked,
+  transform: SetUp,
+  join: Link,
+  union: Connection,
+  sql: DataAnalysis,
+  quality: Select,
+  load: Finished,
+  sink: Finished,
+  reverse_etl: RefreshRight,
+}[type] || Grid)
 const nodePalette = computed(() => {
   if (!operatorCatalog.value.length) return fallbackNodePalette
   return operatorCatalog.value.map((operator) => ({
@@ -1364,11 +1389,26 @@ const flowNodes = computed(() => {
   return nodes.map((node, index) => {
     const log = runNodeLogs.find((item: any) => String(item.node_id) === String(node.id))
     const status = nodeStatusFor(node)
+    const typeLabel = nodeTypeLabel(String(node.type || "task"))
+    const title = String(node.label || node.id)
+    const rowsText = log ? `${log.rows_out ?? log.records_written ?? 0} 行` : ""
+    const statusText = nodeStatusText(status)
     return {
       id: String(node.id),
-      label: `${nodeTypeLabel(String(node.type || "task"))}\n${String(node.label || node.id)}${log ? `\n${log.rows_out ?? log.records_written ?? 0} 行` : ""}\n${nodeStatusText(status)}`,
+      type: "etl-icon",
+      label: title,
       position: node.position || { x: 72 + (index % 4) * 190, y: 72 + Math.floor(index / 4) * 118 },
-      data: { type: node.type || "task", status },
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+      data: {
+        type: node.type || "task",
+        icon: nodeTypeIcon(String(node.type || "task")),
+        title,
+        caption: `${typeLabel} · ${rowsText || statusText}`,
+        status,
+        statusText,
+      },
+      ariaLabel: `${typeLabel} ${title} ${statusText}`,
       class: `etl-node etl-node--${node.type || "task"} ${selectedNodeId.value === String(node.id) ? "is-selected" : ""} is-${status}`,
     }
   })
@@ -3334,36 +3374,131 @@ onMounted(loadAll)
 }
 
 .pipeline-flow :deep(.vue-flow__node) {
-  min-width: 150px;
-  padding: 10px 12px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: #fff;
+  min-width: 112px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--app-text);
-  white-space: pre-line;
-  box-shadow: var(--app-shadow-soft);
+  box-shadow: none;
 }
 
-.pipeline-flow :deep(.vue-flow__node.is-selected) {
+.pipeline-flow :deep(.vue-flow__node-etl-icon) {
+  width: 120px;
+}
+
+.pipeline-flow :deep(.vue-flow__handle) {
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  background: var(--app-primary);
+  opacity: 0.88;
+}
+
+.pipeline-flow :deep(.vue-flow__handle-top) {
+  top: -4px;
+}
+
+.pipeline-flow :deep(.vue-flow__handle-bottom) {
+  bottom: -4px;
+}
+
+.etl-canvas-node {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  width: 120px;
+  min-height: 88px;
+  color: var(--app-text);
+  text-align: center;
+  user-select: none;
+}
+
+.etl-canvas-node__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  transition: border-color var(--app-transition), box-shadow var(--app-transition), transform var(--app-transition);
+}
+
+.etl-canvas-node__icon .el-icon {
+  color: var(--app-primary);
+  font-size: 22px;
+}
+
+.etl-canvas-node__icon i {
+  position: absolute;
+  right: 1px;
+  bottom: 2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--app-success);
+}
+
+.etl-canvas-node__title {
+  display: -webkit-box;
+  width: 116px;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.etl-canvas-node small {
+  width: 116px;
+  overflow: hidden;
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etl-canvas-node.is-selected .etl-canvas-node__icon,
+.pipeline-flow :deep(.vue-flow__node.selected .etl-canvas-node__icon),
+.pipeline-flow :deep(.vue-flow__node.is-selected .etl-canvas-node__icon) {
   border-color: var(--app-primary);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  box-shadow: 0 0 0 5px rgba(15, 118, 110, 0.14), 0 10px 22px rgba(15, 23, 42, 0.14);
+  transform: translateY(-1px);
 }
 
-.pipeline-flow :deep(.vue-flow__node.is-failed) {
+.etl-canvas-node.is-blocked .etl-canvas-node__icon,
+.etl-canvas-node.is-failed .etl-canvas-node__icon {
   border-color: var(--app-danger);
 }
 
-.pipeline-flow :deep(.vue-flow__node.is-blocked) {
-  border-color: var(--app-danger);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+.etl-canvas-node.is-blocked .etl-canvas-node__icon .el-icon,
+.etl-canvas-node.is-failed .etl-canvas-node__icon .el-icon {
+  color: var(--app-danger);
 }
 
-.pipeline-flow :deep(.vue-flow__node.is-warning) {
+.etl-canvas-node.is-blocked .etl-canvas-node__icon i,
+.etl-canvas-node.is-failed .etl-canvas-node__icon i {
+  background: var(--app-danger);
+}
+
+.etl-canvas-node.is-warning .etl-canvas-node__icon {
   border-color: var(--app-warning);
 }
 
-.pipeline-flow :deep(.vue-flow__node.is-success) {
-  border-color: var(--app-success);
+.etl-canvas-node.is-warning .etl-canvas-node__icon .el-icon {
+  color: var(--app-warning);
+}
+
+.etl-canvas-node.is-warning .etl-canvas-node__icon i {
+  background: var(--app-warning);
 }
 
 .pipeline-flow :deep(.vue-flow__edge-path) {

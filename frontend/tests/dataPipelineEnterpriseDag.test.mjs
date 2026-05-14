@@ -84,3 +84,16 @@ test("data pipeline workbench applies consistent enterprise toolbar styling", ()
   assert.doesNotMatch(pipelines, /canvas-toolstrip/)
   assert.doesNotMatch(pipelines, /h\("button"/)
 })
+
+test("data pipeline canvas renders compact icon nodes instead of text rectangles", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /#node-etl-icon/)
+  assert.match(pipelines, /<Handle type="target"/)
+  assert.match(pipelines, /<Handle type="source"/)
+  assert.match(pipelines, /etl-canvas-node__icon/)
+  assert.match(pipelines, /nodeTypeIcon/)
+  assert.match(pipelines, /type:\s*"etl-icon"/)
+  assert.match(pipelines, /caption:\s*`\$\{typeLabel\} · \$\{rowsText \|\| statusText\}`/)
+  assert.doesNotMatch(pipelines, /white-space:\s*pre-line/)
+})
