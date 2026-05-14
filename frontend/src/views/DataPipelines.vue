@@ -505,7 +505,9 @@
               </label>
               <label>
                 <span>增量字段</span>
-                <el-input v-model="selectedNodeConfig.incremental_key" placeholder="updated_at" />
+                <el-select v-model="selectedNodeConfig.incremental_key" class="field-select" clearable filterable allow-create default-first-option placeholder="updated_at">
+                  <el-option v-for="field in fieldCandidates" :key="`incremental-${field}`" :label="field" :value="field" />
+                </el-select>
               </label>
               <label>
                 <span>批次大小</span>
@@ -518,7 +520,9 @@
             <div class="config-group">
               <label>
                 <span>数据源 ID</span>
-                <el-input-number v-model="selectedNodeConfig.datasource_id" :min="1" controls-position="right" />
+                <el-select v-model="selectedNodeConfig.datasource_id" clearable filterable placeholder="默认使用管道数据源">
+                  <el-option v-for="datasource in datasourceOptions" :key="datasource.id" :label="datasource.name" :value="datasource.id" />
+                </el-select>
               </label>
               <label>
                 <span>表名列表</span>
@@ -544,8 +548,12 @@
                 </el-select>
               </label>
               <div class="mapping-row">
-                <el-input v-model="selectedNodeConfig.left_key" placeholder="左关联键" />
-                <el-input v-model="selectedNodeConfig.right_key" placeholder="右关联键" />
+                <el-select v-model="selectedNodeConfig.left_key" class="field-select" filterable allow-create default-first-option placeholder="左关联键">
+                  <el-option v-for="field in fieldCandidates" :key="`join-left-${field}`" :label="field" :value="field" />
+                </el-select>
+                <el-select v-model="selectedNodeConfig.right_key" class="field-select" filterable allow-create default-first-option placeholder="右关联键">
+                  <el-option v-for="field in fieldCandidates" :key="`join-right-${field}`" :label="field" :value="field" />
+                </el-select>
               </div>
               <label>
                 <span>连接方式</span>
@@ -582,8 +590,12 @@
                 <el-button size="small" text :icon="Plus" @click="appendListConfig('field_mapping', { source: '', target: '' })">添加</el-button>
               </div>
               <div v-for="(item, index) in listConfig('field_mapping')" :key="`mapping-${index}`" class="mapping-row">
-                <el-input v-model="item.source" placeholder="源字段" />
-                <el-input v-model="item.target" placeholder="目标字段" />
+                <el-select v-model="item.source" class="field-select" filterable allow-create default-first-option placeholder="源字段">
+                  <el-option v-for="field in fieldCandidates" :key="`map-source-${field}`" :label="field" :value="field" />
+                </el-select>
+                <el-select v-model="item.target" class="field-select" filterable allow-create default-first-option placeholder="目标字段">
+                  <el-option v-for="field in fieldCandidates" :key="`map-target-${field}`" :label="field" :value="field" />
+                </el-select>
                 <el-button text type="danger" @click="removeListConfig('field_mapping', index)">删除</el-button>
               </div>
             </div>
@@ -594,7 +606,9 @@
                 <el-button size="small" text :icon="Plus" @click="appendListConfig('type_conversions', { field: '', type: 'string' })">添加</el-button>
               </div>
               <div v-for="(item, index) in listConfig('type_conversions')" :key="`type-${index}`" class="mapping-row">
-                <el-input v-model="item.field" placeholder="字段" />
+                <el-select v-model="item.field" class="field-select" filterable allow-create default-first-option placeholder="字段">
+                  <el-option v-for="field in fieldCandidates" :key="`type-field-${field}`" :label="field" :value="field" />
+                </el-select>
                 <el-select v-model="item.type" placeholder="类型">
                   <el-option label="STRING" value="string" />
                   <el-option label="BIGINT" value="integer" />
@@ -611,7 +625,9 @@
                 <el-button size="small" text :icon="Plus" @click="appendListConfig('filters', { field: '', operator: '=', value: '' })">添加</el-button>
               </div>
               <div v-for="(item, index) in listConfig('filters')" :key="`filter-${index}`" class="filter-row">
-                <el-input v-model="item.field" placeholder="字段" />
+                <el-select v-model="item.field" class="field-select" filterable allow-create default-first-option placeholder="字段">
+                  <el-option v-for="field in fieldCandidates" :key="`filter-field-${field}`" :label="field" :value="field" />
+                </el-select>
                 <el-select v-model="item.operator" placeholder="操作符">
                   <el-option label="=" value="=" />
                   <el-option label=">=" value=">=" />
@@ -645,6 +661,13 @@
                 <el-input v-model="dedupeKeysText" placeholder="order_id, user_id" />
               </label>
               <label>
+                <span>重复保留</span>
+                <el-select v-model="dedupeKeep" placeholder="重复保留策略">
+                  <el-option label="保留首条" value="first" />
+                  <el-option label="保留末条" value="last" />
+                </el-select>
+              </label>
+              <label>
                 <span>聚合维度</span>
                 <el-input v-model="aggregationGroupByText" placeholder="area, create_date" />
               </label>
@@ -653,7 +676,9 @@
                 <el-button size="small" text :icon="Plus" @click="appendAggregationMetric">添加</el-button>
               </div>
               <div v-for="(metric, index) in aggregationMetrics" :key="`metric-${index}`" class="filter-row">
-                <el-input v-model="metric.field" placeholder="字段" />
+                <el-select v-model="metric.field" class="field-select" filterable allow-create default-first-option placeholder="字段">
+                  <el-option v-for="field in fieldCandidates" :key="`metric-field-${field}`" :label="field" :value="field" />
+                </el-select>
                 <el-select v-model="metric.function" placeholder="函数">
                   <el-option label="SUM" value="sum" />
                   <el-option label="AVG" value="avg" />
@@ -687,11 +712,20 @@
               </label>
               <label>
                 <span>数据源 ID</span>
-                <el-input-number v-model="selectedNodeConfig.datasource_id" :min="1" controls-position="right" />
+                <el-select v-model="selectedNodeConfig.datasource_id" clearable filterable placeholder="默认使用管道数据源">
+                  <el-option v-for="datasource in datasourceOptions" :key="datasource.id" :label="datasource.name" :value="datasource.id" />
+                </el-select>
               </label>
               <label>
                 <span>物化目标表</span>
                 <el-input v-model="selectedNodeConfig.target_table" placeholder="etl_sql_result" />
+              </label>
+              <label>
+                <span>物化模式</span>
+                <el-select v-model="selectedNodeConfig.mode" placeholder="物化模式">
+                  <el-option label="替换物化" value="replace" />
+                  <el-option label="追加物化" value="append" />
+                </el-select>
               </label>
             </div>
           </template>
@@ -706,7 +740,9 @@
               </label>
               <label>
                 <span>业务系统数据源 ID</span>
-                <el-input-number v-model="selectedNodeConfig.datasource_id" :min="1" controls-position="right" />
+                <el-select v-model="selectedNodeConfig.datasource_id" clearable filterable placeholder="选择业务系统数据源">
+                  <el-option v-for="datasource in datasourceOptions" :key="datasource.id" :label="datasource.name" :value="datasource.id" />
+                </el-select>
               </label>
               <label>
                 <span>回写目标表</span>
@@ -728,13 +764,21 @@
                 <span>更新键</span>
                 <el-input v-model="reverseEtlKeysText" placeholder="crm_order_id, tenant_id" />
               </label>
+              <label>
+                <span>写入批次大小</span>
+                <el-input-number v-model="selectedNodeConfig.batch_size" :min="1" :max="100000" controls-position="right" />
+              </label>
               <div class="config-title">
                 <strong>回写字段映射</strong>
                 <el-button size="small" text :icon="Plus" @click="appendListConfig('field_mapping', { source: '', target: '' })">添加</el-button>
               </div>
               <div v-for="(item, index) in listConfig('field_mapping')" :key="`reverse-map-${index}`" class="mapping-row">
-                <el-input v-model="item.source" placeholder="分析字段" />
-                <el-input v-model="item.target" placeholder="业务系统字段" />
+                <el-select v-model="item.source" class="field-select" filterable allow-create default-first-option placeholder="分析字段">
+                  <el-option v-for="field in fieldCandidates" :key="`reverse-source-${field}`" :label="field" :value="field" />
+                </el-select>
+                <el-select v-model="item.target" class="field-select" filterable allow-create default-first-option placeholder="业务系统字段">
+                  <el-option v-for="field in fieldCandidates" :key="`reverse-target-${field}`" :label="field" :value="field" />
+                </el-select>
                 <el-button text type="danger" @click="removeListConfig('field_mapping', index)">删除</el-button>
               </div>
             </div>
@@ -746,6 +790,7 @@
                 <strong>质量规则</strong>
                 <el-button size="small" text :icon="Plus" @click="openRuleCreate">新增规则</el-button>
               </div>
+              <el-checkbox v-model="selectedNodeConfig.fail_fast">失败即阻断后续输出</el-checkbox>
               <div v-for="rule in qualityRules" :key="rule.id" class="rule-chip">
                 <span>{{ rule.name }}</span>
                 <el-tag :type="rule.severity === 'error' ? 'danger' : 'warning'" size="small" effect="plain">{{ severityLabel(rule.severity) }}</el-tag>
@@ -766,6 +811,10 @@
                   <el-option label="追加写入" value="append" />
                   <el-option label="仅刷新数据集" value="dataset_refresh" />
                 </el-select>
+              </label>
+              <label>
+                <span>写入批次大小</span>
+                <el-input-number v-model="selectedNodeConfig.batch_size" :min="1" :max="100000" controls-position="right" />
               </label>
             </div>
           </template>
@@ -983,6 +1032,12 @@ type DatasetItem = {
   fields_json?: { fields?: Array<string | Record<string, any>>; dimensions?: Array<string | Record<string, any>>; metrics?: Array<string | Record<string, any>> } | null
   semantic_model_json?: { dimensions?: Array<Record<string, any>>; measures?: Array<Record<string, any>> } | null
 }
+type DataSourceItem = {
+  id: number
+  name: string
+  slug?: string
+  source_type?: string | null
+}
 type Pipeline = {
   id: number
   name: string
@@ -1088,6 +1143,7 @@ const activeWorkbenchTab = ref("design")
 const detailTab = ref("preview")
 const pipelines = ref<Pipeline[]>([])
 const datasets = ref<DatasetItem[]>([])
+const datasources = ref<DataSourceItem[]>([])
 const operatorCatalog = ref<OperatorDefinition[]>([])
 const qualityRules = ref<QualityRule[]>([])
 const runHistory = ref<PipelineRun[]>([])
@@ -1220,6 +1276,15 @@ const selectedNode = computed<DagNode | null>(() => {
 const selectedNodeConfig = computed<Record<string, any>>(() => {
   if (!selectedNode.value) return {}
   selectedNode.value.config ||= {}
+  if (selectedNode.value.type === "quality" && selectedNode.value.config.fail_fast === undefined) selectedNode.value.config.fail_fast = true
+  if (selectedNode.value.type === "sql" && !selectedNode.value.config.mode) selectedNode.value.config.mode = "replace"
+  if (selectedNode.value.type === "transform") {
+    selectedNode.value.config.dedupe ||= { keys: [], keep: "first" }
+    selectedNode.value.config.dedupe.keep ||= "first"
+  }
+  if ((selectedNode.value.type === "load" || selectedNode.value.type === "sink" || selectedNode.value.type === "reverse_etl") && !selectedNode.value.config.batch_size) {
+    selectedNode.value.config.batch_size = 5000
+  }
   return selectedNode.value.config
 })
 const iconRegistry: Record<string, any> = {
@@ -1379,6 +1444,29 @@ const selectedDatasetFields = computed(() => {
   collect(dataset.semantic_model_json?.measures)
   return Array.from(names)
 })
+const fieldCandidates = computed(() => {
+  const names = new Set<string>(selectedDatasetFields.value)
+  for (const column of previewColumns.value) names.add(column)
+  for (const field of inspectSchema.value) {
+    if (field?.name) names.add(field.name)
+  }
+  return Array.from(names)
+})
+const datasourceOptions = computed<DataSourceItem[]>(() => {
+  const byId = new Map<number, DataSourceItem>()
+  for (const datasource of datasources.value) {
+    byId.set(datasource.id, datasource)
+  }
+  for (const dataset of datasets.value) {
+    if (dataset.datasource_id && !byId.has(dataset.datasource_id)) {
+      byId.set(dataset.datasource_id, {
+        id: dataset.datasource_id,
+        name: `数据源 #${dataset.datasource_id}`,
+      })
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.id - b.id)
+})
 const upstreamCandidates = computed(() => {
   const nodes = selectedPipeline.value?.dag_json?.nodes || []
   return nodes.filter((node) => String(node.id) !== String(selectedNode.value?.id))
@@ -1528,6 +1616,13 @@ const dedupeKeysText = computed({
   set: (value: string) => {
     selectedNodeConfig.value.dedupe ||= { keep: "first" }
     selectedNodeConfig.value.dedupe.keys = splitCsv(value)
+  },
+})
+const dedupeKeep = computed({
+  get: () => selectedNodeConfig.value.dedupe?.keep || "first",
+  set: (value: string) => {
+    selectedNodeConfig.value.dedupe ||= { keys: [] }
+    selectedNodeConfig.value.dedupe.keep = value || "first"
   },
 })
 const metadataTablesText = computed({
@@ -1793,12 +1888,12 @@ const defaultNodeConfig = (type: string) => {
   if (type === "union") return { mode: "all", keys: [] }
   if (type === "sql") {
     const datasourceId = datasets.value.find((item) => item.id === selectedPipeline.value?.dataset_id)?.datasource_id
-    return { execution_mode: "in_memory", sql: "SELECT * FROM input", datasource_id: datasourceId, target_table: "" }
+    return { execution_mode: "in_memory", sql: "SELECT * FROM input", datasource_id: datasourceId, target_table: "", mode: "replace" }
   }
-  if (type === "load" || type === "sink") return { mode: "dataset_refresh", target_table: "" }
+  if (type === "load" || type === "sink") return { mode: "dataset_refresh", target_table: "", batch_size: 5000 }
   if (type === "reverse_etl") {
     const datasourceId = datasets.value.find((item) => item.id === selectedPipeline.value?.dataset_id)?.datasource_id
-    return { target_type: "database", datasource_id: datasourceId, target_table: "", mode: "upsert", primary_key: "", upsert_keys: [], field_mapping: [] }
+    return { target_type: "database", datasource_id: datasourceId, target_table: "", mode: "upsert", primary_key: "", upsert_keys: [], field_mapping: [], batch_size: 5000 }
   }
   return {}
 }
@@ -1862,13 +1957,15 @@ const loadSelectedDetails = async () => {
 const loadAll = async () => {
   loading.value = true
   try {
-    const [pipelineResp, datasetResp, operatorResp] = await Promise.all([
+    const [pipelineResp, datasetResp, operatorResp, datasourceResp] = await Promise.all([
       axios.get("/api/pipelines"),
       axios.get("/api/datasets"),
       axios.get("/api/pipelines/operators"),
+      axios.get("/api/datasources"),
     ])
     pipelines.value = pipelineResp.data || []
     datasets.value = datasetResp.data.items || []
+    datasources.value = datasourceResp.data.items || datasourceResp.data || []
     operatorCatalog.value = operatorResp.data || []
     selectedId.value = pipelines.value.some((item) => item.id === selectedId.value) ? selectedId.value : pipelines.value[0]?.id || null
     await loadSelectedDetails()
@@ -3379,6 +3476,10 @@ onMounted(loadAll)
 
 .node-search-input {
   width: clamp(180px, 22vw, 260px);
+}
+
+.field-select {
+  width: 100%;
 }
 
 .section-heading span,

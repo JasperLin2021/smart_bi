@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from copy import copy
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, text
+from sqlalchemy import inspect as sa_inspect, or_, text
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
@@ -186,12 +187,13 @@ PIPELINE_OPERATOR_CATALOG: list[dict[str, Any]] = [
         "description": "写入目标表或刷新 BI 数据集。",
         "input_ports": ["rows"],
         "output_ports": [],
-        "default_config": {"mode": "dataset_refresh", "target_table": ""},
+        "default_config": {"mode": "dataset_refresh", "target_table": "", "batch_size": 5000},
         "config_schema": {
             "required": [],
             "properties": {
                 "target_table": {"type": "string", "title": "目标表"},
                 "mode": {"type": "string", "enum": ["dataset_refresh", "replace", "append"], "title": "装载模式"},
+                "batch_size": {"type": "integer", "title": "写入批次大小"},
             },
         },
     },
@@ -203,7 +205,7 @@ PIPELINE_OPERATOR_CATALOG: list[dict[str, Any]] = [
         "description": "把分析结果回写业务库，支持追加、替换和按主键更新写入。",
         "input_ports": ["rows"],
         "output_ports": [],
-        "default_config": {"target_type": "database", "datasource_id": None, "target_table": "", "mode": "upsert", "primary_key": "", "upsert_keys": [], "field_mapping": []},
+        "default_config": {"target_type": "database", "datasource_id": None, "target_table": "", "mode": "upsert", "primary_key": "", "upsert_keys": [], "field_mapping": [], "batch_size": 5000},
         "config_schema": {
             "required": ["target_table"],
             "properties": {
@@ -214,6 +216,7 @@ PIPELINE_OPERATOR_CATALOG: list[dict[str, Any]] = [
                 "primary_key": {"type": "string", "title": "主键字段"},
                 "upsert_keys": {"type": "array", "items": {"type": "string"}, "title": "更新键"},
                 "field_mapping": {"type": "array", "title": "字段映射"},
+                "batch_size": {"type": "integer", "title": "写入批次大小"},
             },
         },
     },
@@ -279,6 +282,7 @@ def _diagnose_dag(
     *,
     require_source: bool = True,
     require_output: bool = True,
+    strict_config: bool = True,
 ) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     nodes = dag_json.get("nodes")
@@ -359,18 +363,32 @@ def _diagnose_dag(
         node_id = str(node.get("id") or "")
         node_type = str(node.get("type") or "")
         config = node.get("config") if isinstance(node.get("config"), dict) else {}
+        config_severity = "critical" if strict_config else "warning"
         if node_type == "join" and not (config.get("left_key") or config.get("key")):
-            diagnostics.append({"severity": "critical", "code": "missing_join_key", "message": f"join 节点 {node_id} 缺少关联键", "node_id": node_id})
+            diagnostics.append({"severity": config_severity, "code": "missing_join_key", "message": f"join 节点 {node_id} 缺少关联键", "node_id": node_id})
         if node_type == "metadata_extract" and config.get("datasource_id") is None:
             diagnostics.append({"severity": "warning", "code": "metadata_datasource_default", "message": f"元数据节点 {node_id} 将使用管道默认数据源", "node_id": node_id})
         if node_type == "sql" and not str(config.get("sql") or "").strip():
-            diagnostics.append({"severity": "critical", "code": "missing_sql", "message": f"SQL 节点 {node_id} 缺少查询语句", "node_id": node_id})
+            diagnostics.append({"severity": config_severity, "code": "missing_sql", "message": f"SQL 节点 {node_id} 缺少查询语句", "node_id": node_id})
         if node_type == "reverse_etl":
             target_type = str(config.get("target_type") or "database").lower()
             if target_type != "database":
-                diagnostics.append({"severity": "critical", "code": "unsupported_reverse_etl_target", "message": f"反向 ETL 节点 {node_id} 仅支持数据库目标", "node_id": node_id})
+                diagnostics.append({"severity": config_severity, "code": "unsupported_reverse_etl_target", "message": f"反向 ETL 节点 {node_id} 仅支持数据库目标", "node_id": node_id})
             if not str(config.get("target_table") or "").strip():
-                diagnostics.append({"severity": "critical", "code": "missing_reverse_etl_target", "message": f"反向 ETL 节点 {node_id} 缺少目标表", "node_id": node_id})
+                diagnostics.append({"severity": config_severity, "code": "missing_reverse_etl_target", "message": f"反向 ETL 节点 {node_id} 缺少目标表", "node_id": node_id})
+            raw_upsert_keys = config.get("upsert_keys")
+            has_upsert_keys = bool(str(config.get("primary_key") or "").strip()) or (
+                isinstance(raw_upsert_keys, list) and any(str(item).strip() for item in raw_upsert_keys)
+            )
+            if str(config.get("mode") or "append").lower() == "upsert" and not has_upsert_keys:
+                diagnostics.append(
+                    {
+                        "severity": config_severity,
+                        "code": "missing_reverse_etl_upsert_keys",
+                        "message": f"反向 ETL 节点 {node_id} 使用更新写入时必须配置主键字段或更新键",
+                        "node_id": node_id,
+                    }
+                )
 
     valid_nodes = [node for node in nodes if isinstance(node, dict) and node.get("id")]
     has_source = any(node_types.get(str(node.get("id"))) in SOURCE_NODE_TYPES or _sql_node_has_external_source(node, in_degree) for node in valid_nodes)
@@ -425,8 +443,14 @@ def _critical_messages(diagnostics: list[dict[str, Any]]) -> list[str]:
     return [str(item["message"]) for item in diagnostics if item.get("severity") == "critical"]
 
 
-def _validate_dag(dag_json: dict[str, Any], *, require_source: bool = True, require_output: bool = True) -> None:
-    diagnostics = _diagnose_dag(dag_json, require_source=require_source, require_output=require_output)
+def _validate_dag(
+    dag_json: dict[str, Any],
+    *,
+    require_source: bool = True,
+    require_output: bool = True,
+    strict_config: bool = True,
+) -> None:
+    diagnostics = _diagnose_dag(dag_json, require_source=require_source, require_output=require_output, strict_config=strict_config)
     critical = _critical_messages(diagnostics)
     if critical:
         raise HTTPException(status_code=400, detail="；".join(critical))
@@ -498,6 +522,85 @@ def _build_datasource_resolver(db: Session, current_user: User):
         return _get_datasource_for_user(db, datasource_id, current_user)
 
     return resolve
+
+
+def _metadata_schema(datasource: DataSource) -> dict[str, Any]:
+    raw = datasource.schema_metadata
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _sync_metadata_extract_catalog_assets(
+    db: Session,
+    pipeline: DataPipeline,
+    default_datasource: DataSource,
+    current_user: User,
+) -> None:
+    connection = db.connection()
+    if not sa_inspect(connection).has_table("data_assets"):
+        return
+
+    from app.models.catalog import DataAsset
+
+    for node in (pipeline.dag_json or {}).get("nodes", []) or []:
+        if not isinstance(node, dict) or node.get("type") != "metadata_extract":
+            continue
+        config = node.get("config") if isinstance(node.get("config"), dict) else {}
+        if config.get("write_to_catalog") is not True:
+            continue
+        datasource = default_datasource
+        if config.get("datasource_id"):
+            datasource = _get_datasource_for_user(db, int(config["datasource_id"]), current_user)
+        schema = _metadata_schema(datasource)
+        requested_tables = {
+            str(item).strip()
+            for item in config.get("tables", [])
+            if str(item).strip()
+        } if isinstance(config.get("tables"), list) else set()
+        for table in schema.get("tables", []) or []:
+            table_name = str(table.get("name") or "").strip()
+            if not table_name or (requested_tables and table_name not in requested_tables):
+                continue
+            asset = (
+                db.query(DataAsset)
+                .filter(
+                    DataAsset.asset_type == "table",
+                    DataAsset.datasource_id == datasource.id,
+                    DataAsset.name == table_name,
+                    DataAsset.org_id == datasource.org_id,
+                )
+                .first()
+            )
+            metadata = {
+                "source": "metadata_extract",
+                "pipeline_id": pipeline.id,
+                "node_id": node.get("id"),
+                "datasource_id": datasource.id,
+                "table_name": table_name,
+                "columns": table.get("columns", []),
+            }
+            if asset is None:
+                asset = DataAsset(
+                    asset_type="table",
+                    name=table_name,
+                    datasource_id=datasource.id,
+                    org_id=datasource.org_id or pipeline.org_id,
+                    owner_id=getattr(current_user, "id", None),
+                    status="published",
+                    tags=["metadata_extract"],
+                    metadata_json=metadata,
+                )
+                db.add(asset)
+            else:
+                asset.status = "published"
+                asset.owner_id = asset.owner_id or getattr(current_user, "id", None)
+                asset.metadata_json = metadata
 
 
 def _sync_pipeline_schedule(pipeline_id: int) -> None:
@@ -944,7 +1047,7 @@ def create_pipeline(
         payload.retry_count,
         payload.timeout_minutes,
     )
-    _validate_dag(payload.dag_json, require_source=False, require_output=False)
+    _validate_dag(payload.dag_json, require_source=False, require_output=False, strict_config=False)
     dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
     pipeline = DataPipeline(
         **payload.model_dump(),
@@ -1009,7 +1112,7 @@ def update_pipeline(
     }
     _validate_pipeline_settings(**candidate)
     if "dag_json" in updates:
-        _validate_dag(updates["dag_json"], require_source=False, require_output=False)
+        _validate_dag(updates["dag_json"], require_source=False, require_output=False, strict_config=False)
     if "dataset_id" in updates:
         dataset = _get_dataset_for_user(db, updates["dataset_id"], current_user)
         pipeline.org_id = dataset.org_id
@@ -1126,6 +1229,8 @@ def run_pipeline(
         records_failed = execution.records_failed
         run_status = execution.status
         error_message = execution.error_message
+        if run_status == "success" and not payload.dry_run:
+            _sync_metadata_extract_catalog_assets(db, pipeline, datasource, current_user)
     except Exception as exc:
         node_logs = {
             "summary": {

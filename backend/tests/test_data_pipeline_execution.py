@@ -333,6 +333,8 @@ class DataPipelineExecutionTests(unittest.TestCase):
         self.assertEqual(by_type["sql"]["category"], "SQL/ELT")
         self.assertIn("execution_mode", by_type["sql"]["config_schema"]["properties"])
         self.assertIn("primary_key", by_type["reverse_etl"]["config_schema"]["properties"])
+        self.assertIn("batch_size", by_type["load"]["config_schema"]["properties"])
+        self.assertIn("batch_size", by_type["reverse_etl"]["config_schema"]["properties"])
         self.assertEqual(by_type["reverse_etl"]["default_config"]["mode"], "upsert")
         self.assertGreaterEqual(len(by_type["join"]["input_ports"]), 2)
 
@@ -1310,6 +1312,145 @@ class DataPipelineExecutionTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_pipeline_validation_blocks_reverse_etl_upsert_without_keys(self):
+        from app.api.pipelines import create_pipeline, validate_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="反向 ETL 缺少更新键",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {
+                                "id": "sync_crm",
+                                "type": "reverse_etl",
+                                "label": "回写 CRM",
+                                "config": {
+                                    "target_type": "database",
+                                    "datasource_id": 101,
+                                    "target_table": "crm_paid_orders",
+                                    "mode": "upsert",
+                                },
+                            },
+                        ],
+                        "edges": [{"source": "extract_orders", "target": "sync_crm"}],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            validation = validate_pipeline(pipeline.id, db=db, current_user=admin)
+
+            self.assertEqual(validation.status, "blocked")
+            self.assertTrue(any(item.code == "missing_reverse_etl_upsert_keys" for item in validation.diagnostics))
+        finally:
+            os.unlink(source_path)
+
+    def test_quality_gate_fail_fast_false_allows_downstream_load(self):
+        from app.api.pipelines import create_pipeline, create_quality_rule, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest, QualityRuleCreate
+
+        source_path = self._source_database(
+            [
+                {"work_date": "2026-05-01", "line": "A", "oee": 91.5, "revenue": 12000},
+                {"work_date": "2026-05-02", "line": "B", "oee": None, "revenue": 9800},
+            ]
+        )
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_pipeline_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="质量失败不中断管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract", "type": "extract", "label": "抽取"},
+                            {"id": "quality", "type": "quality", "label": "质量闸门", "config": {"fail_fast": False}},
+                            {"id": "load", "type": "load", "label": "装载", "config": {"target_table": "quality_non_blocking", "batch_size": 1}},
+                        ],
+                        "edges": [
+                            {"source": "extract", "target": "quality"},
+                            {"source": "quality", "target": "load"},
+                        ],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+            create_quality_rule(
+                QualityRuleCreate(
+                    pipeline_id=pipeline.id,
+                    dataset_id=301,
+                    name="OEE 必填",
+                    rule_type="not_null",
+                    field="oee",
+                    severity="error",
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.records_failed, 1)
+            self.assertEqual(run.records_written, 2)
+            self.assertEqual(run.node_logs_json["summary"]["quality"], "failed")
+            quality_log = next(node for node in run.node_logs_json["nodes"] if node["node_id"] == "quality")
+            load_log = next(node for node in run.node_logs_json["nodes"] if node["node_id"] == "load")
+            self.assertEqual(quality_log["status"], "warning")
+            self.assertEqual(load_log["status"], "success")
+            self.assertEqual(load_log["batch_size"], 1)
+            self.assertEqual(load_log["batch_count"], 2)
+        finally:
+            os.unlink(source_path)
+
     def test_metadata_extract_node_refreshes_datasource_schema_metadata(self):
         import json
 
@@ -1375,6 +1516,74 @@ class DataPipelineExecutionTests(unittest.TestCase):
             self.assertEqual(run.status, "success")
             self.assertEqual(metadata["tables"][0]["name"], "order_events")
             self.assertIn("updated_at", [column["name"] for column in metadata["tables"][0]["columns"]])
+        finally:
+            os.unlink(source_path)
+
+    def test_metadata_extract_node_syncs_tables_to_catalog_when_enabled(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    DataAsset.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="元数据同步目录管道",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {
+                                "id": "extract_metadata",
+                                "type": "metadata_extract",
+                                "label": "抽取元数据",
+                                "config": {
+                                    "datasource_id": 101,
+                                    "tables": ["order_events"],
+                                    "refresh_schema": True,
+                                    "write_to_catalog": True,
+                                },
+                            },
+                            {"id": "load_metadata", "type": "load", "label": "写入元数据快照", "config": {"target_table": "etl_metadata_snapshot"}},
+                        ],
+                        "edges": [{"source": "extract_metadata", "target": "load_metadata"}],
+                    },
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(pipeline.id, PipelineRunRequest(mode="manual"), db=db, current_user=admin)
+
+            asset = db.query(DataAsset).filter(DataAsset.asset_type == "table", DataAsset.datasource_id == 101, DataAsset.name == "order_events").one()
+            self.assertEqual(run.status, "success")
+            self.assertEqual(asset.status, "published")
+            self.assertEqual(asset.org_id, 1)
+            self.assertEqual(asset.owner_id, 10)
+            self.assertEqual(asset.metadata_json["source"], "metadata_extract")
+            self.assertEqual(asset.metadata_json["pipeline_id"], pipeline.id)
+            self.assertIn("updated_at", [column["name"] for column in asset.metadata_json["columns"]])
         finally:
             os.unlink(source_path)
 

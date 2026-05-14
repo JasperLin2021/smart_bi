@@ -71,6 +71,22 @@ test("data pipeline workbench exposes inspect/profile and SQL editor affordances
   assert.match(pipelines, /更新写入/)
 })
 
+test("data pipeline node inspector exposes complete executable operator settings", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /物化模式/)
+  assert.match(pipelines, /追加物化/)
+  assert.match(pipelines, /selectedNodeConfig\.fail_fast/)
+  assert.match(pipelines, /失败即阻断后续输出/)
+  assert.match(pipelines, /保留首条/)
+  assert.match(pipelines, /保留末条/)
+  assert.match(pipelines, /datasourceOptions/)
+  assert.match(pipelines, /fieldCandidates/)
+  assert.match(pipelines, /写入批次大小/)
+  assert.match(pipelines, /batch_size/)
+  assert.doesNotMatch(pipelines, /<el-input-number v-model="selectedNodeConfig\.datasource_id"/)
+})
+
 test("data pipeline workbench applies consistent enterprise toolbar styling", () => {
   const pipelines = read("src/views/DataPipelines.vue")
 

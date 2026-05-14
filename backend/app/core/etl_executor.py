@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from sqlalchemy import text
 
@@ -706,6 +706,25 @@ def _target_write_keys(config: dict[str, Any], columns: list[str]) -> list[str]:
     return [key for key in dict.fromkeys(keys) if key in columns and SAFE_TABLE_RE.match(key)]
 
 
+def _coerce_batch_size(value: Any, default: int = 5000) -> int:
+    try:
+        batch_size = int(value or default)
+    except (TypeError, ValueError):
+        batch_size = default
+    return max(1, min(batch_size, 100000))
+
+
+def _batch_count(row_count: int, batch_size: int) -> int:
+    if row_count <= 0:
+        return 0
+    return (row_count + batch_size - 1) // batch_size
+
+
+def _row_batches(rows: list[dict[str, Any]], batch_size: int) -> Iterator[list[dict[str, Any]]]:
+    for index in range(0, len(rows), batch_size):
+        yield rows[index : index + batch_size]
+
+
 def _write_target_table(
     datasource: DataSource,
     table_name: str,
@@ -713,10 +732,12 @@ def _write_target_table(
     rows: list[dict[str, Any]],
     mode: str,
     *,
+    batch_size: int | None = None,
     upsert_keys: list[str] | None = None,
 ) -> int:
     if not table_name or mode == "dataset_refresh":
         return len(rows)
+    write_batch_size = _coerce_batch_size(batch_size)
     engine = get_datasource_engine(datasource.database_url)
     table_identifier = _quote_identifier(engine, table_name)
     normalized_columns = [column for column in columns if SAFE_TABLE_RE.match(column)]
@@ -751,7 +772,8 @@ def _write_target_table(
                     conn.execute(text(f"DELETE FROM {table_identifier} WHERE {where_sql}"), params)
             columns_sql = ", ".join(_quote_identifier(engine, column) for column in normalized_columns)
             values_sql = ", ".join(f":{column}" for column in normalized_columns)
-            conn.execute(text(f"INSERT INTO {table_identifier} ({columns_sql}) VALUES ({values_sql})"), prepared_rows)
+            for batch in _row_batches(prepared_rows, write_batch_size):
+                conn.execute(text(f"INSERT INTO {table_identifier} ({columns_sql}) VALUES ({values_sql})"), batch)
     return len(prepared_rows)
 
 
@@ -802,6 +824,7 @@ def execute_pipeline_dag(
         errors: list[str] = []
         execution_mode: str | None = None
         external_target: str | None = None
+        node_extra: dict[str, Any] = {}
         if node_type not in SUPPORTED_NODE_TYPES:
             status = "skipped"
             errors.append("unsupported node type")
@@ -811,6 +834,7 @@ def execute_pipeline_dag(
         else:
             try:
                 if node_type in {"source", "extract"}:
+                    batch_size = _coerce_batch_size(config.get("batch_size"))
                     source_dataset = dataset
                     source_datasource = datasource
                     if config.get("dataset_id") and dataset_resolver:
@@ -821,13 +845,16 @@ def execute_pipeline_dag(
                     columns = _columns_for(rows, extract.get("columns", []))
                     records_read += len(rows)
                     node_records_read = len(rows)
+                    node_extra["batch_size"] = batch_size
+                    node_extra["batch_count"] = _batch_count(len(rows), batch_size)
                     if persist_load and not payload.dry_run:
                         _update_incremental_watermark(source_dataset, rows, config)
                 elif node_type == "metadata_extract":
                     source_datasource = datasource
                     if config.get("datasource_id") and datasource_resolver:
                         source_datasource = datasource_resolver(int(config["datasource_id"]))
-                    extract = metadata_extractor(source_datasource, config)
+                    extract_config = config if persist_load and not payload.dry_run else {**config, "refresh_schema": False}
+                    extract = metadata_extractor(source_datasource, extract_config)
                     rows = [dict(row) for row in extract.get("rows", [])]
                     columns = _columns_for(rows, extract.get("columns", []))
                     records_read += len(rows)
@@ -883,9 +910,12 @@ def execute_pipeline_dag(
                         node_quality_results = []
                     quality_failed = any(result.get("status") == "failed" for result in node_quality_results)
                     quality_warning = any(result.get("status") == "warning" for result in node_quality_results)
-                    if quality_failed:
+                    fail_fast = config.get("fail_fast", True) is not False
+                    if quality_failed and fail_fast:
                         status = "failed"
                         quality_blocked = True
+                    elif quality_failed:
+                        status = "warning"
                     elif quality_warning:
                         status = "warning"
                     rows = input_rows
@@ -893,6 +923,9 @@ def execute_pipeline_dag(
                 elif node_type in {"load", "sink"}:
                     rows = input_rows
                     columns = input_columns
+                    batch_size = _coerce_batch_size(config.get("batch_size"))
+                    node_extra["batch_size"] = batch_size
+                    node_extra["batch_count"] = _batch_count(len(rows), batch_size)
                     if payload.dry_run or not persist_load:
                         node_records_written = 0
                     else:
@@ -902,11 +935,15 @@ def execute_pipeline_dag(
                             _columns_for(rows, columns),
                             rows,
                             str(config.get("mode") or "replace").strip(),
+                            batch_size=batch_size,
                         )
                         records_written += node_records_written
                 elif node_type == "reverse_etl":
                     rows = _apply_mapping(input_rows, config.get("field_mapping") or config.get("mappings") or [])
                     columns = _columns_for(rows, input_columns)
+                    batch_size = _coerce_batch_size(config.get("batch_size"))
+                    node_extra["batch_size"] = batch_size
+                    node_extra["batch_count"] = _batch_count(len(rows), batch_size)
                     target_type = str(config.get("target_type") or "database").lower()
                     if target_type != "database":
                         raise ValueError(f"unsupported reverse_etl target_type: {target_type}")
@@ -924,6 +961,7 @@ def execute_pipeline_dag(
                             _columns_for(rows, columns),
                             rows,
                             str(config.get("mode") or "append").strip(),
+                            batch_size=batch_size,
                             upsert_keys=_target_write_keys(config, _columns_for(rows, columns)),
                         )
                         records_written += node_records_written
@@ -956,6 +994,7 @@ def execute_pipeline_dag(
                 "quality_results": node_quality_results if node_type == "quality" and "node_quality_results" in locals() else [],
                 **({"execution_mode": execution_mode} if execution_mode else {}),
                 **({"external_target": external_target} if external_target else {}),
+                **node_extra,
             }
         )
         if "node_records_written" in locals():
@@ -996,7 +1035,16 @@ def execute_pipeline_dag(
                 "final_row_count": len(final_rows),
                 "final_columns": _columns_for(final_rows, final_columns),
                 "node_row_counts": {node_id: len(rowset) for node_id, rowset in rowsets_by_node.items()},
-                "quality": "failed" if quality_blocked else "passed" if quality_results else "not_checked",
+                "quality": (
+                    "failed"
+                    if any(result.get("status") == "failed" for result in quality_results)
+                    else "warning"
+                    if any(result.get("status") == "warning" for result in quality_results)
+                    else "passed"
+                    if quality_results
+                    else "not_checked"
+                ),
+                "quality_blocked": quality_blocked,
                 "quality_results": quality_results,
                 "dry_run": payload.dry_run,
                 "run_window": {
