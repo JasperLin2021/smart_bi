@@ -21,3 +21,11 @@ test("llm settings no longer owns notification channel settings", () => {
   assert.doesNotMatch(llmSettings, /通知渠道配置/)
   assert.doesNotMatch(llmSettings, /\/api\/settings\/notification/)
 })
+
+test("llm settings includes aliyun bailian qwen dashscope preset", () => {
+  const llmSettings = read("src/views/LlmSettings.vue")
+
+  assert.match(llmSettings, /label="阿里云百炼（DashScope）"\s+value="dashscope"/)
+  assert.match(llmSettings, /dashscope:\s*\{\s*base_url:\s*"https:\/\/dashscope\.aliyuncs\.com\/compatible-mode\/v1",\s*model:\s*"qwen3\.6-35b-a3b"/)
+  assert.doesNotMatch(llmSettings, /sk-[a-z0-9]{20,}/i)
+})

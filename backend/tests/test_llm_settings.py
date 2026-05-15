@@ -48,6 +48,23 @@ class LlmSettingsTests(unittest.TestCase):
         self.assertEqual(kwargs["config_override"]["model"], "gemini-3.1-flash-lite-preview")
         self.assertEqual(kwargs["temperature"], 0)
 
+    def test_dashscope_normalization_defaults_to_bailian_qwen36(self):
+        from app.core.llm import normalize_llm_config
+
+        config = normalize_llm_config(
+            {
+                "provider": "aliyun_bailian",
+                "base_url": "",
+                "api_key": "demo-key",
+                "model": "",
+                "temperature": 0.3,
+            }
+        )
+
+        self.assertEqual(config["provider"], "dashscope")
+        self.assertEqual(config["base_url"], "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self.assertEqual(config["model"], "qwen3.6-35b-a3b")
+
     def test_update_llm_setting_preserves_saved_gemini_model_name(self):
         from app.api.settings import update_llm_setting
         from app.schemas.settings import LlmConfigUpdate
