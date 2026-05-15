@@ -39,6 +39,24 @@ test("business query defaults to dataset scope and hides SQL behind technical de
   assert.match(bubble, /message\.mode === ['"]explore['"]/)
 })
 
+test("exploration mode is datasource-only and admin roles default into it", () => {
+  const view = read("src/views/SmartQuery.vue")
+  const store = read("src/store/query.ts")
+
+  assert.match(view, /const isDeptAdminOrAbove = computed/)
+  assert.match(view, /applyRoleDefaultMode/)
+  assert.match(view, /queryStore\.mode = "explore"/)
+  assert.match(view, /if \(queryStore\.mode === "explore"\) return Boolean\(queryStore\.selectedDatasourceId\)/)
+  assert.match(view, /if \(queryStore\.mode === "explore"\) return activeDatasource\.value\?\.name \|\| "未选择数据源"/)
+  assert.match(view, /if \(queryStore\.mode === "explore"\) return "数据源"/)
+  assert.match(view, /v-if="queryStore\.mode === 'explore'"/)
+  assert.doesNotMatch(view, /scopeOptions/)
+  assert.doesNotMatch(view, /value:\s*"dataset"/)
+  assert.doesNotMatch(view, /queryStore\.mode === 'explore' && queryStore\.scopeMode === 'datasource'/)
+  assert.doesNotMatch(view, /queryStore\.scopeMode === "dataset" \? "数据集" : "数据源"/)
+  assert.match(store, /const datasetId = mode === "business" \? this\.selectedDatasetId : null/)
+})
+
 test("natural-language dashboard chart creation is treated as gated exploration", () => {
   const dashboard = read("src/views/DashboardCenter.vue")
 

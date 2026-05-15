@@ -45,6 +45,8 @@ def _normalize_query_mode(mode: str | None, dataset_id: int | None = None) -> st
 def _ensure_query_mode_allowed(mode: str, dataset_id: int | None, current_user: User) -> None:
     if mode == "business" and not dataset_id:
         raise HTTPException(status_code=400, detail="业务问数必须选择数据集")
+    if mode == "explore" and dataset_id:
+        raise HTTPException(status_code=400, detail="探索模式只能选择数据源")
     if mode == "explore" and getattr(current_user, "role", None) not in EXPLORE_ROLES:
         raise HTTPException(status_code=403, detail="探索模式仅部门管理员及以上可用")
 

@@ -21,16 +21,12 @@
 
           <div class="query-scope-panel" :class="{ 'is-explore': queryStore.mode === 'explore' }">
             <div class="scope-mode">
-              <span class="scope-label">{{ queryStore.mode === "business" ? "业务数据集" : "探索范围" }}</span>
-              <el-segmented
-                v-if="queryStore.mode === 'explore'"
-                v-model="queryStore.scopeMode"
-                :options="scopeOptions"
-              />
+              <span class="scope-label">{{ queryStore.mode === "business" ? "业务数据集" : "探索数据源" }}</span>
+              <el-tag v-if="queryStore.mode === 'explore'" size="small" effect="plain" type="warning">仅使用授权数据源</el-tag>
               <el-tag v-else size="small" effect="plain" type="success">默认使用可信指标和数据集语义层</el-tag>
             </div>
             <el-select
-              v-if="queryStore.mode === 'explore' && queryStore.scopeMode === 'datasource'"
+              v-if="queryStore.mode === 'explore'"
               v-model="queryStore.selectedDatasourceId"
               class="scope-select"
               filterable
@@ -135,7 +131,7 @@
                 业务问数必须选择数据集
               </span>
               <span v-else>
-                请先选择探索范围
+                请先选择数据源
               </span>
             </div>
           </div>
@@ -232,12 +228,10 @@ interface DatasetItem {
 
 const datasets = ref<DatasetItem[]>([])
 
-const scopeOptions = [
-  { label: "数据源", value: "datasource" },
-  { label: "数据集", value: "dataset" },
-]
-
 const canUseExploreMode = computed(() => authStore.canUseExploreMode)
+const exploreDefaultRoles = new Set(["dept_admin", "department_admin", "org_admin", "super_admin"])
+const isDeptAdminOrAbove = computed(() => exploreDefaultRoles.has(authStore.profile?.role || ""))
+const roleDefaultApplied = ref(false)
 
 const businessExamples = [
   "最近 30 天各渠道销售额趋势",
@@ -263,7 +257,7 @@ const welcomeDescription = computed(() => {
 const inputPlaceholder = computed(() => {
   if (!queryContextReady.value) return "请先选择问数范围..."
   if (queryStore.mode === "business") return "基于数据集、可信指标和维度提问..."
-  return `基于${queryStore.scopeMode === "dataset" ? "数据集" : "数据源"}探索提问...`
+  return "基于数据源探索提问..."
 })
 
 const selectedDataset = computed(() =>
@@ -276,19 +270,20 @@ const activeDatasource = computed(() =>
 
 const queryContextReady = computed(() => {
   if (queryStore.mode === "business") return Boolean(queryStore.selectedDatasetId)
-  if (queryStore.scopeMode === "dataset") return Boolean(queryStore.selectedDatasetId)
-  return Boolean(queryStore.selectedDatasourceId)
+  if (queryStore.mode === "explore") return Boolean(queryStore.selectedDatasourceId)
+  return false
 })
 
 const activeScopeText = computed(() => {
   if (queryStore.mode === "business") return selectedDataset.value?.name || "未选择数据集"
-  if (queryStore.scopeMode === "dataset") return selectedDataset.value?.name || "未选择数据集"
-  return activeDatasource.value?.name || "未选择数据源"
+  if (queryStore.mode === "explore") return activeDatasource.value?.name || "未选择数据源"
+  return "未选择数据源"
 })
 
 const activeScopeTypeText = computed(() => {
   if (queryStore.mode === "business") return "数据集"
-  return queryStore.scopeMode === "dataset" ? "数据集" : "数据源"
+  if (queryStore.mode === "explore") return "数据源"
+  return "数据源"
 })
 
 const datasourceName = (id: number) =>
@@ -306,20 +301,31 @@ const fetchDatasets = async () => {
   }
 }
 
-const ensureScopeDefaults = () => {
+const applyRoleDefaultMode = () => {
+  if (roleDefaultApplied.value || !authStore.profile?.role) return
+  if (isDeptAdminOrAbove.value) {
+    queryStore.mode = "explore"
+  }
+  roleDefaultApplied.value = true
+}
+
+const ensureScopeDefaults = (useRoleDefault = false) => {
+  if (useRoleDefault) applyRoleDefaultMode()
   if (!canUseExploreMode.value && queryStore.mode === "explore") {
     queryStore.mode = "business"
   }
-  if (queryStore.mode === "business") {
+  if (queryStore.mode === "explore") {
+    queryStore.scopeMode = "datasource"
+  } else {
     queryStore.scopeMode = "dataset"
   }
   if (!queryStore.selectedDatasourceId) {
     queryStore.selectedDatasourceId = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
   }
-  if (queryStore.scopeMode === "dataset" && !queryStore.selectedDatasetId && datasets.value.length > 0) {
+  if (queryStore.mode === "business" && !queryStore.selectedDatasetId && datasets.value.length > 0) {
     queryStore.selectedDatasetId = datasets.value[0].id
   }
-  if (selectedDataset.value) {
+  if (queryStore.mode === "business" && selectedDataset.value) {
     queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
   }
 }
@@ -399,25 +405,30 @@ watch(() => queryStore.mode, () => {
 
 watch(() => queryStore.selectedDatasourceId, (id) => {
   if (id) datasourceStore.switchDatasource(id)
-  if (queryStore.scopeMode === "datasource") {
+  if (queryStore.mode === "explore") {
     queryStore.fetchHistory()
   }
 })
 
 watch(() => queryStore.selectedDatasetId, () => {
-  if (selectedDataset.value) {
+  if (queryStore.mode === "business" && selectedDataset.value) {
     queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
     datasourceStore.switchDatasource(selectedDataset.value.datasource_id)
   }
-  if (queryStore.scopeMode === "dataset") {
+  if (queryStore.mode === "business") {
     queryStore.fetchHistory()
   }
+})
+
+watch(() => authStore.profile?.role, () => {
+  ensureScopeDefaults(true)
+  queryStore.fetchHistory()
 })
 
 onMounted(async () => {
   await datasourceStore.fetchDatasources()
   await fetchDatasets()
-  ensureScopeDefaults()
+  ensureScopeDefaults(true)
   queryStore.fetchHistory()
 })
 </script>

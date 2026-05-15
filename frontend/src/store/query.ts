@@ -149,7 +149,7 @@ export const useQueryStore = defineStore("query", {
       try {
         const dsStore = useDatasourceStore()
         const datasourceId = this.selectedDatasourceId || dsStore.currentId
-        const datasetId = mode === "business" || this.scopeMode === "dataset" ? this.selectedDatasetId : null
+        const datasetId = mode === "business" ? this.selectedDatasetId : null
         const response = await axios.post("/api/query/ask", {
           question,
           mode,

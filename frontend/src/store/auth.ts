@@ -5,7 +5,7 @@ import { ElMessage } from "element-plus"
 export interface UserProfile {
   id: number
   username: string
-  role: 'user' | 'dept_admin' | 'org_admin' | 'super_admin'
+  role: 'user' | 'dept_admin' | 'department_admin' | 'org_admin' | 'super_admin'
   org_id: number | null
   org_name: string | null
 }
@@ -20,7 +20,7 @@ export const useAuthStore = defineStore("auth", {
       return this.profile?.role === 'org_admin' || this.profile?.role === 'super_admin'
     },
     canUseExploreMode(): boolean {
-      return ['dept_admin', 'org_admin', 'super_admin'].includes(this.profile?.role || '')
+      return ['dept_admin', 'department_admin', 'org_admin', 'super_admin'].includes(this.profile?.role || '')
     },
     isSuperAdmin(): boolean {
       return this.profile?.role === 'super_admin'

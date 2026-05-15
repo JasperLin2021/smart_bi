@@ -43,6 +43,17 @@ class QueryModePermissionTests(unittest.TestCase):
                 current_user=SimpleNamespace(role=role),
             )
 
+    def test_explore_mode_rejects_dataset_scope_even_for_admins(self):
+        from app.api.query import _ensure_query_mode_allowed
+
+        with self.assertRaises(HTTPException) as ctx:
+            _ensure_query_mode_allowed(
+                "explore",
+                dataset_id=1,
+                current_user=SimpleNamespace(role="org_admin"),
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
