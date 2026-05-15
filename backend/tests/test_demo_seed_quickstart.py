@@ -47,6 +47,14 @@ class DemoSeedQuickstartTests(unittest.TestCase):
         self.assertIn('"dependency_metrics"', mock_sql)
         self.assertIn("指标计算模型样例", mock_sql)
 
+    def test_nexteer_production_metrics_bind_to_nexteer_dataset(self):
+        mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
+
+        self.assertRegex(
+            mock_sql,
+            r"UPDATE metrics\s+SET[\s\S]+dataset_id\s*=\s*1[\s\S]+datasource_id\s*=\s*2[\s\S]+WHERE name IN \('产出','OEE','线产出'\)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
