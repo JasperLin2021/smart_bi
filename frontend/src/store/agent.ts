@@ -48,6 +48,7 @@ const agentRouteAliases: Record<string, RouteLocationRaw> = {
   "/goview": "/big-screen-center",
   "数据源管理": { path: "/data-development", query: { tab: "datasources" } },
   "数据集开发": { path: "/data-development", query: { tab: "datasets" } },
+  "数据接入": "/data-development",
   "数据源与数据集": "/data-development",
   "用户管理": "/access-control",
   "企业管理": "/access-control",

@@ -22,7 +22,7 @@ test("data access is an independent top-level sidebar menu", () => {
   assert.match(dataAccessBlock, /path:\s*"\/data-access",\s*label:\s*"准备总览"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-link",\s*label:\s*"连接器接入"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"数据加工管道"/)
-  assert.match(dataAccessBlock, /path:\s*"\/data-development",\s*label:\s*"数据源与数据集"/)
+  assert.match(dataAccessBlock, /path:\s*"\/data-development",\s*label:\s*"数据接入"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/datasource-settings",\s*label:\s*"数据源管理"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/dataset-center",\s*label:\s*"数据集开发"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/data-link",\s*label:\s*"数据接入"/)
@@ -32,10 +32,10 @@ test("data access is an independent top-level sidebar menu", () => {
   assert.match(dataAccessBlock, /path:\s*"\/data-catalog",\s*label:\s*"数据目录"/)
 })
 
-test("data source and dataset development share one tabbed workbench", () => {
+test("data access development workbench combines data sources and datasets", () => {
   const view = read("src/views/DataSourceDatasetCenter.vue")
 
-  assert.match(view, /数据源与数据集/)
+  assert.match(view, /数据接入工作台/)
   assert.match(view, /数据源管理/)
   assert.match(view, /数据集开发/)
   assert.match(view, /DataSourceSettings/)

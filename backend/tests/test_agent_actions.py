@@ -64,6 +64,10 @@ class AgentActionPolicyTests(unittest.TestCase):
         self.assertEqual(plan["actions"][0]["type"], "navigate")
         self.assertEqual(plan["actions"][0]["params"]["route"], "/data-development?tab=datasources")
 
+        renamed_plan = asyncio.run(plan_agent_actions("打开数据接入", context))
+        self.assertEqual(renamed_plan["actions"][0]["type"], "navigate")
+        self.assertEqual(renamed_plan["actions"][0]["params"]["route"], "/data-development")
+
     def test_enterprise_agent_actions_cover_refactored_features(self):
         from app.core.agent_actions import get_action_catalog
 

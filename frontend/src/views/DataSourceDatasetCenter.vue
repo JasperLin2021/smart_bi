@@ -1,6 +1,6 @@
 <template>
   <div class="data-development-page">
-    <section class="development-tabs-shell" aria-label="数据源与数据集工作台">
+    <section class="development-tabs-shell" aria-label="数据接入工作台">
       <div class="page-tabbar development-tabbar">
         <button
           v-for="tab in workbenchTabs"

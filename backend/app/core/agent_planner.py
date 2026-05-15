@@ -21,7 +21,7 @@ ROUTE_MAP = {
     "数据准备": "/data-access",
     "准备总览": "/data-access",
     "连接器接入": "/data-link",
-    "数据接入": "/data-link",
+    "数据接入": "/data-development",
     "数据源": "/data-development?tab=datasources",
     "数据源管理": "/data-development?tab=datasources",
     "数据集": "/data-development?tab=datasets",

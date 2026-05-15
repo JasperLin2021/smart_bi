@@ -33,6 +33,7 @@ test("agent store normalizes legacy routes to the current refactored navigation"
   assert.match(store, /normalizeAgentRoute/)
   assert.match(store, /"\/datasource-settings":\s*\{\s*path:\s*"\/data-development",\s*query:\s*\{\s*tab:\s*"datasources"\s*\}/)
   assert.match(store, /"\/dataset-center":\s*\{\s*path:\s*"\/data-development",\s*query:\s*\{\s*tab:\s*"datasets"\s*\}/)
+  assert.match(store, /"数据接入":\s*"\/data-development"/)
   assert.match(store, /"\/user-management":\s*"\/access-control"/)
   assert.match(store, /"\/org-management":\s*"\/access-control"/)
   assert.match(store, /case "create_dataset":/)
