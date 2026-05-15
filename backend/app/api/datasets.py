@@ -67,7 +67,8 @@ JOIN_RE = re.compile(
     re.IGNORECASE,
 )
 AGGREGATION_RE = re.compile(
-    r"^\s*(?P<fn>SUM|AVG|COUNT|MIN|MAX)\s*\(\s*"
+    r"^\s*(?P<fn>SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(\s*"
+    r"(?:(?P<distinct>DISTINCT)\s+)?"
     r"(?P<field>\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*$",
     re.IGNORECASE,
 )
@@ -284,15 +285,20 @@ def _selected_fields(dataset: Dataset, table: str) -> list[str]:
     return [item["field"] for item in _dimension_specs(dataset, table)]
 
 
-def _dimension_specs(dataset: Dataset, table: str) -> list[dict[str, str | None]]:
+def _dimension_specs(dataset: Dataset, table: str) -> list[dict[str, Any]]:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
-    raw_fields = _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields"))
+    raw_dimensions = _as_list(fields_json.get("dimensions"))
+    raw_plain_fields = _as_list(fields_json.get("fields"))
+    has_explicit_dimensions = bool(raw_dimensions) and (
+        raw_dimensions != raw_plain_fields or any(isinstance(item, dict) for item in raw_dimensions)
+    )
+    raw_fields = raw_dimensions or raw_plain_fields
     specs = [
-        {"field": _field_name(item), "alias": _field_alias_override(item)}
+        {"field": _field_name(item), "alias": _field_alias_override(item), "explicit_dimension": has_explicit_dimensions}
         for item in raw_fields
         if _field_name(item)
     ]
-    return specs or [{"field": f"{table}.*", "alias": None}]
+    return specs or [{"field": f"{table}.*", "alias": None, "explicit_dimension": False}]
 
 
 def _dataset_dimension_fields(dataset: Dataset) -> list[str]:
@@ -420,11 +426,17 @@ def _render_aggregation(engine, expression: str, default_table: str, alias_overr
     if not match:
         raise HTTPException(status_code=400, detail=f"聚合表达式不合法: {expression}")
     fn = match.group("fn").upper()
+    is_distinct = fn == "COUNT_DISTINCT" or bool(match.group("distinct"))
     field = match.group("field")
     if field == "*":
+        if is_distinct:
+            raise HTTPException(status_code=400, detail=f"聚合表达式不合法: {expression}")
         alias = alias_override or fn.lower()
         return f"{fn}(*) AS {_quote_output_alias(engine, alias)}"
     _, column = _split_field(field, default_table)
+    if is_distinct:
+        alias = alias_override or f"count_distinct_{column}"
+        return f"COUNT(DISTINCT {_quote_column_ref(engine, field, default_table)}) AS {_quote_output_alias(engine, alias)}"
     alias = alias_override or f"{fn.lower()}_{column}"
     return f"{fn}({_quote_column_ref(engine, field, default_table)}) AS {_quote_output_alias(engine, alias)}"
 
@@ -512,7 +524,7 @@ def _build_excel_dataset_sql(dataset: Dataset, datasource: DataSource, limit: in
                 continue
             select_parts.append("*")
             continue
-        if aggregations and _normalized_field_ref(field, table) in aggregation_fields:
+        if aggregations and _normalized_field_ref(field, table) in aggregation_fields and not spec.get("explicit_dimension"):
             continue
         alias = spec["alias"] or _field_alias(field, table)
         column_ref = _quote_column_ref(engine, field, table)
@@ -580,7 +592,7 @@ def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | No
                 continue
             select_parts.append("*")
             continue
-        if aggregations and _normalized_field_ref(field, table) in aggregation_fields:
+        if aggregations and _normalized_field_ref(field, table) in aggregation_fields and not spec.get("explicit_dimension"):
             continue
         alias = spec["alias"] or _field_alias(field, table)
         column_ref = _quote_column_ref(engine, field, table)

@@ -62,6 +62,18 @@ class DemoSeedQuickstartTests(unittest.TestCase):
         )
         self.assertIn("该指标与“产出”口径重复", mock_sql)
 
+    def test_seeded_visual_etl_pipelines_are_executable_not_placeholder_cards(self):
+        mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
+
+        self.assertIn('"target_table":"etl_nexteer_production_daily"', mock_sql)
+        self.assertIn('"incremental_key":"班次开始时间"', mock_sql)
+        self.assertIn('"target_table":"etl_lantu_sales_incremental_orders"', mock_sql)
+        self.assertIn('"incremental_key":"下单日期"', mock_sql)
+        self.assertRegex(mock_sql, r"\(2, '蓝途销售增量同步',[\s\S]+?\n   3,\n")
+        self.assertIn("(3, 2, 3, '订单号唯一'", mock_sql)
+        self.assertIn("(4, 2, 3, '销售数据新鲜度'", mock_sql)
+        self.assertIn("pg_get_serial_sequence('data_pipeline_runs', 'id')", mock_sql)
+
 
 if __name__ == "__main__":
     unittest.main()

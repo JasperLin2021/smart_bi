@@ -305,6 +305,50 @@ class DatasetPipelineTests(unittest.TestCase):
 
             self.assertEqual(aggregated["columns"], ["quantity", "sum_unit_price"])
             self.assertEqual(aggregated["rows"], [{"quantity": 5, "sum_unit_price": 220}])
+
+            distinct_orders = preview_dataset_draft(
+                DatasetDraftPreviewRequest(
+                    name="订单数去重汇总",
+                    datasource_id=datasource.id,
+                    fields_json={"table": "order_items", "fields": ["order_items.order_id"]},
+                    aggregations_json={
+                        "aggregations": [
+                            {"field": "order_items.order_id", "aggregation": "count_distinct", "alias": "订单数"}
+                        ]
+                    },
+                    limit=30,
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=2, username="nexteer_admin", role="org_admin", org_id=1),
+            )
+
+            self.assertEqual(distinct_orders["columns"], ["订单数"])
+            self.assertEqual(distinct_orders["rows"], [{"订单数": 3}])
+
+            grouped_distinct_orders = preview_dataset_draft(
+                DatasetDraftPreviewRequest(
+                    name="订单号维度去重汇总",
+                    datasource_id=datasource.id,
+                    fields_json={
+                        "table": "order_items",
+                        "dimensions": [{"name": "order_items.order_id", "alias": "订单号"}],
+                    },
+                    aggregations_json={
+                        "aggregations": [
+                            {"field": "order_items.order_id", "aggregation": "count_distinct", "alias": "订单数"}
+                        ]
+                    },
+                    limit=30,
+                ),
+                db=db,
+                current_user=SimpleNamespace(id=2, username="nexteer_admin", role="org_admin", org_id=1),
+            )
+
+            self.assertEqual(grouped_distinct_orders["columns"], ["订单号", "订单数"])
+            self.assertEqual(
+                sorted(grouped_distinct_orders["rows"], key=lambda row: row["订单号"]),
+                [{"订单号": "O001", "订单数": 1}, {"订单号": "O002", "订单数": 1}, {"订单号": "O003", "订单数": 1}],
+            )
         finally:
             os.unlink(source_path)
 

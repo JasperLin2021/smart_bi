@@ -184,15 +184,17 @@ PIPELINE_OPERATOR_CATALOG: list[dict[str, Any]] = [
         "label": "装载",
         "category": "输出",
         "icon": "Finished",
-        "description": "写入目标表或刷新 BI 数据集。",
+        "description": "写入目标表或刷新 BI 数据集，支持替换、追加和按键更新。",
         "input_ports": ["rows"],
         "output_ports": [],
-        "default_config": {"mode": "dataset_refresh", "target_table": "", "batch_size": 5000},
+        "default_config": {"mode": "dataset_refresh", "target_table": "", "primary_key": "", "upsert_keys": [], "batch_size": 5000},
         "config_schema": {
             "required": [],
             "properties": {
                 "target_table": {"type": "string", "title": "目标表"},
-                "mode": {"type": "string", "enum": ["dataset_refresh", "replace", "append"], "title": "装载模式"},
+                "mode": {"type": "string", "enum": ["dataset_refresh", "replace", "append", "upsert"], "title": "装载模式"},
+                "primary_key": {"type": "string", "title": "主键字段"},
+                "upsert_keys": {"type": "array", "items": {"type": "string"}, "title": "更新键"},
                 "batch_size": {"type": "integer", "title": "写入批次大小"},
             },
         },
@@ -275,6 +277,19 @@ def _node_is_output(node: dict[str, Any]) -> bool:
     if node_type in {"load", "sink", "reverse_etl"}:
         return True
     return node_type == "sql" and bool(str(config.get("target_table") or "").strip())
+
+
+def _target_tables_from_dag(dag_json: dict[str, Any] | None) -> list[str]:
+    dag = dag_json if isinstance(dag_json, dict) else {}
+    tables: list[str] = []
+    for node in dag.get("nodes", []) or []:
+        if not isinstance(node, dict) or not _node_is_output(node):
+            continue
+        config = node.get("config") if isinstance(node.get("config"), dict) else {}
+        table = str(config.get("target_table") or "").strip()
+        if table:
+            tables.append(table)
+    return tables
 
 
 def _diagnose_dag(
@@ -386,6 +401,20 @@ def _diagnose_dag(
                         "severity": config_severity,
                         "code": "missing_reverse_etl_upsert_keys",
                         "message": f"反向 ETL 节点 {node_id} 使用更新写入时必须配置主键字段或更新键",
+                        "node_id": node_id,
+                    }
+                )
+        if node_type in {"load", "sink"}:
+            raw_upsert_keys = config.get("upsert_keys")
+            has_upsert_keys = bool(str(config.get("primary_key") or "").strip()) or (
+                isinstance(raw_upsert_keys, list) and any(str(item).strip() for item in raw_upsert_keys)
+            )
+            if str(config.get("mode") or "dataset_refresh").lower() == "upsert" and not has_upsert_keys:
+                diagnostics.append(
+                    {
+                        "severity": config_severity,
+                        "code": "missing_load_upsert_keys",
+                        "message": f"装载节点 {node_id} 使用更新写入时必须配置主键字段或更新键",
                         "node_id": node_id,
                     }
                 )
@@ -1230,6 +1259,11 @@ def run_pipeline(
         run_status = execution.status
         error_message = execution.error_message
         if run_status == "success" and not payload.dry_run:
+            for dataset_id, watermark in execution.incremental_watermarks.items():
+                watermark_dataset = dataset if int(dataset.id) == int(dataset_id) else db.get(Dataset, int(dataset_id))
+                if watermark_dataset:
+                    watermark_dataset.incremental_key = watermark.get("incremental_key")
+                    watermark_dataset.incremental_watermark = watermark.get("incremental_watermark")
             _sync_metadata_extract_catalog_assets(db, pipeline, datasource, current_user)
     except Exception as exc:
         node_logs = {
@@ -1274,6 +1308,16 @@ def run_pipeline(
         dataset.last_refresh_status = "success" if run_status == "success" else "error"
         dataset.last_refresh_at = now
         dataset.last_refresh_row_count = records_written if run_status == "success" else records_read
+        target_tables = _target_tables_from_dag(pipeline.dag_json)
+        if run_status == "success" and target_tables:
+            dataset.materialization_status = "ready"
+            dataset.materialization_mode = "pipeline"
+            dataset.materialized_table_name = target_tables[-1]
+            dataset.materialized_at = now
+            dataset.materialization_message = f"管道 {pipeline.name} 写入目标表 {target_tables[-1]}"
+        elif run_status != "success":
+            dataset.materialization_status = "error"
+            dataset.materialization_message = error_message
         db.add(
             DatasetRefreshLog(
                 dataset_id=dataset.id,
@@ -1445,11 +1489,7 @@ def get_pipeline_lineage(
         for node in dag.get("nodes", []) or []
         if isinstance(node, dict) and node.get("id")
     ]
-    target_tables = [
-        (node.get("config") or {}).get("target_table")
-        for node in dag.get("nodes", []) or []
-        if isinstance(node, dict) and _node_is_output(node) and isinstance(node.get("config"), dict)
-    ]
+    target_tables = _target_tables_from_dag(dag)
     sources: list[dict[str, Any]] = []
     for node in dag.get("nodes", []) or []:
         if not isinstance(node, dict):
@@ -1496,7 +1536,7 @@ def get_pipeline_lineage(
         target={
             "dataset_id": dataset.id,
             "dataset_name": dataset.name,
-            "target_tables": [table for table in target_tables if table],
+            "target_tables": target_tables,
         },
         nodes=nodes,
         edges=[

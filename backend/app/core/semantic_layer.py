@@ -17,7 +17,8 @@ FILTER_RE = re.compile(
     re.IGNORECASE,
 )
 AGGREGATION_RE = re.compile(
-    r"^\s*(?P<fn>SUM|AVG|COUNT|MIN|MAX)\s*\(\s*"
+    r"^\s*(?P<fn>SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(\s*"
+    r"(?:(?P<distinct>DISTINCT)\s+)?"
     r"(?P<field>\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*$",
     re.IGNORECASE,
 )
@@ -27,7 +28,7 @@ AGGREGATIONS = {
     "count": "COUNT",
     "min": "MIN",
     "max": "MAX",
-    "count_distinct": "COUNT DISTINCT",
+    "count_distinct": "COUNT",
 }
 
 
@@ -247,7 +248,7 @@ def infer_semantic_model(dataset: Any) -> dict[str, Any]:
         match = AGGREGATION_RE.match(raw_expression)
         if not match:
             continue
-        fn = match.group("fn").lower()
+        fn = "count_distinct" if match.group("fn").lower() == "count_distinct" or match.group("distinct") else match.group("fn").lower()
         field = match.group("field")
         column = "all" if field == "*" else (_column_name(field, table) if table else _field_column_name(field))
         item_id = _unique_id(f"{fn}_{column}", seen)

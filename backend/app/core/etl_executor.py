@@ -5,13 +5,16 @@ import json
 import re
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
+from app.core.excel_uploads import resolve_excel_source_path
 from app.db.session import get_datasource_engine
 from app.models.data_pipeline import DataPipeline, DataQualityRule
 from app.models.dataset import Dataset
@@ -26,7 +29,7 @@ DatasourceResolver = Callable[[int], DataSource]
 MetadataExtractor = Callable[[DataSource, dict[str, Any]], dict[str, Any]]
 
 
-SAFE_TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SAFE_TABLE_RE = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 SUPPORTED_NODE_TYPES = {"source", "extract", "metadata_extract", "transform", "join", "union", "sql", "quality", "load", "sink", "reverse_etl"}
 
 
@@ -40,6 +43,7 @@ class EtlExecutionResult:
     records_written: int
     records_failed: int
     error_message: str | None = None
+    incremental_watermarks: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
 def _columns_for(rows: list[dict[str, Any]], fallback: list[str] | None = None) -> list[str]:
@@ -48,8 +52,23 @@ def _columns_for(rows: list[dict[str, Any]], fallback: list[str] | None = None) 
     return list(fallback or [])
 
 
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_value(item) for item in value]
+    return value
+
+
 def _preview_rows(rows: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
-    return rows[: max(0, min(int(limit), 20))]
+    return [
+        {str(key): _json_safe_value(value) for key, value in row.items()}
+        for row in rows[: max(0, min(int(limit), 20))]
+    ]
 
 
 def _node_config(node: dict[str, Any]) -> dict[str, Any]:
@@ -481,16 +500,19 @@ def _filter_incremental_rows(
     return output
 
 
-def _update_incremental_watermark(dataset: Dataset, rows: list[dict[str, Any]], config: dict[str, Any]) -> None:
+def _incremental_watermark_update(dataset: Dataset, rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, str] | None:
     incremental_key = str(config.get("incremental_key") or getattr(dataset, "incremental_key", None) or "").strip()
     if not incremental_key or not rows:
-        return
+        return None
     values = [_parse_sortable_datetime(_row_value(row, incremental_key)) for row in rows]
     values = [value for value in values if value is not None]
     if values:
         watermark = max(values)
-        dataset.incremental_key = incremental_key
-        dataset.incremental_watermark = watermark.isoformat() if isinstance(watermark, datetime) else str(watermark)
+        return {
+            "incremental_key": incremental_key,
+            "incremental_watermark": watermark.isoformat() if isinstance(watermark, datetime) else str(watermark),
+        }
+    return None
 
 
 def _default_metadata_extract(datasource: DataSource, config: dict[str, Any]) -> dict[str, Any]:
@@ -535,6 +557,19 @@ def _quote_identifier(engine, identifier: str) -> str:
     if not SAFE_TABLE_RE.match(identifier):
         raise ValueError(f"invalid identifier: {identifier}")
     return engine.dialect.identifier_preparer.quote(identifier)
+
+
+def managed_pipeline_target_path(datasource: DataSource) -> Path:
+    resolved_path = Path(resolve_excel_source_path(datasource.database_url))
+    return resolved_path.with_name(f"{resolved_path.stem}.etl.sqlite")
+
+
+def _target_write_engine(datasource: DataSource) -> tuple[Engine, bool, str]:
+    if getattr(datasource, "source_type", "") == "excel":
+        target_path = managed_pipeline_target_path(datasource)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        return create_engine(f"sqlite:///{target_path}", pool_pre_ping=True), True, "managed_sqlite"
+    return get_datasource_engine(datasource.database_url), False, "datasource"
 
 
 def _sql_type_for(values: list[Any]) -> str:
@@ -738,43 +773,53 @@ def _write_target_table(
     if not table_name or mode == "dataset_refresh":
         return len(rows)
     write_batch_size = _coerce_batch_size(batch_size)
-    engine = get_datasource_engine(datasource.database_url)
-    table_identifier = _quote_identifier(engine, table_name)
-    normalized_columns = [column for column in columns if SAFE_TABLE_RE.match(column)]
-    if not normalized_columns:
-        return 0
-    normalized_columns = list(dict.fromkeys(normalized_columns))
-    write_mode = str(mode or "replace").strip().lower()
-    if write_mode not in {"append", "replace", "upsert"}:
-        raise ValueError(f"unsupported write mode: {write_mode}")
-    safe_upsert_keys = [key for key in upsert_keys or [] if key in normalized_columns and SAFE_TABLE_RE.match(key)]
-    if write_mode == "upsert" and not safe_upsert_keys:
-        raise ValueError("upsert write mode requires primary_key or upsert_keys")
-    definitions = [
-        f"{_quote_identifier(engine, column)} {_sql_type_for([row.get(column) for row in rows])}"
-        for column in normalized_columns
-    ]
-    prepared_rows = [{column: row.get(column) for column in normalized_columns} for row in rows]
-    if write_mode == "upsert" and safe_upsert_keys:
-        by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
-        for row in prepared_rows:
-            by_key[tuple(row.get(key) for key in safe_upsert_keys)] = row
-        prepared_rows = list(by_key.values())
-    with engine.begin() as conn:
-        if write_mode == "replace":
-            conn.execute(text(f"DROP TABLE IF EXISTS {table_identifier}"))
-        conn.execute(text(f"CREATE TABLE IF NOT EXISTS {table_identifier} ({', '.join(definitions)})"))
-        if prepared_rows:
-            if write_mode == "upsert":
-                where_sql = " AND ".join(f"{_quote_identifier(engine, key)} = :_upsert_{key}" for key in safe_upsert_keys)
-                for row in prepared_rows:
-                    params = {f"_upsert_{key}": row.get(key) for key in safe_upsert_keys}
-                    conn.execute(text(f"DELETE FROM {table_identifier} WHERE {where_sql}"), params)
-            columns_sql = ", ".join(_quote_identifier(engine, column) for column in normalized_columns)
-            values_sql = ", ".join(f":{column}" for column in normalized_columns)
-            for batch in _row_batches(prepared_rows, write_batch_size):
-                conn.execute(text(f"INSERT INTO {table_identifier} ({columns_sql}) VALUES ({values_sql})"), batch)
-    return len(prepared_rows)
+    engine, should_dispose, _ = _target_write_engine(datasource)
+    try:
+        table_identifier = _quote_identifier(engine, table_name)
+        normalized_columns = [str(column).split(".")[-1] for column in columns if SAFE_TABLE_RE.match(str(column).split(".")[-1])]
+        if not normalized_columns:
+            return 0
+        normalized_columns = list(dict.fromkeys(normalized_columns))
+        write_mode = str(mode or "replace").strip().lower()
+        if write_mode not in {"append", "replace", "upsert"}:
+            raise ValueError(f"unsupported write mode: {write_mode}")
+        safe_upsert_keys = [key for key in upsert_keys or [] if key in normalized_columns and SAFE_TABLE_RE.match(key)]
+        if write_mode == "upsert" and not safe_upsert_keys:
+            raise ValueError("upsert write mode requires primary_key or upsert_keys")
+        definitions = [
+            f"{_quote_identifier(engine, column)} {_sql_type_for([_sql_row_value(row, column) for row in rows])}"
+            for column in normalized_columns
+        ]
+        prepared_rows = [{column: _safe_sqlite_value(_sql_row_value(row, column)) for column in normalized_columns} for row in rows]
+        if write_mode == "upsert" and safe_upsert_keys:
+            by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+            for row in prepared_rows:
+                by_key[tuple(row.get(key) for key in safe_upsert_keys)] = row
+            prepared_rows = list(by_key.values())
+        insert_param_names = {column: f"p_{index}" for index, column in enumerate(normalized_columns)}
+        with engine.begin() as conn:
+            if write_mode == "replace":
+                conn.execute(text(f"DROP TABLE IF EXISTS {table_identifier}"))
+            conn.execute(text(f"CREATE TABLE IF NOT EXISTS {table_identifier} ({', '.join(definitions)})"))
+            if prepared_rows:
+                if write_mode == "upsert":
+                    delete_param_names = {key: f"upsert_{index}" for index, key in enumerate(safe_upsert_keys)}
+                    where_sql = " AND ".join(f"{_quote_identifier(engine, key)} = :{delete_param_names[key]}" for key in safe_upsert_keys)
+                    for row in prepared_rows:
+                        params = {delete_param_names[key]: row.get(key) for key in safe_upsert_keys}
+                        conn.execute(text(f"DELETE FROM {table_identifier} WHERE {where_sql}"), params)
+                columns_sql = ", ".join(_quote_identifier(engine, column) for column in normalized_columns)
+                values_sql = ", ".join(f":{insert_param_names[column]}" for column in normalized_columns)
+                for batch in _row_batches(prepared_rows, write_batch_size):
+                    param_batch = [
+                        {insert_param_names[column]: row.get(column) for column in normalized_columns}
+                        for row in batch
+                    ]
+                    conn.execute(text(f"INSERT INTO {table_identifier} ({columns_sql}) VALUES ({values_sql})"), param_batch)
+        return len(prepared_rows)
+    finally:
+        if should_dispose:
+            engine.dispose()
 
 
 def execute_pipeline_dag(
@@ -806,6 +851,7 @@ def execute_pipeline_dag(
     records_read = 0
     records_written = 0
     quality_blocked = False
+    incremental_watermarks: dict[int, dict[str, str]] = {}
     run_now = now or datetime.utcnow()
     metadata_extractor = metadata_extractor or _default_metadata_extract
 
@@ -848,7 +894,9 @@ def execute_pipeline_dag(
                     node_extra["batch_size"] = batch_size
                     node_extra["batch_count"] = _batch_count(len(rows), batch_size)
                     if persist_load and not payload.dry_run:
-                        _update_incremental_watermark(source_dataset, rows, config)
+                        watermark_update = _incremental_watermark_update(source_dataset, rows, config)
+                        if watermark_update and getattr(source_dataset, "id", None) is not None:
+                            incremental_watermarks[int(source_dataset.id)] = watermark_update
                 elif node_type == "metadata_extract":
                     source_datasource = datasource
                     if config.get("datasource_id") and datasource_resolver:
@@ -924,18 +972,23 @@ def execute_pipeline_dag(
                     rows = input_rows
                     columns = input_columns
                     batch_size = _coerce_batch_size(config.get("batch_size"))
+                    target_table = str(config.get("target_table") or "").strip()
+                    external_target = target_table or None
                     node_extra["batch_size"] = batch_size
                     node_extra["batch_count"] = _batch_count(len(rows), batch_size)
+                    if target_table:
+                        node_extra["target_store"] = "managed_sqlite" if datasource.source_type == "excel" else "datasource"
                     if payload.dry_run or not persist_load:
                         node_records_written = 0
                     else:
                         node_records_written = _write_target_table(
                             datasource,
-                            str(config.get("target_table") or "").strip(),
+                            target_table,
                             _columns_for(rows, columns),
                             rows,
                             str(config.get("mode") or "replace").strip(),
                             batch_size=batch_size,
+                            upsert_keys=_target_write_keys(config, _columns_for(rows, columns)),
                         )
                         records_written += node_records_written
                 elif node_type == "reverse_etl":
@@ -1060,4 +1113,5 @@ def execute_pipeline_dag(
         records_written=records_written,
         records_failed=records_failed,
         error_message=error_message,
+        incremental_watermarks=incremental_watermarks,
     )

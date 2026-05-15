@@ -1,8 +1,10 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -91,6 +93,17 @@ class DataPipelineExecutionTests(unittest.TestCase):
                 ],
             )
         engine.dispose()
+        return path
+
+    def _excel_order_source_file(self):
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        pd.DataFrame(
+            [
+                {"order_id": "ORD001", "order_date": "2026-05-14", "status": "已完成", "total_amount": 1200},
+                {"order_id": "ORD002", "order_date": "2026-05-15", "status": "已完成", "total_amount": 800},
+            ]
+        ).to_excel(path, sheet_name="orders", index=False)
         return path
 
     def _multi_source_database(self):
@@ -1918,6 +1931,217 @@ class DataPipelineExecutionTests(unittest.TestCase):
                     {"area": "West", "net_amount_sum": 180.0, "order_count": 1},
                 ],
             )
+        finally:
+            os.unlink(source_path)
+
+    def test_excel_source_pipeline_load_writes_managed_target_table(self):
+        from app.api.datasource import create_datasource
+        from app.api.datasets import create_dataset
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.datasource import DataSourceCreate
+        from app.schemas.dataset import DatasetCreate
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._excel_order_source_file()
+        target_path = Path(source_path).with_name(f"{Path(source_path).stem}.etl.sqlite")
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            db.add_all(
+                [
+                    Organization(id=1, name="Nova Manufacturing", slug="nova-mfg"),
+                    User(id=10, username="nova.admin", hashed_password="x", role="org_admin", org_id=1),
+                ]
+            )
+            db.commit()
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+
+            datasource = create_datasource(
+                DataSourceCreate(
+                    name="Excel Sales",
+                    slug="excel-sales",
+                    source_type="excel",
+                    database_url=source_path,
+                    metadata_prompt="订单主表 orders",
+                ),
+                db=db,
+                current_user=admin,
+            )
+            dataset = create_dataset(
+                DatasetCreate(
+                    name="Excel Orders",
+                    datasource_id=datasource["id"],
+                    fields_json={
+                        "table": "orders",
+                        "fields": [
+                            "orders.order_id",
+                            "orders.order_date",
+                            "orders.status",
+                            "orders.total_amount",
+                        ],
+                    },
+                    status="published",
+                    visibility="org",
+                ),
+                db=db,
+                current_user=admin,
+            )
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="Excel 订单落表",
+                    dataset_id=dataset.id,
+                    dag_json={
+                        "nodes": [
+                            {"id": "extract_orders", "type": "extract", "label": "抽取订单"},
+                            {
+                                "id": "normalize_orders",
+                                "type": "transform",
+                                "label": "标准化日期",
+                                "config": {"type_conversions": [{"field": "order_date", "type": "datetime"}]},
+                            },
+                            {
+                                "id": "load_orders",
+                                "type": "load",
+                                "label": "写入订单目标表",
+                                "config": {
+                                    "target_table": "etl_excel_orders",
+                                    "mode": "upsert",
+                                    "primary_key": "order_id",
+                                    "upsert_keys": ["order_id"],
+                                },
+                            },
+                        ],
+                        "edges": [
+                            {"source": "extract_orders", "target": "normalize_orders"},
+                            {"source": "normalize_orders", "target": "load_orders"},
+                        ],
+                    },
+                    run_mode="manual",
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(
+                pipeline.id,
+                PipelineRunRequest(mode="manual", reason="excel target integration test"),
+                db=db,
+                current_user=admin,
+            )
+
+            self.assertEqual(run.status, "success")
+            self.assertEqual(run.records_read, 2)
+            self.assertEqual(run.records_written, 2)
+            self.assertTrue(target_path.exists())
+            load_log = next(node for node in run.node_logs_json["nodes"] if node["node_id"] == "load_orders")
+            self.assertEqual(load_log["external_target"], "etl_excel_orders")
+            self.assertEqual(load_log["target_store"], "managed_sqlite")
+            transform_log = next(node for node in run.node_logs_json["nodes"] if node["node_id"] == "normalize_orders")
+            self.assertEqual(transform_log["preview"][0]["order_date"], "2026-05-14T00:00:00")
+
+            target_engine = create_engine(f"sqlite:///{target_path}")
+            try:
+                with target_engine.connect() as conn:
+                    rows = [
+                        dict(row._mapping)
+                        for row in conn.execute(text("SELECT order_id, total_amount FROM etl_excel_orders ORDER BY order_id")).fetchall()
+                    ]
+            finally:
+                target_engine.dispose()
+            self.assertEqual(rows, [{"order_id": "ORD001", "total_amount": 1200}, {"order_id": "ORD002", "total_amount": 800}])
+
+            db.refresh(dataset)
+            self.assertEqual(dataset.materialization_status, "ready")
+            self.assertEqual(dataset.materialization_mode, "pipeline")
+            self.assertEqual(dataset.materialized_table_name, "etl_excel_orders")
+        finally:
+            os.unlink(source_path)
+            if target_path.exists():
+                target_path.unlink()
+
+    def test_failed_incremental_run_does_not_advance_dataset_watermark(self):
+        from app.api.pipelines import create_pipeline, run_pipeline
+        from app.models.audit_log import AuditLog
+        from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule
+        from app.models.dataset import Dataset, DatasetRefreshLog
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.schemas.pipeline import PipelineCreate, PipelineRunRequest
+
+        source_path = self._multi_source_database()
+        try:
+            db = self._db(
+                [
+                    Organization.__table__,
+                    User.__table__,
+                    DataSource.__table__,
+                    Dataset.__table__,
+                    DatasetRefreshLog.__table__,
+                    DataPipeline.__table__,
+                    DataPipelineRun.__table__,
+                    DataQualityRule.__table__,
+                    AuditLog.__table__,
+                ]
+            )
+            self._seed_multi_dataset_fixture(db, source_path)
+            admin = SimpleNamespace(id=10, username="nova.admin", role="org_admin", org_id=1)
+            dataset = db.get(Dataset, 301)
+            pipeline = create_pipeline(
+                PipelineCreate(
+                    name="失败的增量订单同步",
+                    dataset_id=301,
+                    dag_json={
+                        "nodes": [
+                            {
+                                "id": "extract_orders",
+                                "type": "extract",
+                                "label": "抽取订单",
+                                "config": {"mode": "incremental", "incremental_key": "updated_at"},
+                            },
+                            {
+                                "id": "load_orders",
+                                "type": "load",
+                                "label": "写入失败",
+                                "config": {"target_table": "etl_failed_orders", "mode": "merge"},
+                            },
+                        ],
+                        "edges": [{"source": "extract_orders", "target": "load_orders"}],
+                    },
+                    run_mode="incremental",
+                ),
+                db=db,
+                current_user=admin,
+            )
+
+            run = run_pipeline(
+                pipeline.id,
+                PipelineRunRequest(mode="incremental", reason="expected load failure"),
+                db=db,
+                current_user=admin,
+            )
+
+            self.assertEqual(run.status, "failed")
+            db.refresh(dataset)
+            self.assertIsNone(dataset.incremental_key)
+            self.assertIsNone(dataset.incremental_watermark)
         finally:
             os.unlink(source_path)
 

@@ -1078,16 +1078,16 @@ INSERT INTO data_pipelines
    last_run_status, last_run_at, org_id, owner_id, created_by, created_at, updated_at)
 VALUES
   (1, 'Nexteer 生产明细日同步',
-   '每天凌晨从生产数据源抽取 mainrecord、ngtype、rtyinfo，完成清洗、质量校验后写入生产数据集。',
+   '每天凌晨从生产数据源抽取 mainrecord 班次主数据，完成字段标准化、异常值清洗和质量校验后写入生产明细目标表。',
    1,
-   '{"nodes":[{"id":"extract_mainrecord","type":"extract","label":"抽取 mainrecord"},{"id":"clean_shift","type":"transform","label":"班次字段清洗"},{"id":"quality_oee","type":"quality","label":"OEE/RTY 质量校验"},{"id":"load_dataset","type":"load","label":"写入生产数据集"}],"edges":[{"source":"extract_mainrecord","target":"clean_shift"},{"source":"clean_shift","target":"quality_oee"},{"source":"quality_oee","target":"load_dataset"}]}',
+   '{"nodes":[{"id":"extract_mainrecord","type":"extract","label":"抽取 mainrecord","config":{"dataset_id":1,"mode":"full","incremental_key":"班次开始时间","batch_size":5000}},{"id":"clean_shift","type":"transform","label":"字段标准化与类型清洗","config":{"field_mapping":[{"source":"产线","target":"line"},{"source":"班次","target":"shift_name"},{"source":"班次开始时间","target":"shift_start_time"},{"source":"零件号","target":"part_no"},{"source":"OEE","target":"oee"},{"source":"RTY","target":"rty"},{"source":"总产出","target":"total_count"}],"type_conversions":[{"field":"shift_start_time","type":"datetime"},{"field":"oee","type":"decimal"},{"field":"rty","type":"decimal"},{"field":"total_count","type":"integer"}],"filters":[{"field":"shift_start_time","operator":"not_null"},{"field":"line","operator":"not_null"},{"field":"oee","operator":"not_null"},{"field":"rty","operator":">=","value":0},{"field":"rty","operator":"<=","value":100}]}},{"id":"quality_oee","type":"quality","label":"OEE/RTY 质量校验","config":{"fail_fast":true}},{"id":"load_dataset","type":"load","label":"写入生产明细目标表","config":{"target_table":"etl_nexteer_production_daily","mode":"replace","batch_size":5000}}],"edges":[{"source":"extract_mainrecord","target":"clean_shift"},{"source":"clean_shift","target":"quality_oee"},{"source":"quality_oee","target":"load_dataset"}]}',
    '0 2 * * *', 'scheduled', 'active', 'success', NOW() - INTERVAL '1 day 02:04',
    1, 2, 2, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 day'),
 
   (2, '蓝途销售增量同步',
    '每小时同步蓝途销售订单增量数据，支持失败重试和月底补数。',
-   4,
-   '{"nodes":[{"id":"extract_sales_api","type":"extract","label":"抽取销售 API"},{"id":"dedupe_order","type":"transform","label":"订单去重"},{"id":"load_sales_dataset","type":"load","label":"写入销售数据集"}],"edges":[{"source":"extract_sales_api","target":"dedupe_order"},{"source":"dedupe_order","target":"load_sales_dataset"}]}',
+   3,
+   '{"nodes":[{"id":"extract_sales_orders","type":"extract","label":"抽取 orders 订单增量","config":{"dataset_id":3,"mode":"incremental","incremental_key":"下单日期","batch_size":5000}},{"id":"dedupe_order","type":"transform","label":"订单字段标准化与去重","config":{"field_mapping":[{"source":"订单号","target":"order_id"},{"source":"客户ID","target":"customer_id"},{"source":"客户名称","target":"customer_name"},{"source":"大区","target":"region"},{"source":"城市","target":"city"},{"source":"销售员","target":"salesperson"},{"source":"订单状态","target":"status"},{"source":"付款方式","target":"payment_method"},{"source":"下单日期","target":"order_date"},{"source":"订单金额","target":"total_amount"},{"source":"订单数","target":"order_count"}],"type_conversions":[{"field":"order_date","type":"date"},{"field":"total_amount","type":"decimal"},{"field":"order_count","type":"integer"}],"dedupe":{"keys":["order_id"],"keep":"last"}}},{"id":"quality_sales_orders","type":"quality","label":"订单质量校验","config":{"fail_fast":true}},{"id":"load_sales_dataset","type":"load","label":"写入销售订单增量表","config":{"target_table":"etl_lantu_sales_incremental_orders","mode":"upsert","primary_key":"order_id","upsert_keys":["order_id"],"batch_size":5000}}],"edges":[{"source":"extract_sales_orders","target":"dedupe_order"},{"source":"dedupe_order","target":"quality_sales_orders"},{"source":"quality_sales_orders","target":"load_sales_dataset"}]}',
    '0 * * * *', 'incremental', 'active', 'success', NOW() - INTERVAL '1 hour',
    1, 8, 8, NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour')
 ON CONFLICT (id) DO UPDATE SET
@@ -1107,37 +1107,50 @@ INSERT INTO data_pipeline_runs
    records_failed, error_message, org_id, triggered_by_id, started_at, finished_at)
 VALUES
   (1, 1, 'scheduled', 'success', '每日调度',
-   '{"summary":{"node_count":4,"edge_count":3,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","status":"success","records":4823},{"node_id":"clean_shift","status":"success","records":4823},{"node_id":"quality_oee","status":"success","records":4823},{"node_id":"load_dataset","status":"success","records":4823}]}',
-   4823, 4823, 0, NULL, 1, 2, NOW() - INTERVAL '1 day 02:00', NOW() - INTERVAL '1 day 02:04'),
-  (2, 1, 'backfill', 'success', '补齐五一假期生产记录',
-   '{"summary":{"node_count":4,"edge_count":3,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","status":"success","records":1260},{"node_id":"clean_shift","status":"success","records":1260},{"node_id":"quality_oee","status":"success","records":1260},{"node_id":"load_dataset","status":"success","records":1260}]}',
-   1260, 1260, 0, NULL, 1, 2, NOW() - INTERVAL '3 days 13:00', NOW() - INTERVAL '3 days 13:03'),
-  (3, 2, 'incremental', 'success', '小时级增量同步',
-   '{"summary":{"node_count":3,"edge_count":2,"quality":"passed"},"nodes":[{"node_id":"extract_sales_api","status":"success","records":84},{"node_id":"dedupe_order","status":"success","records":83},{"node_id":"load_sales_dataset","status":"success","records":83}]}',
-   84, 83, 1, NULL, 1, 8, NOW() - INTERVAL '1 hour 5 minutes', NOW() - INTERVAL '1 hour')
+   '{"summary":{"node_count":4,"edge_count":3,"source_row_count":10,"final_node_id":"load_dataset","final_row_count":8,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","type":"extract","status":"success","rows_in":0,"rows_out":10,"records_read":10,"records_written":10},{"node_id":"clean_shift","type":"transform","status":"success","rows_in":10,"rows_out":8,"records_read":10,"records_written":8},{"node_id":"quality_oee","type":"quality","status":"success","rows_in":8,"rows_out":8,"records_read":8,"records_written":8},{"node_id":"load_dataset","type":"load","status":"success","rows_in":8,"rows_out":8,"records_read":8,"records_written":8,"external_target":"etl_nexteer_production_daily","target_store":"managed_sqlite"}]}',
+   10, 8, 0, NULL, 1, 2, NOW() - INTERVAL '1 day 02:00', NOW() - INTERVAL '1 day 02:04'),
+  (2, 1, 'backfill', 'success', '补数窗口无新增生产记录',
+   '{"summary":{"node_count":4,"edge_count":3,"source_row_count":0,"final_node_id":"load_dataset","final_row_count":0,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","type":"extract","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0},{"node_id":"clean_shift","type":"transform","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0},{"node_id":"quality_oee","type":"quality","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0},{"node_id":"load_dataset","type":"load","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0,"external_target":"etl_nexteer_production_daily","target_store":"managed_sqlite"}]}',
+   0, 0, 0, NULL, 1, 2, NOW() - INTERVAL '3 days 13:00', NOW() - INTERVAL '3 days 13:03'),
+  (3, 2, 'incremental', 'success', '小时级订单增量同步',
+   '{"summary":{"node_count":4,"edge_count":3,"source_row_count":1006,"final_node_id":"load_sales_dataset","final_row_count":1006,"quality":"passed"},"nodes":[{"node_id":"extract_sales_orders","type":"extract","status":"success","rows_in":0,"rows_out":1006,"records_read":1006,"records_written":1006},{"node_id":"dedupe_order","type":"transform","status":"success","rows_in":1006,"rows_out":1006,"records_read":1006,"records_written":1006},{"node_id":"quality_sales_orders","type":"quality","status":"success","rows_in":1006,"rows_out":1006,"records_read":1006,"records_written":1006},{"node_id":"load_sales_dataset","type":"load","status":"success","rows_in":1006,"rows_out":1006,"records_read":1006,"records_written":1006,"external_target":"etl_lantu_sales_incremental_orders","target_store":"managed_sqlite"}]}',
+   1006, 1006, 0, NULL, 1, 8, NOW() - INTERVAL '1 hour 5 minutes', NOW() - INTERVAL '1 hour')
 ON CONFLICT (id) DO UPDATE SET
+  mode = EXCLUDED.mode,
   status = EXCLUDED.status,
+  reason = EXCLUDED.reason,
   node_logs_json = EXCLUDED.node_logs_json,
   records_read = EXCLUDED.records_read,
   records_written = EXCLUDED.records_written,
   records_failed = EXCLUDED.records_failed,
+  error_message = EXCLUDED.error_message,
+  started_at = EXCLUDED.started_at,
   finished_at = EXCLUDED.finished_at;
 
 INSERT INTO data_quality_rules
   (id, pipeline_id, dataset_id, name, rule_type, field, operator, threshold, severity,
    is_active, last_status, last_checked_at, org_id, created_by, created_at)
 VALUES
-  (1, 1, 1, 'OEE 不为空', 'not_null', 'OEE', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
-  (2, 1, 1, 'RTY 合理范围', 'range', 'RTY', 'between', '0,100', 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
-  (3, 2, 4, '订单号唯一', 'unique', 'order_id', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days'),
-  (4, 2, 4, '销售数据新鲜度', 'freshness', 'order_date', '<=', '2h', 'warning', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days')
+  (1, 1, 1, 'OEE 不为空', 'not_null', 'oee', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
+  (2, 1, 1, 'RTY 合理范围', 'range', 'rty', 'between', '0,100', 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
+  (3, 2, 3, '订单号唯一', 'unique', 'order_id', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days'),
+  (4, 2, 3, '销售数据新鲜度', 'freshness', 'order_date', '<=', '2h', 'warning', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days')
 ON CONFLICT (id) DO UPDATE SET
+  pipeline_id = EXCLUDED.pipeline_id,
+  dataset_id = EXCLUDED.dataset_id,
   name = EXCLUDED.name,
   rule_type = EXCLUDED.rule_type,
   field = EXCLUDED.field,
+  operator = EXCLUDED.operator,
+  threshold = EXCLUDED.threshold,
   severity = EXCLUDED.severity,
+  is_active = EXCLUDED.is_active,
   last_status = EXCLUDED.last_status,
   last_checked_at = EXCLUDED.last_checked_at;
+
+SELECT setval(pg_get_serial_sequence('data_pipelines', 'id'), GREATEST((SELECT MAX(id) FROM data_pipelines), 2), true);
+SELECT setval(pg_get_serial_sequence('data_pipeline_runs', 'id'), GREATEST((SELECT MAX(id) FROM data_pipeline_runs), 3), true);
+SELECT setval(pg_get_serial_sequence('data_quality_rules', 'id'), GREATEST((SELECT MAX(id) FROM data_quality_rules), 4), true);
 
 -- ============================================================
 -- 21. P1 ENTERPRISE CAPABILITIES: SELF-SERVICE ANALYSIS
@@ -1438,6 +1451,13 @@ SET
   }$$::json,
   status = 'published',
   visibility = 'org',
+  incremental_key = NULL,
+  incremental_watermark = NULL,
+  materialization_status = NULL,
+  materialization_mode = NULL,
+  materialized_table_name = NULL,
+  materialized_at = NULL,
+  materialization_message = NULL,
   org_id = 1,
   owner_id = 8,
   updated_at = NOW()
@@ -1527,7 +1547,7 @@ VALUES
    '销售运营中心', '元', 'sum', '["销售","经营","聚合指标","认证指标"]', 'published',
    '["orders.region","orders.salesperson","orders.customer_name","orders.order_date"]',
    'certified', 'nexteer_certifier', NOW() - INTERVAL '12 days', 'v2026.05.1',
-   18432680.55, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   656876400, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
    'normal', '与蓝途销售月报核对一致，差异低于0.2%。', 1,
    NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
 
@@ -1540,7 +1560,7 @@ VALUES
    '销售运营中心', '单', 'count_distinct', '["销售","订单","聚合指标","基础指标"]', 'published',
    '["orders.region","orders.salesperson","orders.order_date"]',
    'certified', 'nexteer_certifier', NOW() - INTERVAL '12 days', 'v2026.05.1',
-   1268, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   825, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
    'normal', '订单号唯一性校验通过，去重逻辑与订单主表一致。', 1,
    NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
 
@@ -1553,7 +1573,7 @@ VALUES
    '商业分析组', '元/单', 'custom', '["销售","派生指标","客单价","认证指标"]', 'published',
    '["orders.region","orders.salesperson","orders.customer_name","orders.order_date"]',
    'certified', 'nexteer_certifier', NOW() - INTERVAL '10 days', 'v2026.05.1',
-   14537.60, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   796213.82, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
    'normal', '依赖指标均已认证，派生结果与经营周报一致。', 1,
    NOW() - INTERVAL '20 days', NOW() - INTERVAL '1 hour'),
 
@@ -1629,7 +1649,7 @@ VALUES
   (24, 'dataset', 3, '蓝途销售订单数据集',
    '订单主表语义数据集，承载销售额、订单数、客单价和窗口累计指标。',
    4, 1, 8, 5, 'published', '["销售","订单","语义数据集"]',
-   $${"table_name":"orders","row_count":1268,"update_frequency":"hourly","statistical_scope":"2024-01 至 2025-03 全量订单"}$$::json,
+   $${"table_name":"orders","row_count":1006,"update_frequency":"hourly","statistical_scope":"2024-01 至 2025-03 全量订单"}$$::json,
    177, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
   (25, 'dataset', 5, '蓝途月度经营 KPI 数据集',
    '月度经营 KPI 语义数据集，承载目标、实际、达成率、NPS 和新增客户。',
