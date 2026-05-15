@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.llm_setting import LlmSetting
 from app.models.datasource import DataSource
 from app.models.organization import Department, Organization
+from app.models.role import Role  # noqa: F401
 from app.models.pinned_chart import PinnedChart  # noqa: F401
 from app.models.agent_run import AgentRun  # noqa: F401
 from app.models.alert import Alert  # noqa: F401

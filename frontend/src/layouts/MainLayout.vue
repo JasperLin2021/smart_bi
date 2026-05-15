@@ -261,7 +261,7 @@ const activePath = computed(() => route.path)
 const effectiveSidebarCollapsed = computed(() => isSidebarCollapsed.value || isMobileLayout.value)
 const sidebarWidth = computed(() => (effectiveSidebarCollapsed.value ? "72px" : "260px"))
 
-type MenuRole = "org_admin" | "super_admin"
+type MenuRole = "dept_admin" | "org_admin" | "super_admin"
 type MenuItem = {
   path: string
   label: string
@@ -330,7 +330,7 @@ const menuEntries: MenuEntry[] = [
     label: "系统管理",
     icon: Setting,
     items: [
-      { path: "/access-control", label: "用户与权限", icon: User, roles: ["org_admin", "super_admin"] },
+      { path: "/access-control", label: "用户与权限", icon: User, roles: ["dept_admin", "org_admin", "super_admin"] },
       { path: "/audit-logs", label: "审计日志", icon: Document, roles: ["org_admin", "super_admin"] },
       { path: "/operations", label: "运营后台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/llm-settings", label: "大模型配置", icon: Setting, roles: ["super_admin"] },

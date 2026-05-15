@@ -3,7 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
-from app.core.permissions import require_org_admin_or_above, require_super_admin
+from app.core.permissions import require_action
 from app.core.safe_delete import assert_organization_can_delete
 from app.db.session import get_db
 from app.models.organization import Department, Organization
@@ -20,8 +20,8 @@ from app.schemas.organization import (
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
 
-def _load_org_for_department_management(db: Session, org_id: int, current_user: User) -> Organization:
-    require_org_admin_or_above(current_user)
+def _load_org_for_department_management(db: Session, org_id: int, current_user: User, permission_key: str) -> Organization:
+    require_action(current_user, permission_key)
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="企业不存在")
@@ -72,8 +72,8 @@ def _next_sort_order(db: Session, org_id: int, parent_id: int | None) -> int:
     return int(current or 0) + 1
 
 
-def _department_descendant_ids(db: Session, org_id: int, department_id: int) -> set[int]:
-    descendants: set[int] = set()
+def _department_descendant_ids(db: Session, org_id: int, department_id: int, include_self: bool = False) -> set[int]:
+    descendants: set[int] = {department_id} if include_self else set()
     frontier = [department_id]
     while frontier:
         children = (
@@ -84,6 +84,14 @@ def _department_descendant_ids(db: Session, org_id: int, department_id: int) -> 
         frontier = [item[0] for item in children if item[0] not in descendants]
         descendants.update(frontier)
     return descendants
+
+
+def _managed_department_ids(db: Session, current_user: User) -> set[int] | None:
+    if current_user.role != "dept_admin":
+        return None
+    if current_user.org_id is None or current_user.department_id is None:
+        return set()
+    return _department_descendant_ids(db, current_user.org_id, current_user.department_id, include_self=True)
 
 
 def _build_department_nodes(departments: list[Department], user_counts: dict[int, int]) -> list[dict]:
@@ -115,37 +123,46 @@ def _build_department_nodes(departments: list[Department], user_counts: dict[int
     return [build(department) for department in by_parent.get(None, [])]
 
 
-def _organization_tree_payload(db: Session, organizations: list[Organization]) -> list[dict]:
+def _organization_tree_payload(
+    db: Session,
+    organizations: list[Organization],
+    department_ids_by_org: dict[int, set[int]] | None = None,
+) -> list[dict]:
     if not organizations:
         return []
     org_ids = [org.id for org in organizations]
-    departments = (
-        db.query(Department)
-        .filter(Department.org_id.in_(org_ids))
-        .order_by(Department.org_id.asc(), Department.sort_order.asc(), Department.id.asc())
-        .all()
-    )
+    department_query = db.query(Department).filter(Department.org_id.in_(org_ids))
+    allowed_department_ids: set[int] | None = None
+    if department_ids_by_org is not None:
+        allowed_department_ids = set().union(*department_ids_by_org.values()) if department_ids_by_org else set()
+        if allowed_department_ids:
+            department_query = department_query.filter(Department.id.in_(allowed_department_ids))
+        else:
+            department_query = department_query.filter(Department.id == -1)
+    departments = department_query.order_by(Department.org_id.asc(), Department.sort_order.asc(), Department.id.asc()).all()
     departments_by_org: dict[int, list[Department]] = {}
     for department in departments:
         departments_by_org.setdefault(department.org_id, []).append(department)
 
+    org_user_query = db.query(User.org_id, func.count(User.id)).filter(User.org_id.in_(org_ids))
+    if allowed_department_ids is not None:
+        if allowed_department_ids:
+            org_user_query = org_user_query.filter(User.department_id.in_(allowed_department_ids))
+        else:
+            org_user_query = org_user_query.filter(User.id == -1)
     org_user_counts = {
         org_id: count
-        for org_id, count in (
-            db.query(User.org_id, func.count(User.id))
-            .filter(User.org_id.in_(org_ids))
-            .group_by(User.org_id)
-            .all()
-        )
+        for org_id, count in org_user_query.group_by(User.org_id).all()
     }
+    department_user_query = db.query(User.department_id, func.count(User.id)).filter(User.department_id.isnot(None))
+    if allowed_department_ids is not None:
+        if allowed_department_ids:
+            department_user_query = department_user_query.filter(User.department_id.in_(allowed_department_ids))
+        else:
+            department_user_query = department_user_query.filter(User.id == -1)
     department_user_counts = {
         department_id: count
-        for department_id, count in (
-            db.query(User.department_id, func.count(User.id))
-            .filter(User.department_id.isnot(None))
-            .group_by(User.department_id)
-            .all()
-        )
+        for department_id, count in department_user_query.group_by(User.department_id).all()
     }
 
     payload: list[dict] = []
@@ -173,8 +190,12 @@ def list_organizations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    require_super_admin(current_user)
-    return db.query(Organization).all()
+    require_action(current_user, "organization.read")
+    if current_user.role == "super_admin":
+        return db.query(Organization).all()
+    if current_user.org_id is None:
+        raise HTTPException(status_code=403, detail="当前用户未绑定企业")
+    return db.query(Organization).filter(Organization.id == current_user.org_id).all()
 
 
 @router.get("/tree", response_model=list[dict])
@@ -182,9 +203,10 @@ def get_organization_tree(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_org_admin_or_above(current_user)
+    require_action(current_user, "department.read")
     if current_user.role == "super_admin":
         organizations = db.query(Organization).order_by(Organization.id.asc()).all()
+        return _organization_tree_payload(db, organizations)
     else:
         if current_user.org_id is None:
             raise HTTPException(status_code=403, detail="当前用户未绑定企业")
@@ -194,7 +216,10 @@ def get_organization_tree(
             .order_by(Organization.id.asc())
             .all()
         )
-    return _organization_tree_payload(db, organizations)
+        scoped_departments = None
+        if current_user.role == "dept_admin":
+            scoped_departments = {current_user.org_id: _managed_department_ids(db, current_user) or set()}
+        return _organization_tree_payload(db, organizations, department_ids_by_org=scoped_departments)
 
 
 @router.post("", response_model=OrganizationOut, status_code=status.HTTP_201_CREATED)
@@ -203,7 +228,9 @@ def create_organization(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    require_super_admin(current_user)
+    require_action(current_user, "organization.create")
+    if current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="需要超级管理员权限")
     if db.query(Organization).filter(Organization.slug == payload.slug).first():
         raise HTTPException(status_code=400, detail="Slug已存在")
     org = Organization(name=payload.name, slug=payload.slug)
@@ -230,13 +257,14 @@ def list_departments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _load_org_for_department_management(db, org_id, current_user)
-    return (
-        db.query(Department)
-        .filter(Department.org_id == org_id)
-        .order_by(Department.parent_id.asc(), Department.sort_order.asc(), Department.id.asc())
-        .all()
-    )
+    _load_org_for_department_management(db, org_id, current_user, "department.read")
+    query = db.query(Department).filter(Department.org_id == org_id)
+    if current_user.role == "dept_admin":
+        department_ids = _managed_department_ids(db, current_user) or set()
+        if not department_ids:
+            return []
+        query = query.filter(Department.id.in_(department_ids))
+    return query.order_by(Department.parent_id.asc(), Department.sort_order.asc(), Department.id.asc()).all()
 
 
 @router.post("/{org_id}/departments", response_model=DepartmentOut, status_code=status.HTTP_201_CREATED)
@@ -246,7 +274,7 @@ def create_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    org = _load_org_for_department_management(db, org_id, current_user)
+    org = _load_org_for_department_management(db, org_id, current_user, "department.create")
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="部门名称不能为空")
@@ -286,7 +314,7 @@ def update_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _load_org_for_department_management(db, org_id, current_user)
+    _load_org_for_department_management(db, org_id, current_user, "department.update")
     department = _load_department(db, org_id, department_id)
 
     next_name = payload.name.strip() if payload.name is not None else department.name
@@ -337,7 +365,7 @@ def delete_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _load_org_for_department_management(db, org_id, current_user)
+    _load_org_for_department_management(db, org_id, current_user, "department.delete")
     department = _load_department(db, org_id, department_id)
     child_count = db.query(Department).filter(Department.parent_id == department.id).count()
     user_count = db.query(User).filter(User.department_id == department.id).count()
@@ -373,10 +401,12 @@ def get_organization(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    require_super_admin(current_user)
+    require_action(current_user, "organization.read")
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="企业不存在")
+    if current_user.role != "super_admin" and current_user.org_id != org_id:
+        raise HTTPException(status_code=403, detail="只能访问本企业")
     return org
 
 
@@ -387,7 +417,9 @@ def update_organization(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    require_super_admin(current_user)
+    require_action(current_user, "organization.update")
+    if current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="需要超级管理员权限")
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="企业不存在")
@@ -419,7 +451,9 @@ def delete_organization(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    require_super_admin(current_user)
+    require_action(current_user, "organization.delete")
+    if current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="需要超级管理员权限")
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="企业不存在")

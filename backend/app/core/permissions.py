@@ -3,6 +3,8 @@ from copy import deepcopy
 from typing import Any
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
+from sqlalchemy.orm import object_session
 
 from app.models.user import User
 
@@ -38,10 +40,19 @@ PERMISSION_CATALOG = [
     ("user.update",           "编辑用户",           "action", "用户管理"),
     ("user.delete",           "删除用户",           "action", "用户管理"),
     ("user.permission.update","修改用户权限",       "action", "用户管理"),
+    ("user.assign_org_admin", "任命企业管理员",     "action", "用户管理"),
+    ("role.read",             "查看角色",           "action", "角色管理"),
+    ("role.create",           "创建角色",           "action", "角色管理"),
+    ("role.update",           "编辑角色",           "action", "角色管理"),
+    ("role.delete",           "删除角色",           "action", "角色管理"),
     ("organization.read",     "查看企业信息",       "action", "企业管理"),
     ("organization.create",   "创建企业",           "action", "企业管理"),
     ("organization.update",   "编辑企业",           "action", "企业管理"),
     ("organization.delete",   "删除企业",           "action", "企业管理"),
+    ("department.read",       "查看部门",           "action", "部门管理"),
+    ("department.create",     "创建部门",           "action", "部门管理"),
+    ("department.update",     "编辑部门",           "action", "部门管理"),
+    ("department.delete",     "删除部门",           "action", "部门管理"),
     ("datasource.read",       "查看数据源",         "action", "数据源"),
     ("datasource.create",     "创建数据源",         "action", "数据源"),
     ("datasource.update",     "编辑数据源",         "action", "数据源"),
@@ -168,6 +179,10 @@ ROLE_PERMISSION_TEMPLATES: dict[str, dict[str, Any]] = {
         "action_permissions": _permission_map(
             (
                 "user.read",
+                "user.create",
+                "user.update",
+                "user.delete",
+                "department.read",
                 "datasource.read",
                 "metric.read",
                 "metric.create",
@@ -227,11 +242,19 @@ ROLE_PERMISSION_TEMPLATES: dict[str, dict[str, Any]] = {
         "action_permissions": _permission_map(
             (
                 "organization.read",
+                "role.read",
+                "role.create",
+                "role.update",
+                "role.delete",
                 "user.read",
                 "user.create",
                 "user.update",
                 "user.delete",
                 "user.permission.update",
+                "department.read",
+                "department.create",
+                "department.update",
+                "department.delete",
                 "datasource.read",
                 "datasource.create",
                 "datasource.update",
@@ -284,6 +307,13 @@ ROLE_PERMISSION_TEMPLATES: dict[str, dict[str, Any]] = {
 
 VALID_ROLES = ("user", "dept_admin", "org_admin", "super_admin")
 
+ROLE_LEVELS = {
+    "user": 10,
+    "dept_admin": 20,
+    "org_admin": 30,
+    "super_admin": 40,
+}
+
 ROLE_DISPLAY_NAMES = {
     "user": "普通用户",
     "dept_admin": "部门管理员",
@@ -292,7 +322,49 @@ ROLE_DISPLAY_NAMES = {
 }
 
 
-def get_role_permission_template(role: str | None) -> dict[str, Any]:
+def _template_from_permission_payload(
+    *,
+    data_scope: str | None,
+    menu_permissions: Any,
+    action_permissions: Any,
+) -> dict[str, Any]:
+    return {
+        "data_scope": data_scope or DATA_SCOPE_OWNER,
+        "menu_permissions": _merge_permission_overlay(
+            _permission_map((), MENU_PERMISSION_KEYS),
+            _parse_permission_map(menu_permissions),
+        ),
+        "action_permissions": _merge_permission_overlay(
+            _permission_map((), ACTION_PERMISSION_KEYS),
+            _parse_permission_map(action_permissions),
+        ),
+    }
+
+
+def get_custom_role_permission_template(role: str | None, db: Any = None, org_id: int | None = None) -> dict[str, Any] | None:
+    if not role or role in ROLE_PERMISSION_TEMPLATES or db is None:
+        return None
+    from app.models.role import Role
+
+    query = db.query(Role).filter(Role.code == role, Role.is_builtin.is_(False))
+    if org_id is not None:
+        query = query.filter(or_(Role.org_id == org_id, Role.org_id.is_(None))).order_by(Role.org_id.desc())
+    else:
+        query = query.filter(Role.org_id.is_(None))
+    record = query.first()
+    if not record:
+        return None
+    return _template_from_permission_payload(
+        data_scope=record.data_scope,
+        menu_permissions=record.menu_permissions,
+        action_permissions=record.action_permissions,
+    )
+
+
+def get_role_permission_template(role: str | None, db: Any = None, org_id: int | None = None) -> dict[str, Any]:
+    custom_template = get_custom_role_permission_template(role, db=db, org_id=org_id)
+    if custom_template:
+        return custom_template
     template = ROLE_PERMISSION_TEMPLATES.get(role or "", ROLE_PERMISSION_TEMPLATES["user"])
     return deepcopy(template)
 
@@ -330,7 +402,16 @@ def _merge_permission_overlay(base: dict[str, bool], overlay: dict[str, bool] | 
 
 
 def resolve_effective_permissions(user: User) -> dict[str, Any]:
-    role_template = get_role_permission_template(user.role)
+    session = None
+    try:
+        session = object_session(user)
+    except Exception:
+        session = None
+    role_template = get_role_permission_template(
+        getattr(user, "role", None),
+        db=session,
+        org_id=getattr(user, "org_id", None),
+    )
     if user.role == "super_admin":
         return role_template
 

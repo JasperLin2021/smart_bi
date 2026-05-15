@@ -27,7 +27,7 @@ const router = createRouter({
     {
       path: "/access-control",
       component: () => import("@/views/AccessControl.vue"),
-      meta: { requiredRole: ['org_admin', 'super_admin'] }
+      meta: { requiredRole: ['dept_admin', 'org_admin', 'super_admin'] }
     },
     { path: "/user-management", redirect: "/access-control" },
     { path: "/role-management", redirect: "/access-control" },
