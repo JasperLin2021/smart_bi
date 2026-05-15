@@ -79,7 +79,12 @@ def sync_datasource_metrics_prompt(db: Session, datasource_id: int) -> None:
 
     metrics = (
         db.query(Metric)
-        .filter(Metric.datasource_id == datasource_id, Metric.is_active == 1)
+        .filter(
+            Metric.datasource_id == datasource_id,
+            Metric.is_active == 1,
+            Metric.status == "published",
+            Metric.certification_status != "deprecated",
+        )
         .order_by(Metric.updated_at.desc(), Metric.id.desc())
         .all()
     )

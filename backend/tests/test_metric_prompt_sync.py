@@ -2,6 +2,16 @@ import unittest
 
 
 class MetricPromptSyncTests(unittest.TestCase):
+    def _db(self, tables):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.db.base_class import Base
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine, tables=tables)
+        return sessionmaker(bind=engine)()
+
     def test_build_metrics_prompt_lists_active_metrics(self):
         from app.core.metric_prompt_sync import build_metrics_prompt
 
@@ -45,6 +55,76 @@ class MetricPromptSyncTests(unittest.TestCase):
         from app.core.metric_prompt_sync import build_metrics_prompt
 
         self.assertIsNone(build_metrics_prompt([]))
+
+    def test_sync_datasource_metrics_prompt_excludes_untrusted_metrics(self):
+        from app.core.metric_prompt_sync import sync_datasource_metrics_prompt
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.models.organization import Organization
+
+        db = self._db([Organization.__table__, DataSource.__table__, Metric.__table__])
+        datasource = DataSource(
+            name="Nexteer",
+            slug="nexteer",
+            database_url="sqlite:///:memory:",
+            source_type="excel",
+            metadata_prompt="",
+            org_id=1,
+        )
+        db.add(datasource)
+        db.flush()
+        db.add_all(
+            [
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="产出",
+                    definition="TOTALCOUNT 合计",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="published",
+                    certification_status="certified",
+                    is_active=1,
+                ),
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="线产出",
+                    definition="已下架：与产出口径重复",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="archived",
+                    certification_status="deprecated",
+                    is_active=1,
+                ),
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="旧产出",
+                    definition="废弃指标",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="published",
+                    certification_status="deprecated",
+                    is_active=1,
+                ),
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="停用产出",
+                    definition="停用指标",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="published",
+                    certification_status="certified",
+                    is_active=0,
+                ),
+            ]
+        )
+        db.commit()
+
+        sync_datasource_metrics_prompt(db, datasource.id)
+
+        self.assertIn("- 产出:", datasource.metrics_prompt)
+        self.assertNotIn("线产出", datasource.metrics_prompt)
+        self.assertNotIn("旧产出", datasource.metrics_prompt)
+        self.assertNotIn("停用产出", datasource.metrics_prompt)
 
 
 if __name__ == "__main__":

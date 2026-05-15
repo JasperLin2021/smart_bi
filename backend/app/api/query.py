@@ -270,7 +270,12 @@ def _query_metric_trust_signals(
         return []
     metrics = (
         db.query(Metric)
-        .filter(Metric.datasource_id == datasource.id, Metric.is_active == 1)
+        .filter(
+            Metric.datasource_id == datasource.id,
+            Metric.is_active == 1,
+            Metric.status == "published",
+            Metric.certification_status != "deprecated",
+        )
         .order_by(Metric.updated_at.desc(), Metric.id.desc())
         .all()
     )

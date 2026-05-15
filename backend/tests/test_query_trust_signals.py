@@ -128,6 +128,70 @@ class QueryTrustSignalsTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_query_trust_signals_exclude_archived_and_deprecated_metrics(self):
+        from app.api.query import _query_metric_trust_signals
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+
+        db = self._db([DataSource.__table__, Metric.__table__])
+        datasource = DataSource(
+            name="Nexteer",
+            slug="nexteer",
+            source_type="excel",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=1,
+        )
+        db.add(datasource)
+        db.flush()
+        db.add_all(
+            [
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="产出",
+                    definition="TOTALCOUNT 合计",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="published",
+                    certification_status="certified",
+                    quality_status="normal",
+                    is_active=1,
+                ),
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="线产出",
+                    definition="已下架：与产出口径重复",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="archived",
+                    certification_status="deprecated",
+                    quality_status="unknown",
+                    is_active=1,
+                ),
+                Metric(
+                    datasource_id=datasource.id,
+                    dataset_id=1,
+                    name="旧产出",
+                    definition="废弃指标",
+                    formula="SUM(mainrecord.TOTALCOUNT)",
+                    status="published",
+                    certification_status="deprecated",
+                    quality_status="unknown",
+                    is_active=1,
+                ),
+            ]
+        )
+        db.commit()
+
+        signals = _query_metric_trust_signals(
+            db,
+            datasource,
+            "查看产出",
+            "SELECT SUM(mainrecord.TOTALCOUNT) AS output_qty FROM mainrecord",
+        )
+
+        self.assertEqual([item["metric_name"] for item in signals], ["产出"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,19 +47,20 @@ class DemoSeedQuickstartTests(unittest.TestCase):
         self.assertIn('"dependency_metrics"', mock_sql)
         self.assertIn("指标计算模型样例", mock_sql)
 
-    def test_nexteer_production_metrics_bind_to_nexteer_dataset(self):
+    def test_nexteer_production_metrics_bind_and_deprecate_duplicate_line_output(self):
         mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
 
         self.assertRegex(
             mock_sql,
-            r"UPDATE metrics\s+SET[\s\S]+dataset_id\s*=\s*1[\s\S]+datasource_id\s*=\s*2[\s\S]+WHERE name IN \('产出','OEE','线产出'\)",
+            r"UPDATE metrics\s+SET[\s\S]+dataset_id\s*=\s*1[\s\S]+datasource_id\s*=\s*2[\s\S]+WHERE name IN \('产出','OEE'\)",
         )
         self.assertNotIn("某条线Final单元的产出", mock_sql)
         self.assertIn("Final单元产出", mock_sql)
         self.assertRegex(
             mock_sql,
-            r"description\s*=\s*CASE name[\s\S]+WHEN '线产出' THEN '按 Nexteer 产线汇总班次产出'",
+            r"UPDATE metrics\s+SET[\s\S]+status\s*=\s*'archived'[\s\S]+certification_status\s*=\s*'deprecated'[\s\S]+is_active\s*=\s*0[\s\S]+WHERE name = '线产出'",
         )
+        self.assertIn("该指标与“产出”口径重复", mock_sql)
 
 
 if __name__ == "__main__":

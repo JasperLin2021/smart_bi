@@ -1196,13 +1196,11 @@ SET
   column_name = CASE name
     WHEN '产出' THEN 'mainrecord.TOTALCOUNT'
     WHEN 'OEE' THEN 'mainrecord.OEE'
-    WHEN '线产出' THEN 'mainrecord.TOTALCOUNT'
     ELSE column_name
   END,
   formula = CASE name
     WHEN '产出' THEN 'SUM(mainrecord.TOTALCOUNT)'
     WHEN 'OEE' THEN 'AVG(mainrecord.OEE)'
-    WHEN '线产出' THEN 'SUM(mainrecord.TOTALCOUNT)'
     ELSE formula
   END,
   aggregation = CASE name
@@ -1212,25 +1210,21 @@ SET
   dimensions = CASE name
     WHEN '产出' THEN '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]'::json
     WHEN 'OEE' THEN '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]'::json
-    WHEN '线产出' THEN '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]'::json
     ELSE dimensions
   END,
   calculation_config = CASE name
     WHEN '产出' THEN $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json
     WHEN 'OEE' THEN $${"calculation_mode":"aggregate","metric_field":"mainrecord.OEE","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"mainrecord.OEE","operator":">=","value":0},{"logic":"AND","field":"mainrecord.OEE","operator":"<=","value":100}],"statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据中 OEE 取值在 0-100 的有效记录"],"excluded_subjects":["测试补录记录","OEE 超出 0-100 的异常采集值"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json
-    WHEN '线产出' THEN $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["按产线汇总的 mainrecord 班次产出"],"excluded_subjects":["非生产班次","测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json
     ELSE calculation_config
   END,
   description = CASE name
     WHEN '产出' THEN 'Nexteer 班次产出总量'
     WHEN 'OEE' THEN 'Nexteer 产线综合效率'
-    WHEN '线产出' THEN '按 Nexteer 产线汇总班次产出'
     ELSE description
   END,
   definition = CASE name
     WHEN '产出' THEN 'Nexteer mainrecord 班次主数据中 TOTALCOUNT 的合计，反映统计周期内实际产出件数。'
     WHEN 'OEE' THEN 'Nexteer mainrecord 班次主数据中 OEE 的平均值，按产线、班次和日期可拆解。'
-    WHEN '线产出' THEN 'Nexteer mainrecord 班次主数据按产线汇总 TOTALCOUNT，用于观察各产线产出贡献。'
     ELSE definition
   END,
   unit = CASE name
@@ -1244,7 +1238,42 @@ SET
   END,
   status = 'published',
   updated_at = NOW()
-WHERE name IN ('产出','OEE','线产出');
+WHERE name IN ('产出','OEE');
+
+UPDATE metrics
+SET
+  dataset_id = 1,
+  datasource_id = 2,
+  description = '已下架：该指标与“产出”口径重复，请使用“产出”并选择产线维度分析。',
+  definition = '已下架：线产出可由“产出”指标按 mainrecord.LINE 维度实时拆解得到，不再作为独立可信指标维护。',
+  column_name = 'mainrecord.TOTALCOUNT',
+  formula = 'SUM(mainrecord.TOTALCOUNT)',
+  aggregation = 'sum',
+  dimensions = '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]'::json,
+  calculation_config = $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","replacement_metric":"产出","deprecation_reason":"该指标与“产出”口径重复；按 mainrecord.LINE 维度拆解即可得到同等业务结果。","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json,
+  owner_name = COALESCE(owner_name, '生产运营部'),
+  unit = '件',
+  tags = '["Nexteer","生产","产出","重复指标","已下架"]'::json,
+  status = 'archived',
+  certification_status = 'deprecated',
+  certified_by = NULL,
+  certified_at = NULL,
+  quality_status = 'unknown',
+  quality_message = '已下架：与“产出”指标口径重复，请使用“产出”并按产线维度预览。',
+  is_active = 0,
+  updated_at = NOW()
+WHERE name = '线产出';
+
+UPDATE data_assets
+SET
+  name = '线产出',
+  description = '已下架：该指标与“产出”口径重复，请使用“产出”并选择产线维度分析。',
+  datasource_id = 2,
+  status = 'archived',
+  tags = '["Nexteer","生产","产出","重复指标","已下架"]'::json,
+  metadata_json = $${"definition":"已下架：线产出可由“产出”指标按 mainrecord.LINE 维度实时拆解得到，不再作为独立可信指标维护。","formula":"SUM(mainrecord.TOTALCOUNT)","replacement_metric":"产出","deprecation_reason":"该指标与“产出”口径重复；按 mainrecord.LINE 维度拆解即可得到同等业务结果。","certification_status":"deprecated","quality_status":"unknown","is_active":0}$$::json,
+  updated_at = NOW()
+WHERE asset_type = 'metric' AND asset_id = 3;
 
 UPDATE datasets
 SET
