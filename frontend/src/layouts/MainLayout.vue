@@ -297,7 +297,6 @@ const menuEntries: MenuEntry[] = [
       { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
-  { type: "item", path: "/big-screen-center", label: "大屏中心", icon: DataLine },
   {
     type: "group",
     key: "data-access",
@@ -340,6 +339,10 @@ const menuEntries: MenuEntry[] = [
   },
 ]
 
+const hiddenPageTitles: Record<string, string> = {
+  "/big-screen-center": "大屏中心",
+}
+
 const hasRole = (roles?: MenuRole[]) => {
   if (!roles?.length) return true
   const role = authStore.profile?.role as MenuRole | undefined
@@ -378,7 +381,7 @@ const pageTitleMap = computed(() =>
 )
 
 const pageTitle = computed(() => {
-  return pageTitleMap.value[route.path] || "Dashboard"
+  return pageTitleMap.value[route.path] || hiddenPageTitles[route.path] || "Dashboard"
 })
 
 const roleLabel = computed(() => {

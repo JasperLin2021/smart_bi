@@ -6,10 +6,10 @@ import { test } from "node:test"
 const root = resolve(import.meta.dirname, "..")
 const read = (path) => readFileSync(resolve(root, path), "utf8")
 
-test("big screen center is a standalone top-level sidebar entry", () => {
+test("big screen center route stays available but is hidden from sidebar menu", () => {
   const layout = read("src/layouts/MainLayout.vue")
 
-  assert.match(layout, /type:\s*"item",\s*path:\s*"\/big-screen-center",\s*label:\s*"大屏中心"/)
+  assert.doesNotMatch(layout, /type:\s*"item",\s*path:\s*"\/big-screen-center",\s*label:\s*"大屏中心"/)
   assert.match(layout, /<el-menu-item\s+v-if="entry\.type === 'item'"/)
   assert.match(layout, /visibleMenuEntries/)
 
