@@ -37,6 +37,16 @@ class DemoSeedQuickstartTests(unittest.TestCase):
         self.assertIn("自动导入", readme)
         self.assertIn("automatically imports", readme)
 
+    def test_mock_data_covers_all_metric_calculation_models(self):
+        mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
+
+        for mode in ("aggregate", "ratio", "derived", "window"):
+            self.assertIn(f'"calculation_mode":"{mode}"', mock_sql)
+
+        self.assertIn('"statistical_scope"', mock_sql)
+        self.assertIn('"dependency_metrics"', mock_sql)
+        self.assertIn("指标计算模型样例", mock_sql)
+
 
 if __name__ == "__main__":
     unittest.main()

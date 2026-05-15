@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -110,6 +111,206 @@ def _render_calculation_filters(calculation_config: dict | None) -> str:
     return " ".join(clauses)
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _split_field_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[,，;\n]", str(value or ""))
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _field_name(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("field") or value.get("column") or "").strip()
+    return str(value or "").strip()
+
+
+def _field_label(value: Any, fallback: str) -> str:
+    if isinstance(value, dict):
+        return str(value.get("label") or value.get("alias") or value.get("display_name") or "").strip()
+    return fallback.split(".")[-1] if fallback else ""
+
+
+def _field_type(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("type") or value.get("data_type") or value.get("column_type") or "").strip()
+    return ""
+
+
+def _dataset_field_items(fields_json: dict[str, Any]) -> list[dict[str, str]]:
+    items: list[Any] = []
+    for key in ("dimensions", "fields", "metrics", "measures"):
+        items.extend(_as_list(fields_json.get(key)))
+    seen: set[str] = set()
+    fields: list[dict[str, str]] = []
+    for item in items:
+        name = _field_name(item)
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        fields.append({"name": name, "label": _field_label(item, name), "type": _field_type(item)})
+    return fields
+
+
+def _dataset_join_items(dataset: Dataset | None, fields_json: dict[str, Any]) -> list[dict[str, str]]:
+    raw_joins: list[Any] = []
+    raw_joins.extend(_as_list(fields_json.get("joins")))
+    if dataset is not None:
+        raw_joins.extend(_as_list(getattr(dataset, "joins_json", None)))
+
+    joins: list[dict[str, str]] = []
+    for item in raw_joins:
+        if isinstance(item, dict):
+            table = str(item.get("right") or item.get("table") or item.get("name") or "").strip()
+            join_type = str(item.get("type") or item.get("join_type") or "JOIN").strip()
+            join_on = str(item.get("on") or item.get("condition") or item.get("join_on") or "").strip()
+        else:
+            table = str(item or "").strip()
+            join_type = "JOIN"
+            join_on = ""
+        if table:
+            joins.append({"table": table, "join_type": join_type, "join_on": join_on})
+    return joins
+
+
+def _calculation_config(metric: Metric) -> dict[str, Any]:
+    return _as_dict(metric.calculation_config)
+
+
+def _metric_scope(metric: Metric) -> dict[str, Any]:
+    config = _calculation_config(metric)
+    structured_scope = _as_dict(config.get("statistical_scope"))
+    filters = [item for item in _as_list(config.get("filters")) if isinstance(item, dict) and item.get("field")]
+    return {
+        "statistical_window": config.get("statistical_window") or structured_scope.get("statistical_window"),
+        "time_field": config.get("time_field") or structured_scope.get("time_field"),
+        "time_grain": config.get("time_grain") or structured_scope.get("time_grain"),
+        "refresh_sla": config.get("refresh_sla") or structured_scope.get("refresh_sla"),
+        "filters": filters,
+        "dimensions": metric.dimensions or structured_scope.get("dimensions") or [],
+        "included_subjects": structured_scope.get("included_subjects") or [],
+        "excluded_subjects": structured_scope.get("excluded_subjects") or [],
+        "organization_scope": structured_scope.get("organization_scope"),
+    }
+
+
+def _metric_source_fields(metric: Metric) -> list[str]:
+    config = _calculation_config(metric)
+    fields = [
+        metric.column_name,
+        config.get("metric_field"),
+        config.get("numerator_field"),
+        config.get("denominator_field"),
+        config.get("derived_left_field"),
+        config.get("derived_right_field"),
+        config.get("time_field"),
+    ]
+    fields.extend(_split_field_list(config.get("partition_by")))
+    fields.extend(_split_field_list(config.get("order_by")))
+    fields.extend(rule.get("field") for rule in _as_list(config.get("filters")) if isinstance(rule, dict))
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for item in fields:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            normalized.append(text)
+    return normalized
+
+
+def _metric_calculation_summary(metric: Metric) -> dict[str, Any]:
+    config = _calculation_config(metric)
+    mode = str(config.get("calculation_mode") or "aggregate")
+    summary: dict[str, Any] = {
+        "mode": mode,
+        "aggregation": metric.aggregation,
+        "source_fields": _metric_source_fields(metric),
+    }
+    for key in (
+        "metric_field",
+        "numerator_field",
+        "numerator_aggregation",
+        "denominator_field",
+        "denominator_aggregation",
+        "derived_left_field",
+        "derived_operator",
+        "derived_right_field",
+        "dependency_metrics",
+        "window_function",
+        "partition_by",
+        "order_by",
+        "order_direction",
+        "window_frame",
+        "decimal_precision",
+        "output_alias",
+    ):
+        if config.get(key) not in (None, ""):
+            summary[key] = config.get(key)
+    return summary
+
+
+def _dependency_metric_refs(metric: Metric) -> tuple[list[int], list[str]]:
+    config = _calculation_config(metric)
+    operand_refs = [
+        config.get("derived_left_field"),
+        config.get("derived_right_field"),
+    ]
+    ids: list[int] = []
+    names: list[str] = []
+    for raw in operand_refs:
+        text = str(raw or "").strip()
+        if text.startswith("metric:"):
+            try:
+                ids.append(int(text.split(":", 1)[1]))
+            except ValueError:
+                continue
+    for text in _split_field_list(config.get("dependency_metrics")):
+        if text.startswith("metric:"):
+            try:
+                ids.append(int(text.split(":", 1)[1]))
+            except ValueError:
+                continue
+        else:
+            names.append(text)
+    return ids, names
+
+
+def _metric_dependencies(db: Session, metric: Metric) -> list[dict[str, Any]]:
+    ids, names = _dependency_metric_refs(metric)
+    if not ids and not names:
+        return []
+    query = db.query(Metric).filter(Metric.id != metric.id)
+    clauses = []
+    if ids:
+        clauses.append(Metric.id.in_(ids))
+    if names:
+        clauses.append(Metric.name.in_(names))
+    if not clauses:
+        return []
+    from sqlalchemy import or_
+
+    rows = query.filter(or_(*clauses)).order_by(Metric.id).all()
+    return [
+        {
+            "id": item.id,
+            "name": item.name,
+            "formula": item.formula,
+            "caliber_version": item.caliber_version,
+            "certification_status": item.certification_status,
+            "quality_status": item.quality_status,
+        }
+        for item in rows
+    ]
+
+
 def _apply_metric_visibility(query, user: User):
     if user.role == "super_admin":
         return query
@@ -180,6 +381,7 @@ def _sync_metric_catalog_asset(db: Session, metric: Metric, datasource: DataSour
         "definition": metric.definition,
         "formula": metric.formula,
         "calculation_config": metric.calculation_config,
+        "statistical_scope": _metric_scope(metric),
         "column_name": metric.column_name,
         "owner_name": metric.owner_name,
         "unit": metric.unit,
@@ -334,30 +536,11 @@ def get_metric_lineage(
         else None
     )
 
-    # Build dataset lineage info from fields_json (single source of truth)
+    # Build dataset lineage info from fields_json plus joins_json.
     fields_json = (dataset.fields_json or {}) if dataset else {}
     main_table = str(fields_json.get("table") or "")
-    raw_fields = fields_json.get("dimensions") or fields_json.get("fields") or []
-    raw_joins = fields_json.get("joins") or []
-
-    def _fname(f):
-        return f["name"] if isinstance(f, dict) else str(f)
-
-    dataset_fields = [
-        {"name": _fname(f), "label": f.get("label", "") if isinstance(f, dict) else "", "type": f.get("type", "") if isinstance(f, dict) else ""}
-        for f in raw_fields
-    ]
-
-    dataset_joins = []
-    for item in raw_joins:
-        if isinstance(item, dict):
-            dataset_joins.append({
-                "table": str(item.get("right") or item.get("table") or ""),
-                "join_type": str(item.get("type") or "JOIN"),
-                "join_on": str(item.get("on") or item.get("condition") or ""),
-            })
-        elif isinstance(item, str):
-            dataset_joins.append({"table": item, "join_type": "JOIN", "join_on": ""})
+    dataset_fields = _dataset_field_items(fields_json)
+    dataset_joins = _dataset_join_items(dataset, fields_json)
 
     return {
         "metric": {
@@ -396,6 +579,9 @@ def get_metric_lineage(
             "quality_message": metric.quality_message,
             "data_updated_at": metric.data_updated_at,
         },
+        "scope": _metric_scope(metric),
+        "calculation": _metric_calculation_summary(metric),
+        "dependencies": _metric_dependencies(db, metric),
         "usage": {
             "catalog_asset": "metric",
             "datasource_id": metric.datasource_id,
