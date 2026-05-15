@@ -1371,11 +1371,13 @@ SET
       {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
     ]
   }$$::json,
-  joins_json = $$[
-    {"right":"customers","type":"LEFT JOIN","on":"orders.customer_id = customers.customer_id"},
-    {"right":"order_items","type":"LEFT JOIN","on":"orders.order_id = order_items.order_id"},
-    {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
-  ]$$::json,
+  joins_json = $${
+    "joins":[
+      {"right":"customers","type":"LEFT JOIN","on":"orders.customer_id = customers.customer_id"},
+      {"right":"order_items","type":"LEFT JOIN","on":"orders.order_id = order_items.order_id"},
+      {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
+    ]
+  }$$::json,
   aggregations_json = $${
     "aggregations":[
       {"field":"orders.total_amount","aggregation":"sum","alias":"订单金额"},

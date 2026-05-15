@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class DatasetBase(BaseModel):
@@ -25,6 +25,13 @@ class DatasetBase(BaseModel):
     materialization_message: Optional[str] = None
     org_id: Optional[int] = None
     owner_id: Optional[int] = None
+
+    @field_validator("joins_json", mode="before")
+    @classmethod
+    def normalize_joins_json(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return {"joins": value}
+        return value
 
 
 class DatasetCreate(DatasetBase):
