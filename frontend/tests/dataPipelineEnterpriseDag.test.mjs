@@ -165,3 +165,23 @@ test("data pipeline canvas does not render a minimap overview", () => {
   assert.doesNotMatch(pipelines, /flow-minimap/)
   assert.match(pipelines, /<Controls \/>/)
 })
+
+test("data pipeline canvas replaces native right-click with node and canvas context menus", () => {
+  const pipelines = read("src/views/DataPipelines.vue")
+
+  assert.match(pipelines, /@contextmenu\.prevent/)
+  assert.match(pipelines, /@node-context-menu="onNodeContextMenu"/)
+  assert.match(pipelines, /@pane-context-menu="onCanvasContextMenu"/)
+  assert.match(pipelines, /role="menu"/)
+  assert.match(pipelines, /contextMenuItems/)
+  assert.match(pipelines, /runContextMenuAction/)
+  assert.match(pipelines, /closeContextMenu/)
+  assert.match(pipelines, /编辑配置/)
+  assert.match(pipelines, /运行到此节点/)
+  assert.match(pipelines, /字段画像/)
+  assert.match(pipelines, /复制节点/)
+  assert.match(pipelines, /删除节点/)
+  assert.match(pipelines, /粘贴到此处/)
+  assert.match(pipelines, /自动布局/)
+  assert.doesNotMatch(pipelines, /browser-context-menu/)
+})

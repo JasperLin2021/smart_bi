@@ -195,7 +195,7 @@
               <el-button class="toolbar-button" size="small" :icon="MagicStick" :disabled="!selectedPipeline" @click="addTemplateNodes">套用模板</el-button>
             </div>
           </div>
-          <div class="flow-wrap" @drop.prevent="onCanvasDrop" @dragover.prevent>
+          <div class="flow-wrap" @drop.prevent="onCanvasDrop" @dragover.prevent @contextmenu.prevent>
             <VueFlow
               v-if="selectedPipeline"
               :nodes="flowNodes"
@@ -204,6 +204,9 @@
               class="pipeline-flow"
               @connect="onConnect"
               @node-click="onNodeClick"
+              @node-context-menu="onNodeContextMenu"
+              @pane-context-menu="onCanvasContextMenu"
+              @pane-click="closeContextMenu"
               @node-drag-stop="onNodeDragStop"
             >
               <template #node-etl-icon="{ data, selected, connectable }">
@@ -221,7 +224,37 @@
               <Background />
               <Controls />
             </VueFlow>
-            <el-empty v-else description="请选择或新建管道" />
+            <div
+              v-if="contextMenu.visible"
+              class="etl-context-menu"
+              :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+              role="menu"
+              :aria-label="contextMenu.kind === 'node' ? '节点右键菜单' : '画布右键菜单'"
+              @click.stop
+              @contextmenu.prevent
+            >
+              <div class="etl-context-menu__header">
+                <strong>{{ contextMenuTitle }}</strong>
+                <small>{{ contextMenuSubtitle }}</small>
+              </div>
+              <button
+                v-for="item in contextMenuItems"
+                :key="item.key"
+                type="button"
+                role="menuitem"
+                class="etl-context-menu__item"
+                :class="{ 'is-danger': item.danger }"
+                :disabled="item.disabled"
+                @click="runContextMenuAction(item.key)"
+              >
+                <el-icon><component :is="item.icon" /></el-icon>
+                <span>
+                  <strong>{{ item.label }}</strong>
+                  <small>{{ item.hint }}</small>
+                </span>
+              </button>
+            </div>
+            <el-empty v-if="!selectedPipeline" description="请选择或新建管道" />
           </div>
         </section>
 
@@ -978,7 +1011,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, reactive, ref, watch } from "vue"
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
 import { ElButton, ElMessage, ElTooltip } from "element-plus"
 import CodeMirrorSqlEditor from "@/components/SqlEditor.vue"
@@ -1110,6 +1143,36 @@ type OperatorDefinition = {
   default_config?: Record<string, any>
   config_schema?: Record<string, any>
 }
+type ContextMenuKind = "node" | "canvas"
+type ContextMenuAction =
+  | "edit_node"
+  | "preview_node"
+  | "inspect_node"
+  | "copy_node"
+  | "delete_node"
+  | "add_extract"
+  | "add_transform"
+  | "add_sql"
+  | "paste_node"
+  | "auto_layout"
+  | "apply_template"
+  | "save_dag"
+type ContextMenuItem = {
+  key: ContextMenuAction
+  label: string
+  hint: string
+  icon: any
+  danger?: boolean
+  disabled?: boolean
+}
+type PaletteNode = {
+  type: string
+  label: string
+  category?: string
+  icon: any
+  description?: string
+  default_config?: Record<string, any>
+}
 type InspectFieldProfile = {
   name: string
   type: string
@@ -1160,6 +1223,14 @@ const runWindow = ref<[string, string] | null>(null)
 const dagUndoStack = ref<Array<{ nodes?: DagNode[]; edges?: Array<Record<string, any>> }>>([])
 const dagRedoStack = ref<Array<{ nodes?: DagNode[]; edges?: Array<Record<string, any>> }>>([])
 const copiedNode = ref<DagNode | null>(null)
+const contextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  kind: "canvas" as ContextMenuKind,
+  nodeId: null as string | null,
+  canvasPosition: null as { x: number; y: number } | null,
+})
 const sqlEditorExtensions = ["sql", "schema-autocomplete", "read-only-select"]
 
 const form = reactive({
@@ -1210,7 +1281,7 @@ const sourcePalette = [
   { name: "API", description: "服务接口同步", icon: Connection, tone: "cyan" },
   { name: "Kafka", description: "实时消息流", icon: Link, tone: "violet" },
 ]
-const fallbackNodePalette = [
+const fallbackNodePalette: PaletteNode[] = [
   { type: "extract", label: "抽取", icon: UploadFilled, description: "源端采集" },
   { type: "metadata_extract", label: "元数据", icon: DocumentChecked, description: "结构探查" },
   { type: "transform", label: "转换", icon: SetUp, description: "字段清洗" },
@@ -1354,7 +1425,7 @@ const paletteNodeDescription = (node: { type?: string; label?: string; descripti
     reverse_etl: "业务回写",
   }[node.type || ""] || "扩展逻辑")
 }
-const nodePalette = computed(() => {
+const nodePalette = computed<PaletteNode[]>(() => {
   if (!operatorCatalog.value.length) return fallbackNodePalette
   return operatorCatalog.value.map((operator) => ({
     type: operator.type,
@@ -1413,6 +1484,34 @@ const selectedNodeStatusText = computed(() => {
     skipped: "已跳过",
   }
   return labels[selectedNodeStatus.value] || selectedNodeStatus.value
+})
+const contextMenuTitle = computed(() => {
+  if (contextMenu.kind === "node" && selectedNode.value) return selectedNode.value.label || selectedNode.value.id
+  return "画布操作"
+})
+const contextMenuSubtitle = computed(() => {
+  if (contextMenu.kind === "node" && selectedNode.value) return `${nodeTypeLabel(selectedNode.value.type)} · ${selectedNodeStatusText.value}`
+  return "在当前位置快速新增、粘贴或整理节点"
+})
+const contextMenuItems = computed<ContextMenuItem[]>(() => {
+  if (contextMenu.kind === "node") {
+    return [
+      { key: "edit_node", label: "编辑配置", hint: "打开右侧节点配置面板", icon: SetUp, disabled: !selectedNode.value },
+      { key: "preview_node", label: "运行到此节点", hint: "即时预览该节点输出", icon: View, disabled: !selectedPipeline.value },
+      { key: "inspect_node", label: "字段画像", hint: "查看字段类型、样例和质量", icon: DataAnalysis, disabled: !selectedPipeline.value },
+      { key: "copy_node", label: "复制节点", hint: "复用当前节点配置", icon: CopyDocument, disabled: !selectedNode.value },
+      { key: "delete_node", label: "删除节点", hint: "同时移除关联连线", icon: Delete, danger: true, disabled: !selectedNode.value },
+    ]
+  }
+  return [
+    { key: "add_extract", label: "新增抽取节点", hint: "从当前位置接入源端数据", icon: UploadFilled, disabled: !selectedPipeline.value },
+    { key: "add_transform", label: "新增转换节点", hint: "追加字段清洗和映射步骤", icon: SetUp, disabled: !selectedPipeline.value },
+    { key: "add_sql", label: "新增 SQL 算子", hint: "添加自定义分析 SQL", icon: DataAnalysis, disabled: !selectedPipeline.value },
+    { key: "paste_node", label: "粘贴到此处", hint: "在右键位置复用已复制节点", icon: DocumentCopy, disabled: !selectedPipeline.value || !copiedNode.value },
+    { key: "auto_layout", label: "自动布局", hint: "整理为横平竖直的流程", icon: Rank, disabled: !selectedPipeline.value },
+    { key: "apply_template", label: "套用模板", hint: "重置为标准 ETL 模板", icon: MagicStick, disabled: !selectedPipeline.value },
+    { key: "save_dag", label: "保存流程", hint: "保存当前 DAG 配置", icon: DocumentChecked, disabled: !selectedPipeline.value || savingDag.value },
+  ]
 })
 const validationStatusText = computed(() => {
   if (!validation.value) return "等待上线检查"
@@ -1735,7 +1834,46 @@ const appendAggregationMetric = () => {
 const removeAggregationMetric = (index: number) => {
   aggregationConfig.value.metrics.splice(index, 1)
 }
+const canvasPositionFromEvent = (event: MouseEvent) => {
+  const target = event.target as HTMLElement | null
+  const wrapper = target?.closest(".flow-wrap") as HTMLElement | null
+  const rect = wrapper?.getBoundingClientRect()
+  if (!rect) return null
+  return {
+    x: Math.max(24, event.clientX - rect.left - 75),
+    y: Math.max(24, event.clientY - rect.top - 28),
+  }
+}
+const openContextMenu = (event: MouseEvent, kind: ContextMenuKind, nodeId: string | null = null) => {
+  if (!selectedPipeline.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (nodeId) selectedNodeId.value = nodeId
+  const menuWidth = kind === "node" ? 256 : 272
+  const menuHeight = kind === "node" ? 310 : 420
+  const padding = 12
+  contextMenu.kind = kind
+  contextMenu.nodeId = nodeId
+  contextMenu.canvasPosition = canvasPositionFromEvent(event)
+  contextMenu.x = Math.max(padding, Math.min(event.clientX, window.innerWidth - menuWidth - padding))
+  contextMenu.y = Math.max(padding, Math.min(event.clientY, window.innerHeight - menuHeight - padding))
+  contextMenu.visible = true
+}
+const closeContextMenu = () => {
+  contextMenu.visible = false
+  contextMenu.nodeId = null
+  contextMenu.canvasPosition = null
+}
+const onNodeContextMenu = ({ event, node }: any) => {
+  const nodeId = String(node?.id || "")
+  if (!event || !nodeId) return
+  openContextMenu(event, "node", nodeId)
+}
+const onCanvasContextMenu = (event: MouseEvent) => {
+  openContextMenu(event, "canvas")
+}
 const onNodeClick = ({ node }: { node: { id: string } }) => {
+  closeContextMenu()
   selectedNodeId.value = node.id
   nodeDrawerVisible.value = true
 }
@@ -1743,6 +1881,7 @@ const onPaletteDragStart = (type: string) => {
   draggedNodeType.value = type
 }
 const onCanvasDrop = (event: DragEvent) => {
+  closeContextMenu()
   if (!draggedNodeType.value || !selectedPipeline.value) return
   const target = event.currentTarget as HTMLElement | null
   const rect = target?.getBoundingClientRect()
@@ -1800,7 +1939,7 @@ const copySelectedNode = () => {
   copiedNode.value = cloneDag({ nodes: [selectedNode.value], edges: [] }).nodes?.[0] || null
   ElMessage.success("节点已复制")
 }
-const pasteCopiedNode = () => {
+const pasteCopiedNode = (position?: { x: number; y: number }) => {
   if (!selectedPipeline.value || !copiedNode.value) return
   recordDagSnapshot()
   const index = (selectedPipeline.value.dag_json.nodes || []).length + 1
@@ -1810,7 +1949,7 @@ const pasteCopiedNode = () => {
     ...cloneDag({ nodes: [copiedNode.value], edges: [] }).nodes[0],
     id,
     label: `${copiedNode.value.label || nodeTypeLabel(copiedNode.value.type)} 副本`,
-    position: { x: sourcePosition.x + 40, y: sourcePosition.y + 40 + (index % 3) * 8 },
+    position: position || { x: sourcePosition.x + 40, y: sourcePosition.y + 40 + (index % 3) * 8 },
   }
   selectedPipeline.value.dag_json.nodes ||= []
   selectedPipeline.value.dag_json.nodes.push(node)
@@ -1903,6 +2042,61 @@ const addTemplateNodes = () => {
   selectedPipeline.value.dag_json = defaultDag()
   selectedNodeId.value = "extract"
   nodeDrawerVisible.value = false
+}
+const runContextMenuAction = async (action: ContextMenuAction) => {
+  const nodeId = contextMenu.nodeId
+  const position = contextMenu.canvasPosition ? { ...contextMenu.canvasPosition } : undefined
+  closeContextMenu()
+  if (nodeId) selectedNodeId.value = nodeId
+
+  if (action === "edit_node") {
+    activeWorkbenchTab.value = "design"
+    nodeDrawerVisible.value = true
+    return
+  }
+  if (action === "preview_node") {
+    await previewSelectedNode()
+    return
+  }
+  if (action === "inspect_node") {
+    await inspectSelectedNode()
+    return
+  }
+  if (action === "copy_node") {
+    copySelectedNode()
+    return
+  }
+  if (action === "delete_node") {
+    deleteSelectedNode()
+    return
+  }
+  if (action === "add_extract") {
+    addNode("extract", position)
+    return
+  }
+  if (action === "add_transform") {
+    addNode("transform", position)
+    return
+  }
+  if (action === "add_sql") {
+    addNode("sql", position)
+    return
+  }
+  if (action === "paste_node") {
+    pasteCopiedNode(position)
+    return
+  }
+  if (action === "auto_layout") {
+    autoLayoutDag()
+    return
+  }
+  if (action === "apply_template") {
+    addTemplateNodes()
+    return
+  }
+  if (action === "save_dag") {
+    await savePipelineDag()
+  }
 }
 
 const Background = defineComponent({
@@ -2214,13 +2408,28 @@ const saveRule = async () => {
 }
 
 watch(() => selectedPipeline.value?.id, () => {
+  closeContextMenu()
   loadSelectedDetails()
 })
 watch(activeWorkbenchTab, (tab) => {
+  closeContextMenu()
   if (tab === "lineage") loadLineage()
 })
 
-onMounted(loadAll)
+const onWindowClick = () => closeContextMenu()
+const onWindowKeydown = (event: KeyboardEvent) => {
+  if (event.key === "Escape") closeContextMenu()
+}
+
+onMounted(() => {
+  loadAll()
+  window.addEventListener("click", onWindowClick)
+  window.addEventListener("keydown", onWindowKeydown)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener("click", onWindowClick)
+  window.removeEventListener("keydown", onWindowKeydown)
+})
 </script>
 
 <style scoped>
@@ -3532,6 +3741,111 @@ onMounted(loadAll)
   border-radius: var(--app-radius-sm);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--app-shadow-soft);
+}
+
+.etl-context-menu {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  width: 272px;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: var(--app-radius-sm);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+.etl-context-menu__header {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px 7px;
+  border-bottom: 1px solid var(--app-border-light);
+}
+
+.etl-context-menu__header strong {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 13px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etl-context-menu__header small {
+  overflow: hidden;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etl-context-menu__item {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.etl-context-menu__item:hover:not(:disabled),
+.etl-context-menu__item:focus-visible {
+  background: rgba(15, 118, 110, 0.08);
+  outline: none;
+}
+
+.etl-context-menu__item:disabled {
+  color: var(--app-text-muted);
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.etl-context-menu__item > .el-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--app-radius-sm);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--app-primary);
+  font-size: 16px;
+}
+
+.etl-context-menu__item span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.etl-context-menu__item strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.etl-context-menu__item small {
+  overflow: hidden;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.etl-context-menu__item.is-danger {
+  color: var(--app-danger);
+}
+
+.etl-context-menu__item.is-danger > .el-icon {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--app-danger);
 }
 
 .pipeline-flow :deep(.vue-flow__node) {
