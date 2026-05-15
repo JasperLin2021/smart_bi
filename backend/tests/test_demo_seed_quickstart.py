@@ -54,6 +54,12 @@ class DemoSeedQuickstartTests(unittest.TestCase):
             mock_sql,
             r"UPDATE metrics\s+SET[\s\S]+dataset_id\s*=\s*1[\s\S]+datasource_id\s*=\s*2[\s\S]+WHERE name IN \('产出','OEE','线产出'\)",
         )
+        self.assertNotIn("某条线Final单元的产出", mock_sql)
+        self.assertIn("Final单元产出", mock_sql)
+        self.assertRegex(
+            mock_sql,
+            r"description\s*=\s*CASE name[\s\S]+WHEN '线产出' THEN '按 Nexteer 产线汇总班次产出'",
+        )
 
 
 if __name__ == "__main__":

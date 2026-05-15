@@ -1221,6 +1221,12 @@ SET
     WHEN '线产出' THEN $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["按产线汇总的 mainrecord 班次产出"],"excluded_subjects":["非生产班次","测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json
     ELSE calculation_config
   END,
+  description = CASE name
+    WHEN '产出' THEN 'Nexteer 班次产出总量'
+    WHEN 'OEE' THEN 'Nexteer 产线综合效率'
+    WHEN '线产出' THEN '按 Nexteer 产线汇总班次产出'
+    ELSE description
+  END,
   definition = CASE name
     WHEN '产出' THEN 'Nexteer mainrecord 班次主数据中 TOTALCOUNT 的合计，反映统计周期内实际产出件数。'
     WHEN 'OEE' THEN 'Nexteer mainrecord 班次主数据中 OEE 的平均值，按产线、班次和日期可拆解。'
@@ -1546,7 +1552,20 @@ VALUES
    'pending_review', 'nexteer_certifier', NULL, 'v2026.05.0',
    6321480.20, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
    'normal', '窗口分区与排序字段已校验，待经营负责人最终认证。', 1,
-   NOW() - INTERVAL '12 days', NOW() - INTERVAL '1 hour')
+   NOW() - INTERVAL '12 days', NOW() - INTERVAL '1 hour'),
+
+  (16, 1, 2, 'Final单元产出',
+   'Nexteer Final 末工序 OK 产出，用于核对产线最终成品流出。',
+   '通过 production.MAINID 关联 mainrecord.ID，统计 REPS3 Final 产线对应 production.OKCOUNT 的合计；该指标仅表达末工序/Final 单元口径，不替代通用线产出。',
+   'production.OKCOUNT',
+   'SUM((SELECT COALESCE(SUM(p.OKCOUNT), 0) FROM production p JOIN mainrecord mr ON p.MAINID = mr.ID AND mr.ID = mainrecord.ID))',
+   $${"calculation_mode":"aggregate","metric_field":"production.OKCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"mainrecord.LINE","operator":"=","value":"REPS3 Final"}],"statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["REPS3 Final 末工序 production.OKCOUNT"],"excluded_subjects":["其它产线","非 Final 末工序口径"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]}}$$::json,
+   '生产运营部', '件', 'sum', '["Nexteer","生产","Final单元","末工序产出","认证指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '6 days', 'v2026.05.1',
+   690, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与 production.OKCOUNT 末工序产出核对一致。', 1,
+   NOW() - INTERVAL '6 days', NOW() - INTERVAL '1 hour')
 ON CONFLICT (id) DO UPDATE SET
   dataset_id = EXCLUDED.dataset_id,
   datasource_id = EXCLUDED.datasource_id,
@@ -1613,6 +1632,11 @@ VALUES
    4, 1, 8, 5, 'published', '["销售","窗口指标","累计"]',
    $${"formula":"SUM(total_amount) OVER (PARTITION BY region ORDER BY order_date)","calculation_mode":"window","unit":"元","caliber_version":"v2026.05.0","statistical_scope":{"window":"自然月","time_field":"orders.order_date"}}$$::json,
    73, NOW() - INTERVAL '12 days', NOW() - INTERVAL '1 hour'),
+  (33, 'metric', 16, 'Final单元产出',
+   '末工序指标：REPS3 Final 对应 production.OKCOUNT 合计。',
+   2, 1, 2, 6, 'published', '["Nexteer","Final单元","末工序产出","认证指标"]',
+   $${"formula":"SUM((SELECT COALESCE(SUM(p.OKCOUNT), 0) FROM production p JOIN mainrecord mr ON p.MAINID = mr.ID AND mr.ID = mainrecord.ID))","calculation_mode":"aggregate","unit":"件","caliber_version":"v2026.05.1","statistical_scope":{"window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","filters":["mainrecord.LINE = REPS3 Final"],"included_subjects":["REPS3 Final 末工序 production.OKCOUNT"]}}$$::json,
+   68, NOW() - INTERVAL '6 days', NOW() - INTERVAL '1 hour'),
   (31, 'table', NULL, 'orders 订单主表',
    '蓝途订单主表，包含订单金额、客户、大区、销售员、状态和下单日期。',
    4, 1, 8, 5, 'published', '["原始数据","订单","orders"]',
@@ -1656,8 +1680,8 @@ ON CONFLICT (id) DO UPDATE SET
   org_id = EXCLUDED.org_id;
 
 SELECT setval(pg_get_serial_sequence('datasets', 'id'), GREATEST((SELECT MAX(id) FROM datasets), 5), true);
-SELECT setval(pg_get_serial_sequence('metrics', 'id'), GREATEST((SELECT MAX(id) FROM metrics), 15), true);
-SELECT setval(pg_get_serial_sequence('data_assets', 'id'), GREATEST((SELECT MAX(id) FROM data_assets), 32), true);
+SELECT setval(pg_get_serial_sequence('metrics', 'id'), GREATEST((SELECT MAX(id) FROM metrics), 16), true);
+SELECT setval(pg_get_serial_sequence('data_assets', 'id'), GREATEST((SELECT MAX(id) FROM data_assets), 33), true);
 SELECT setval(pg_get_serial_sequence('asset_lineage', 'id'), GREATEST((SELECT MAX(id) FROM asset_lineage), 12), true);
 
 COMMIT;
