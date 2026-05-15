@@ -3,9 +3,11 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
-from app.db.session import get_db
+from app.db.session import get_datasource_engine, get_db
 from app.core.audit import try_record_audit_log
 from app.core.permissions import has_action_permission, require_org_admin_or_above
 from app.core.safe_delete import assert_metric_can_delete, delete_catalog_asset
@@ -15,7 +17,7 @@ from app.models.dataset import Dataset
 from app.models.metric import Metric
 from app.models.organization import Organization
 from app.models.user import User
-from app.schemas.metric import MetricCreate, MetricUpdate, MetricOut, MetricListResponse
+from app.schemas.metric import MetricCreate, MetricPreviewRequest, MetricPreviewResponse, MetricUpdate, MetricOut, MetricListResponse
 from app.core.metric_formula import generate_metric_formula
 from app.core.metric_prompt_sync import sync_datasource_metrics_prompt
 
@@ -311,6 +313,178 @@ def _metric_dependencies(db: Session, metric: Metric) -> list[dict[str, Any]]:
     ]
 
 
+def _metric_preview_limit(limit: int) -> int:
+    return max(1, min(int(limit or 50), 200))
+
+
+def _source_table(dataset: Dataset) -> str:
+    fields_json = _as_dict(dataset.fields_json)
+    table = str(fields_json.get("table") or "").strip()
+    if not table:
+        for item in _dataset_field_items(fields_json):
+            name = item["name"]
+            if "." in name:
+                table = name.split(".", 1)[0]
+                break
+    if not _safe_column_ref(table):
+        raise HTTPException(status_code=400, detail="数据集缺少合法主表配置")
+    return table
+
+
+def _metric_dimension_candidates(dataset: Dataset) -> dict[str, str]:
+    fields_json = _as_dict(dataset.fields_json)
+    raw_items: list[Any] = []
+    raw_items.extend(_as_list(fields_json.get("dimensions")))
+    if not raw_items:
+        raw_items.extend(_as_list(fields_json.get("fields")))
+    semantic_model = _as_dict(dataset.semantic_model_json)
+    raw_items.extend(_as_list(semantic_model.get("dimensions")))
+    raw_items.extend(_as_list(semantic_model.get("time_dimensions")))
+
+    table = str(fields_json.get("table") or "").strip()
+    candidates: dict[str, str] = {}
+    for item in raw_items:
+        name = _field_name(item)
+        if not name:
+            continue
+        if "." not in name and table:
+            qualified_name = f"{table}.{name}"
+            candidates.setdefault(qualified_name, _field_label(item, name) or name)
+        candidates.setdefault(name, _field_label(item, name) or name.split(".")[-1])
+    return candidates
+
+
+def _metric_preview_alias(value: str) -> str:
+    alias = str(value or "").strip()
+    if not alias:
+        raise HTTPException(status_code=400, detail="预览字段别名不合法")
+    if len(alias) > 128 or any(token in alias for token in (";", "--", "/*", "*/", "\x00")):
+        raise HTTPException(status_code=400, detail="预览字段别名不合法")
+    return alias
+
+
+def _quote_alias(alias: str) -> str:
+    return f'"{alias.replace("\"", "\"\"")}"'
+
+
+def _sanitize_formula_expression(formula: str) -> tuple[str, list[str]]:
+    expression = str(formula or "").strip()
+    if not expression:
+        return "", []
+    if any(token in expression for token in (";", "--", "/*", "*/", "\x00")):
+        raise HTTPException(status_code=400, detail="指标公式包含不支持的 SQL 片段")
+    where_parts: list[str] = []
+    match = re.search(r"\bwhere\b", expression, flags=re.I)
+    if match:
+        where_parts.append(expression[match.end():].strip())
+        expression = expression[:match.start()].strip()
+    if not expression:
+        raise HTTPException(status_code=400, detail="指标公式不能为空")
+    return expression, where_parts
+
+
+def _aggregation_expression(metric: Metric) -> str:
+    formula_expression, _where_parts = _sanitize_formula_expression(metric.formula or "")
+    if formula_expression:
+        return formula_expression
+    column = _safe_column_ref(metric.column_name)
+    if not column:
+        raise HTTPException(status_code=400, detail="指标缺少可预览的公式或字段")
+    aggregation = str(metric.aggregation or "sum").strip().lower()
+    if aggregation == "count_distinct":
+        return f"COUNT(DISTINCT {column})"
+    if aggregation == "count":
+        return f"COUNT({column})"
+    if aggregation in {"sum", "avg", "max", "min"}:
+        return f"{aggregation.upper()}({column})"
+    raise HTTPException(status_code=400, detail="指标聚合方式不支持预览")
+
+
+def _render_preview_joins(dataset: Dataset, table: str) -> list[str]:
+    joins: list[str] = []
+    seen: set[str] = set()
+    for item in _dataset_join_items(dataset, _as_dict(dataset.fields_json)):
+        join_table = _safe_column_ref(item.get("table"))
+        if not join_table or join_table == table:
+            continue
+        join_type = re.sub(r"\s+", " ", str(item.get("join_type") or "JOIN").upper()).strip()
+        if join_type not in {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "RIGHT JOIN", "RIGHT OUTER JOIN", "FULL JOIN", "FULL OUTER JOIN"}:
+            raise HTTPException(status_code=400, detail="数据集 Join 类型不支持预览")
+        join_on = str(item.get("join_on") or "").strip()
+        if not join_on or any(token in join_on for token in (";", "--", "/*", "*/", "\x00")):
+            raise HTTPException(status_code=400, detail="数据集 Join 条件不合法")
+        rendered = f"{join_type} {join_table} ON {join_on}"
+        if rendered not in seen:
+            seen.add(rendered)
+            joins.append(rendered)
+    return joins
+
+
+def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSource, payload: MetricPreviewRequest) -> dict[str, Any]:
+    table = _source_table(dataset)
+    dimension_candidates = _metric_dimension_candidates(dataset)
+    selected_dimensions: list[dict[str, str]] = []
+    for raw_dimension in payload.dimensions or []:
+        field = _safe_column_ref(raw_dimension)
+        if not field:
+            raise HTTPException(status_code=400, detail="预览维度字段不合法")
+        label = dimension_candidates.get(field) or dimension_candidates.get(field.split(".")[-1])
+        if not label:
+            raise HTTPException(status_code=400, detail=f"预览维度不属于当前指标数据集: {raw_dimension}")
+        selected_dimensions.append({"field": field, "label": _metric_preview_alias(label)})
+
+    metric_alias = _metric_preview_alias(metric.name)
+    formula_expression, formula_where_parts = _sanitize_formula_expression(metric.formula or "")
+    metric_expression = formula_expression or _aggregation_expression(metric)
+    select_parts = [
+        f"{item['field']} AS {_quote_alias(item['label'])}"
+        for item in selected_dimensions
+    ]
+    select_parts.append(f"{metric_expression} AS {_quote_alias(metric_alias)}")
+
+    where_parts = formula_where_parts
+    filters_sql = _render_calculation_filters(metric.calculation_config)
+    if filters_sql:
+        where_parts.append(filters_sql)
+
+    is_window_metric = str(_calculation_config(metric).get("calculation_mode") or "").lower() == "window" or re.search(r"\bover\s*\(", metric_expression, flags=re.I)
+    group_parts = [item["field"] for item in selected_dimensions] if selected_dimensions and not is_window_metric else []
+    limit = _metric_preview_limit(payload.limit)
+    sql_parts = [
+        f"SELECT {', '.join(select_parts)}",
+        f"FROM {table}",
+        *_render_preview_joins(dataset, table),
+    ]
+    if where_parts:
+        sql_parts.append(f"WHERE {' AND '.join(where_parts)}")
+    if group_parts:
+        sql_parts.append(f"GROUP BY {', '.join(group_parts)}")
+    sql_parts.append(f"ORDER BY {_quote_alias(metric_alias)} DESC")
+    sql_parts.append(f"LIMIT {limit}")
+    return {
+        "sql": "\n".join(sql_parts),
+        "dimensions": [item["field"] for item in selected_dimensions],
+        "dimension_labels": [item["label"] for item in selected_dimensions],
+        "metric_column": metric_alias,
+        "limit": limit,
+    }
+
+
+def _execute_metric_preview(datasource: DataSource, plan: dict[str, Any]) -> dict[str, Any]:
+    sql = plan["sql"]
+    if datasource.source_type == "excel":
+        from app.core.excel_executor import execute_excel_query
+
+        return execute_excel_query(datasource.database_url, sql)
+
+    engine = get_datasource_engine(datasource.database_url)
+    with engine.connect() as conn:
+        result = conn.execute(text(sql))
+        columns = list(result.keys())
+        rows = [dict(row._mapping) for row in result.fetchall()]
+    return {"columns": columns, "rows": rows}
+
+
 def _apply_metric_visibility(query, user: User):
     if user.role == "super_admin":
         return query
@@ -587,6 +761,65 @@ def get_metric_lineage(
             "datasource_id": metric.datasource_id,
         },
     }
+
+
+@router.post("/{metric_id}/preview", response_model=MetricPreviewResponse)
+def preview_metric(
+    metric_id: int,
+    payload: MetricPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    metric = get_metric(metric_id, db=db, current_user=current_user)
+    dataset = (
+        db.query(Dataset).filter(Dataset.id == metric.dataset_id).first()
+        if metric.dataset_id
+        else None
+    )
+    if not dataset:
+        raise HTTPException(status_code=400, detail="指标未绑定数据集，无法预览")
+    datasource = (
+        db.query(DataSource).filter(DataSource.id == metric.datasource_id).first()
+        if metric.datasource_id
+        else None
+    )
+    if not datasource:
+        raise HTTPException(status_code=400, detail="指标未绑定数据源，无法预览")
+
+    plan = _metric_preview_plan(metric, dataset, datasource, payload)
+    try:
+        result = _execute_metric_preview(datasource, plan)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"指标实时预览失败: {exc}")
+
+    rows = result.get("rows", [])
+    columns = list(result.get("columns", []))
+    response = {
+        "metric": {
+            "id": metric.id,
+            "name": metric.name,
+            "caliber_version": metric.caliber_version,
+            "formula": metric.formula,
+        },
+        "dataset": {"id": dataset.id, "name": dataset.name},
+        "datasource": {"id": datasource.id, "name": datasource.name, "source_type": datasource.source_type},
+        "dimensions": [
+            {"field": field, "label": label}
+            for field, label in zip(plan.get("dimensions", []), plan.get("dimension_labels", []))
+        ],
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "query": {
+            "sql": plan["sql"],
+            "dimensions": plan.get("dimensions", []),
+            "limit": plan.get("limit"),
+            "metric_column": plan.get("metric_column"),
+        },
+    }
+    return jsonable_encoder(response)
 
 
 @router.put("/{metric_id}", response_model=MetricOut)

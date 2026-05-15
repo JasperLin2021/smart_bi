@@ -744,6 +744,66 @@
                   </div>
                 </div>
               </section>
+
+              <section class="caliber-panel metric-preview-panel">
+                <div class="caliber-panel-head with-action">
+                  <div>
+                    <strong>实时数据预览</strong>
+                    <span>{{ metricPreviewStatusText }}</span>
+                  </div>
+                  <el-button :icon="Refresh" :loading="metricPreviewLoading" :disabled="!editingId" @click="fetchMetricPreview">刷新</el-button>
+                </div>
+                <div class="metric-preview-controls">
+                  <el-select
+                    v-model="metricPreviewDimensions"
+                    class="metric-preview-dimensions field-picker-select"
+                    multiple
+                    clearable
+                    collapse-tags
+                    collapse-tags-tooltip
+                    filterable
+                    placeholder="选择预览维度"
+                    :disabled="!editingId"
+                    @change="fetchMetricPreview"
+                  >
+                    <el-option
+                      v-for="field in metricPreviewDimensionOptions"
+                      :key="`preview-${field.name}`"
+                      :label="fieldOptionLabel(field)"
+                      :value="field.name"
+                    >
+                      <div class="field-option-row">
+                        <span>{{ field.label }}</span>
+                        <small>{{ fieldOptionDetail(field) }}</small>
+                      </div>
+                    </el-option>
+                  </el-select>
+                </div>
+                <div v-if="metricPreviewError" class="metric-preview-error">
+                  {{ metricPreviewError }}
+                </div>
+                <el-table
+                  v-else
+                  class="metric-preview-table"
+                  :data="metricPreviewRows"
+                  v-loading="metricPreviewLoading"
+                  size="small"
+                  border
+                  empty-text="暂无预览数据"
+                >
+                  <el-table-column
+                    v-for="column in metricPreviewColumns"
+                    :key="column"
+                    :label="column"
+                    min-width="140"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      {{ formatPreviewCell(row[column]) }}
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </section>
             </div>
           </el-tab-pane>
 
@@ -1478,6 +1538,13 @@ interface FormulaCandidate {
   feedback?: string
 }
 
+interface MetricPreviewResult {
+  columns: string[]
+  rows: Record<string, any>[]
+  row_count: number
+  query?: Record<string, any>
+}
+
 interface FieldInsertTargetOption {
   label: string
   value: FieldInsertTarget
@@ -1530,6 +1597,12 @@ const certifierLoading = ref(false)
 const fieldCandidateKeyword = ref("")
 const fieldCandidateRoleFilter = ref<FieldCandidateRoleFilter>("all")
 const fieldInsertTarget = ref<FieldInsertTarget>("auto")
+const metricPreviewDimensions = ref<string[]>([])
+const metricPreviewColumns = ref<string[]>([])
+const metricPreviewRows = ref<Record<string, any>[]>([])
+const metricPreviewLoading = ref(false)
+const metricPreviewError = ref("")
+const metricPreviewRowCount = ref(0)
 
 const emptyCalculationFilter = (): CalculationFilterRule => ({
   logic: "AND",
@@ -1802,6 +1875,8 @@ const dimensionFieldOptions = computed(() => {
     ...asRawFieldList(semantic.time_dimensions).map((field) => normalizeDatasetField(field, "dimension")),
   ])
 })
+
+const metricPreviewDimensionOptions = computed(() => dimensionFieldOptions.value)
 
 const metricFieldOptions = computed(() => {
   const dataset = currentDataset.value
@@ -2446,6 +2521,55 @@ const formatDate = (value?: string | null) => {
   return date.toLocaleString("zh-CN", { hour12: false })
 }
 
+const formatPreviewCell = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return "—"
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)))
+  }
+  return String(value)
+}
+
+const metricPreviewStatusText = computed(() => {
+  if (!editingId.value) return "保存指标后可预览"
+  if (metricPreviewLoading.value) return "正在读取最新数据"
+  if (metricPreviewError.value) return "预览失败"
+  if (metricPreviewColumns.value.length) return `${metricPreviewRowCount.value} 行`
+  return "待预览"
+})
+
+const resetMetricPreview = () => {
+  metricPreviewDimensions.value = []
+  metricPreviewColumns.value = []
+  metricPreviewRows.value = []
+  metricPreviewError.value = ""
+  metricPreviewRowCount.value = 0
+}
+
+const fetchMetricPreview = async () => {
+  if (!editingId.value) {
+    resetMetricPreview()
+    return
+  }
+  metricPreviewLoading.value = true
+  metricPreviewError.value = ""
+  try {
+    const response = await axios.post<MetricPreviewResult>(`/api/metrics/${editingId.value}/preview`, {
+      dimensions: metricPreviewDimensions.value,
+      limit: 50,
+    })
+    metricPreviewColumns.value = response.data.columns || []
+    metricPreviewRows.value = response.data.rows || []
+    metricPreviewRowCount.value = response.data.row_count || metricPreviewRows.value.length
+  } catch (error: any) {
+    metricPreviewColumns.value = []
+    metricPreviewRows.value = []
+    metricPreviewRowCount.value = 0
+    metricPreviewError.value = error.response?.data?.detail || "实时数据预览失败"
+  } finally {
+    metricPreviewLoading.value = false
+  }
+}
+
 const selectedFormulaCandidate = computed(() => {
   return formulaCandidates.value.find(candidate => candidate.id === selectedFormulaCandidateId.value) || null
 })
@@ -2712,6 +2836,7 @@ const buildPayload = () => {
 const openDialog = (metric?: Metric) => {
   dialogActiveTab.value = "basic"
   fieldInsertTarget.value = "auto"
+  resetMetricPreview()
   if (metric) {
     editingId.value = metric.id
     form.value = {
@@ -2736,6 +2861,7 @@ const openDialog = (metric?: Metric) => {
       quality_message: metric.quality_message || "",
       is_active: metric.is_active ?? 1,
     }
+    nextTick(fetchMetricPreview)
   } else {
     editingId.value = null
     form.value = emptyForm()
@@ -3956,6 +4082,41 @@ onMounted(() => {
 .formula-preview-panel p {
   margin: 0;
   color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.metric-preview-panel {
+  margin-top: 14px;
+}
+
+.metric-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.metric-preview-dimensions {
+  width: min(520px, 100%);
+}
+
+.metric-preview-table {
+  width: 100%;
+}
+
+.metric-preview-table :deep(.el-table__cell) {
+  font-size: 12px;
+}
+
+.metric-preview-error {
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: var(--app-radius-sm);
+  background: rgba(220, 38, 38, 0.06);
+  color: #b91c1c;
   font-size: 12px;
   line-height: 1.5;
 }

@@ -202,3 +202,18 @@ test("metric caliber editor uses controlled graphical builders instead of hardco
   assert.doesNotMatch(view, /v-model="form\.formula"/)
   assert.doesNotMatch(view, /allow-create/)
 })
+
+test("metric dialog previews live metric data by selected dimensions", () => {
+  const view = read("src/views/MetricSettings.vue")
+
+  assert.match(view, /metric-preview-panel/)
+  assert.match(view, /metric-preview-dimensions/)
+  assert.match(view, /v-model="metricPreviewDimensions"/)
+  assert.match(view, /metricPreviewDimensionOptions/)
+  assert.match(view, /metricPreviewRows/)
+  assert.match(view, /metricPreviewColumns/)
+  assert.match(view, /fetchMetricPreview/)
+  assert.match(view, /\/api\/metrics\/\$\{editingId\.value\}\/preview/)
+  assert.match(view, /@change="fetchMetricPreview"/)
+  assert.match(view, /实时数据预览/)
+})

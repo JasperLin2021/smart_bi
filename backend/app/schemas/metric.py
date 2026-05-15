@@ -93,3 +93,21 @@ class MetricOut(BaseModel):
 
 class MetricListResponse(BaseModel):
     items: list[MetricOut]
+
+
+class MetricPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimensions: list[str] = []
+    limit: int = 50
+
+
+class MetricPreviewResponse(BaseModel):
+    metric: dict[str, Any]
+    dataset: dict[str, Any]
+    datasource: dict[str, Any]
+    dimensions: list[dict[str, str]]
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    query: dict[str, Any]
