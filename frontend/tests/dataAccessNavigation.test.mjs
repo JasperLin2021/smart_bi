@@ -21,7 +21,7 @@ test("data access is an independent top-level sidebar menu", () => {
   const dataAccessBlock = layout.match(/key:\s*"data-access"[\s\S]*?key:\s*"bi-assets"/)?.[0] || ""
   assert.match(dataAccessBlock, /path:\s*"\/data-access",\s*label:\s*"准备总览"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-link",\s*label:\s*"连接器接入"/)
-  assert.match(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"数据加工管道"/)
+  assert.match(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"可视化ETL"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-development",\s*label:\s*"数据接入"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/datasource-settings",\s*label:\s*"数据源管理"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/dataset-center",\s*label:\s*"数据集开发"/)

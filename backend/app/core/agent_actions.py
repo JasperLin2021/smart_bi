@@ -119,19 +119,19 @@ ACTION_SPECS: Dict[str, dict] = {
     "create_pipeline": {
         "risk": "medium",
         "roles": BI_ADMIN_ROLES,
-        "description": "创建数据加工管道",
+        "description": "创建可视化ETL",
         "params": ["name", "dataset_id", "dag_json"],
     },
     "run_pipeline": {
         "risk": "medium",
         "roles": BI_ADMIN_ROLES,
-        "description": "运行数据加工管道",
+        "description": "运行可视化ETL",
         "params": ["pipeline_name", "mode"],
     },
     "delete_pipeline": {
         "risk": "high",
         "roles": ["org_admin", "super_admin"],
-        "description": "删除数据加工管道",
+        "description": "删除可视化ETL",
         "params": ["pipeline_name"],
     },
     "create_analysis_view": {

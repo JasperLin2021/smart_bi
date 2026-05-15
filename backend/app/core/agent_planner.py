@@ -27,6 +27,7 @@ ROUTE_MAP = {
     "数据集": "/data-development?tab=datasets",
     "数据集开发": "/data-development?tab=datasets",
     "数据源与数据集": "/data-development",
+    "可视化ETL": "/data-pipelines",
     "数据加工管道": "/data-pipelines",
     "数据集成管道": "/data-pipelines",
     "数据平台": "/olap-status",

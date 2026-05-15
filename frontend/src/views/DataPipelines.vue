@@ -141,7 +141,7 @@
       <main class="etl-stage">
         <div class="pipeline-toolbar">
           <div>
-            <h3>{{ selectedPipeline?.name || "选择一个数据加工管道" }}</h3>
+            <h3>{{ selectedPipeline?.name || "选择一个可视化ETL" }}</h3>
             <span>
               {{ selectedPipeline ? `${flowNodes.length} 个节点 · ${flowEdges.length} 条依赖 · ${datasetName(selectedPipeline.dataset_id)}` : "DAG 将显示抽取、转换、质量闸门和装载链路" }}
             </span>
@@ -828,7 +828,7 @@
       </aside>
     </section>
 
-    <el-dialog v-model="dialogVisible" title="新建数据加工管道" width="min(860px, calc(100vw - 32px))" destroy-on-close>
+    <el-dialog v-model="dialogVisible" title="新建可视化ETL" width="min(860px, calc(100vw - 32px))" destroy-on-close>
       <el-form label-position="top" class="pipeline-form">
         <el-row :gutter="16">
           <el-col :xs="24" :md="12">
@@ -1970,7 +1970,7 @@ const loadAll = async () => {
     selectedId.value = pipelines.value.some((item) => item.id === selectedId.value) ? selectedId.value : pipelines.value[0]?.id || null
     await loadSelectedDetails()
   } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "数据加工管道加载失败")
+    ElMessage.error(error.response?.data?.detail || "可视化ETL加载失败")
   } finally {
     loading.value = false
   }
@@ -2134,7 +2134,7 @@ const savePipeline = async () => {
       },
       dag_json: defaultDag(),
     })
-    ElMessage.success("数据加工管道已创建")
+    ElMessage.success("可视化ETL已创建")
     dialogVisible.value = false
     await loadAll()
     selectedId.value = data.id

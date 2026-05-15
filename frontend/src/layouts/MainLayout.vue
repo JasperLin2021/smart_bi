@@ -305,7 +305,7 @@ const menuEntries: MenuEntry[] = [
     items: [
       { path: "/data-access", label: "准备总览", icon: DataLine },
       { path: "/data-link", label: "连接器接入", icon: Coin },
-      { path: "/data-pipelines", label: "数据加工管道", icon: SetUp, roles: ["org_admin", "super_admin"] },
+      { path: "/data-pipelines", label: "可视化ETL", icon: SetUp, roles: ["org_admin", "super_admin"] },
       { path: "/data-development", label: "数据接入", icon: Document },
       { path: "/olap-status", label: "OLAP 数据平台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/data-catalog", label: "数据目录", icon: FolderOpened },

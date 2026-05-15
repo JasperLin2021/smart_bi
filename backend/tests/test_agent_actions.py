@@ -68,6 +68,18 @@ class AgentActionPolicyTests(unittest.TestCase):
         self.assertEqual(renamed_plan["actions"][0]["type"], "navigate")
         self.assertEqual(renamed_plan["actions"][0]["params"]["route"], "/data-development")
 
+        admin_context = build_agent_context(
+            role="org_admin",
+            route="/dashboard",
+            datasource_id=None,
+            datasource_name=None,
+            datasource_names=[],
+            agent_planner_mode="heuristic_then_llm",
+        )
+        etl_plan = asyncio.run(plan_agent_actions("打开可视化ETL", admin_context))
+        self.assertEqual(etl_plan["actions"][0]["type"], "navigate")
+        self.assertEqual(etl_plan["actions"][0]["params"]["route"], "/data-pipelines")
+
     def test_enterprise_agent_actions_cover_refactored_features(self):
         from app.core.agent_actions import get_action_catalog
 

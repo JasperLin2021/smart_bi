@@ -198,7 +198,7 @@ const capabilities = [
   },
   {
     title: "任务运维",
-    description: "查看数据加工管道、失败原因和接入链路运行状态。",
+    description: "查看可视化ETL、失败原因和接入链路运行状态。",
     path: "/data-pipelines",
     icon: Monitor,
   },

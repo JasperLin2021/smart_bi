@@ -53,6 +53,7 @@ const agentRouteAliases: Record<string, RouteLocationRaw> = {
   "用户管理": "/access-control",
   "企业管理": "/access-control",
   "角色管理": "/access-control",
+  "可视化ETL": "/data-pipelines",
   "数据加工管道": "/data-pipelines",
   "数据集成管道": "/data-pipelines",
   "连接器接入": "/data-link",
@@ -480,7 +481,7 @@ export const useAgentStore = defineStore("agent", {
         }
         case "create_pipeline":
           await axios.post("/api/pipelines", action.params)
-          return `已创建数据加工管道 ${action.params.name}`
+          return `已创建可视化ETL ${action.params.name}`
         case "run_pipeline": {
           const target = await resolveEntity(
             "/api/pipelines",
@@ -488,13 +489,13 @@ export const useAgentStore = defineStore("agent", {
             ["pipeline_id", "id"],
             ["pipeline_name", "name"],
             ["name"],
-            "数据加工管道",
+            "可视化ETL",
           )
           await axios.post(`/api/pipelines/${target.id}/run`, {
             mode: action.params.mode || "full",
             reason: action.params.reason || "Agent 触发",
           })
-          return `已运行数据加工管道 ${target.name}`
+          return `已运行可视化ETL ${target.name}`
         }
         case "delete_pipeline": {
           const target = await resolveEntity(
@@ -503,10 +504,10 @@ export const useAgentStore = defineStore("agent", {
             ["pipeline_id", "id"],
             ["pipeline_name", "name"],
             ["name"],
-            "数据加工管道",
+            "可视化ETL",
           )
           await axios.delete(`/api/pipelines/${target.id}`)
-          return `已删除数据加工管道 ${target.name}`
+          return `已删除可视化ETL ${target.name}`
         }
         case "create_analysis_view":
           await axios.post("/api/analysis-views", action.params)
