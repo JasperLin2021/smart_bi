@@ -80,6 +80,46 @@ class SqlGuardTests(unittest.TestCase):
             if os.path.exists(path):
                 os.remove(path)
 
+    def test_detect_excel_join_risk_allows_ctes_that_reuse_one_physical_table(self):
+        from app.core.sql_guard import detect_excel_join_risk
+
+        path = self._build_excel()
+        try:
+            sql = """
+            WITH top_ng AS (
+                SELECT NGTYPE
+                FROM ngtype
+                GROUP BY NGTYPE
+                ORDER BY SUM(NGCOUNT) DESC
+                LIMIT 3
+            ),
+            ranked_stations AS (
+                SELECT
+                    n.NGTYPE,
+                    n.STN,
+                    ROW_NUMBER() OVER (PARTITION BY n.NGTYPE ORDER BY SUM(n.NGCOUNT) DESC) AS rn
+                FROM ngtype n
+                WHERE n.NGTYPE IN (SELECT NGTYPE FROM top_ng)
+                GROUP BY n.NGTYPE, n.STN
+            )
+            SELECT
+                n.NGTYPE,
+                n.STN,
+                SUM(n.NGCOUNT) AS total_ng_count
+            FROM ngtype n
+            WHERE (n.NGTYPE, n.STN) IN (
+                SELECT NGTYPE, STN FROM ranked_stations WHERE rn <= 10
+            )
+            GROUP BY n.NGTYPE, n.STN
+            """
+
+            risk = detect_excel_join_risk(path, sql)
+
+            self.assertIsNone(risk)
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
     def test_detect_excel_join_risk_does_not_flag_join_keys_used_only_in_on_clause(self):
         from app.core.sql_guard import detect_excel_join_risk
 

@@ -1,11 +1,16 @@
+import json
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
+from app.core.llm import chat_completion, get_llm_config, normalize_llm_config
 from app.db.session import get_db
 from app.models.datasource import DataSource
 from app.models.metric import Metric
+from app.models.organization import Organization  # noqa: F401 - register relationship target for SQLAlchemy
 from app.models.user import User
 
 router = APIRouter(prefix="/insights", tags=["insights"])
@@ -24,12 +29,16 @@ class ChartRecommendRequest(BaseModel):
 class AutoInsightsRequest(BaseModel):
     columns: list[str]
     rows: list[dict] = []
+    question: str | None = None
+    sql_query: str | None = None
     max_items: int = 6
 
 
 class AnomalyAttributionRequest(BaseModel):
     columns: list[str]
     rows: list[dict] = []
+    question: str | None = None
+    sql_query: str | None = None
     metric_column: str | None = None
     dimension_columns: list[str] = []
     max_drivers: int = 5
@@ -72,6 +81,160 @@ def _label_for_row(row: dict, columns: list[str], metric_column: str) -> str:
         if column != metric_column and row.get(column) not in (None, ""):
             return str(row.get(column))
     return "当前记录"
+
+
+def _extract_json_object(raw: str) -> dict:
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, flags=re.S)
+        if match:
+            return _extract_json_object(match.group(1))
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(raw[start : end + 1])
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+
+def _compact_rows(rows: list[dict], limit: int = 20) -> list[dict]:
+    compacted: list[dict] = []
+    for row in rows[:limit]:
+        compacted.append({key: row.get(key) for key in row.keys()})
+    return compacted
+
+
+def _valid_insight(item: dict) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    title = str(item.get("title") or "").strip()
+    description = str(item.get("description") or "").strip()
+    if not title or not description:
+        return None
+    severity = str(item.get("severity") or "info").strip()
+    if severity not in {"info", "success", "warning", "danger"}:
+        severity = "info"
+    return {
+        "type": str(item.get("type") or "business"),
+        "title": title,
+        "description": description,
+        "severity": severity,
+    }
+
+
+async def _call_insight_llm(payload: dict, task: str) -> tuple[dict, dict]:
+    config = normalize_llm_config(await get_llm_config())
+    raw = await chat_completion(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "你是企业 BI 分析助手。只基于传入的统计证据生成业务解释，"
+                    "不得编造不存在的数值、字段、时间范围或业务背景。"
+                    "必须返回严格 JSON，不要输出 Markdown。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"任务：{task}\n"
+                    "请用中文生成面向业务用户的解释层。"
+                    "保留证据中的关键数值，不要重新计算。"
+                    f"\n输入：{json.dumps(payload, ensure_ascii=False, default=str)}"
+                ),
+            },
+        ],
+        temperature=0.2,
+        config_override=config,
+    )
+    return _extract_json_object(raw), config
+
+
+async def _enhance_auto_insights_with_llm(payload: AutoInsightsRequest, result: dict, rows: list[dict]) -> dict:
+    result.setdefault("metadata", {})
+    result["metadata"].update({"llm_enhanced": False, "llm_model": None})
+    if not rows:
+        return result
+    try:
+        llm_result, config = await _call_insight_llm(
+            {
+                "question": payload.question,
+                "sql_query": payload.sql_query,
+                "columns": payload.columns,
+                "sample_rows": _compact_rows(rows),
+                "rule_insights": result.get("insights", []),
+                "metadata": result.get("metadata", {}),
+                "required_schema": {
+                    "summary": "string",
+                    "insights": [
+                        {
+                            "type": "string",
+                            "title": "string",
+                            "description": "string",
+                            "severity": "info|success|warning|danger",
+                        }
+                    ],
+                },
+            },
+            "润色自动洞察，输出 summary 和 insights。insights 最多保留用户请求的条数。",
+        )
+        summary = str(llm_result.get("summary") or "").strip()
+        insights = [
+            insight
+            for insight in (_valid_insight(item) for item in llm_result.get("insights", []))
+            if insight
+        ]
+        if summary:
+            result["summary"] = summary
+        if insights:
+            result["insights"] = insights[: max(1, payload.max_items)]
+        result["metadata"].update({"llm_enhanced": bool(summary or insights), "llm_model": config.get("model")})
+    except Exception as exc:
+        result["metadata"]["llm_error"] = str(exc)
+    return result
+
+
+async def _enhance_attribution_with_llm(payload: AnomalyAttributionRequest, result: dict, rows: list[dict]) -> dict:
+    result.update({"llm_enhanced": False, "llm_model": None})
+    if not rows or not result.get("drivers"):
+        return result
+    try:
+        llm_result, config = await _call_insight_llm(
+            {
+                "question": payload.question,
+                "sql_query": payload.sql_query,
+                "columns": payload.columns,
+                "sample_rows": _compact_rows(rows),
+                "metric_column": result.get("metric_column"),
+                "drivers": result.get("drivers", []),
+                "summary": result.get("summary"),
+                "recommendations": result.get("recommendations", []),
+                "required_schema": {
+                    "summary": "string",
+                    "recommendations": ["string"],
+                },
+            },
+            "基于已计算好的归因 drivers 生成业务解释和后续建议。不得修改 drivers 数值。",
+        )
+        summary = str(llm_result.get("summary") or "").strip()
+        recommendations = [
+            str(item).strip()
+            for item in llm_result.get("recommendations", [])
+            if str(item).strip()
+        ]
+        if summary:
+            result["summary"] = summary
+        if recommendations:
+            result["recommendations"] = recommendations[:5]
+        result.update({"llm_enhanced": bool(summary or recommendations), "llm_model": config.get("model")})
+    except Exception as exc:
+        result["llm_error"] = str(exc)
+    return result
 
 
 def _metric_for_user(db: Session, metric_id: int, user: User) -> tuple[Metric, DataSource | None]:
@@ -134,7 +297,7 @@ def recommend_chart(
 
 
 @router.post("/auto-insights")
-def auto_insights(
+async def auto_insights(
     payload: AutoInsightsRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -142,9 +305,13 @@ def auto_insights(
     rows = payload.rows[:1000]
     numeric_columns = _numeric_columns(payload.columns, rows)
     if not rows:
-        return {"insights": [], "summary": "暂无可分析数据", "metadata": {"row_count": 0, "numeric_columns": []}}
-    if not numeric_columns:
         return {
+            "insights": [],
+            "summary": "暂无可分析数据",
+            "metadata": {"row_count": 0, "numeric_columns": [], "llm_enhanced": False, "llm_model": None},
+        }
+    if not numeric_columns:
+        result = {
             "insights": [
                 {
                     "type": "structure",
@@ -156,6 +323,7 @@ def auto_insights(
             "summary": "当前结果更适合明细查看或按分类字段继续筛选。",
             "metadata": {"row_count": len(rows), "numeric_columns": []},
         }
+        return await _enhance_auto_insights_with_llm(payload, result, rows)
 
     insights: list[dict] = []
     main_metric = numeric_columns[0]
@@ -216,15 +384,16 @@ def auto_insights(
                 }
             )
 
-    return {
+    result = {
         "insights": insights[: max(1, payload.max_items)],
         "summary": f"发现 {len(insights)} 条自动洞察，建议从最高贡献项和异常低值开始定位。",
         "metadata": {"row_count": len(rows), "numeric_columns": numeric_columns, "primary_metric": main_metric},
     }
+    return await _enhance_auto_insights_with_llm(payload, result, rows)
 
 
 @router.post("/anomaly-attribution")
-def anomaly_attribution(
+async def anomaly_attribution(
     payload: AnomalyAttributionRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -239,6 +408,8 @@ def anomaly_attribution(
             "summary": "当前结果没有可用于归因的数值指标。",
             "recommendations": ["补充数值指标后再做异常归因"],
             "confidence": "low",
+            "llm_enhanced": False,
+            "llm_model": None,
         }
 
     dimensions = [column for column in payload.dimension_columns if column in payload.columns and column != metric_column]
@@ -275,10 +446,11 @@ def anomaly_attribution(
     elif top:
         recommendations.insert(0, f"重点解释 {top['dimension']}={top['value']} 的贡献来源。")
 
-    return {
+    result = {
         "metric_column": metric_column,
         "drivers": drivers,
         "summary": f"按 {', '.join(dimensions) if dimensions else '可用维度'} 拆解，识别 {len(drivers)} 个主要驱动项。",
         "recommendations": recommendations,
         "confidence": "medium" if dimensions else "low",
     }
+    return await _enhance_attribution_with_llm(payload, result, rows)

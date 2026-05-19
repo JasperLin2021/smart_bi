@@ -95,6 +95,35 @@ class MetricListResponse(BaseModel):
     items: list[MetricOut]
 
 
+class MetricFromQueryDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_history_id: int
+    selected_metric_column: Optional[str] = None
+    selected_dimensions: list[str] = []
+    time_column: Optional[str] = None
+
+
+class MetricFromQueryCreateRequest(MetricFromQueryDraftRequest):
+    name: Optional[str] = None
+    definition: Optional[str] = None
+    formula: Optional[str] = None
+    unit: Optional[str] = None
+    owner_name: Optional[str] = None
+    dimensions: Optional[list[str]] = None
+    status: str = "draft"
+    certification_status: str = "pending_review"
+
+
+class MetricFromQueryDraftResponse(BaseModel):
+    candidate: dict[str, Any]
+    source: dict[str, Any]
+    validation: dict[str, Any]
+    warnings: list[str] = []
+    llm_enhanced: bool = False
+    llm_model: Optional[str] = None
+
+
 class MetricPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

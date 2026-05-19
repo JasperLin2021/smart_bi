@@ -45,3 +45,14 @@ test("smart query add-to-dashboard dialog stretches description above footer act
   assert.match(component, /\.pin-description-field[\s\S]*flex: 1 1 auto/)
   assert.match(component, /\.pin-description-input :deep\(\.el-textarea__inner\)[\s\S]*height: 100%/)
 })
+
+test("message chart can render agentic chart specs with facet tabs", () => {
+  const component = read("src/components/MessageChart.vue")
+
+  assert.match(component, /tabs_by_field/)
+  assert.match(component, /selectedFacet/)
+  assert.match(component, /chartRows/)
+  assert.match(component, /facetValues/)
+  assert.match(component, /layout === "tabs_by_field"/)
+  assert.match(component, /selectedGroupFields\.value = validSeriesFields/)
+})

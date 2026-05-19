@@ -8,6 +8,7 @@ from app.models.llm_setting import LlmSetting
 
 _llm_config_cache: dict | None = None
 DASHSCOPE_PROVIDER_ALIASES = {"dashscope", "aliyun_bailian", "bailian", "aliyun"}
+PI_PROVIDER_ALIASES = {"pi", "pi_mono", "pi-mono", "pimono"}
 
 DEFAULT_TEXT2SQL_PROMPT = """你是SQL专家，根据用户问题生成标准SQL查询语句。
 
@@ -106,6 +107,15 @@ def get_default_llm_config() -> dict:
             "temperature": 0.3,
             "agent_planner_mode": "llm_only",
         }
+    if provider in PI_PROVIDER_ALIASES:
+        return {
+            "provider": "pi",
+            "base_url": settings.llm_pi_base,
+            "api_key": settings.llm_pi_key,
+            "model": settings.llm_pi_model,
+            "temperature": 0.3,
+            "agent_planner_mode": "llm_only",
+        }
     if provider == "gemini":
         return {
             "provider": "gemini",
@@ -135,12 +145,17 @@ def normalize_llm_config(config: dict) -> dict:
     provider = str(normalized.get("provider") or "").lower()
     if provider in DASHSCOPE_PROVIDER_ALIASES:
         provider = "dashscope"
+    if provider in PI_PROVIDER_ALIASES:
+        provider = "pi"
     normalized["provider"] = provider
     normalized["base_url"] = str(normalized.get("base_url") or "").rstrip("/")
     normalized["model"] = str(normalized.get("model") or "").strip()
     if provider == "dashscope":
         normalized["base_url"] = normalized["base_url"] or settings.llm_dashscope_base
         normalized["model"] = normalized["model"] or settings.llm_dashscope_model
+    if provider == "pi":
+        normalized["base_url"] = normalized["base_url"] or settings.llm_pi_base
+        normalized["model"] = normalized["model"] or settings.llm_pi_model
     if provider == "gemini":
         normalized["base_url"] = normalized["base_url"] or settings.llm_gemini_base
         normalized["model"] = normalized["model"] or settings.llm_gemini_model

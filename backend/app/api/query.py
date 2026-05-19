@@ -1,12 +1,26 @@
+import asyncio
 import json
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 from fastapi_cache.decorator import cache
+from fastapi.responses import StreamingResponse
 
 from app.api.auth import get_current_user
-from app.core.llm import generate_sql_query, generate_summary, get_llm_config, normalize_llm_config
+from app.core.llm import (
+    generate_sql_query,
+    generate_summary,
+    get_llm_config,
+    normalize_llm_config,
+)
+from app.core.agentic_nl2sql import (
+    AgenticClarificationRequired,
+    build_agentic_chart_spec,
+    build_agentic_nl2sql,
+    repair_agentic_sql_after_execution_error,
+)
 from app.core.audit import try_record_audit_log
 from app.core.metric_binding import match_metric_from_question, sql_uses_metric_formula
 from app.core.query_planner import plan_query
@@ -29,14 +43,16 @@ from app.core.rls_enforcer import get_rls_clauses, apply_rls_to_sql
 
 router = APIRouter(prefix="/query", tags=["query"])
 
-QUERY_MODES = {"business", "explore"}
-EXPLORE_ROLES = {"dept_admin", "department_admin", "org_admin", "super_admin"}
+QUERY_MODES = {"business", "explore", "agentic"}
+AGENTIC_ROLES = {"dept_admin", "department_admin", "org_admin", "super_admin"}
 
 
 def _normalize_query_mode(mode: str | None, dataset_id: int | None = None) -> str:
     normalized = (mode or "business").strip().lower()
     if normalized == "text2sql":
-        return "business" if dataset_id else "explore"
+        return "business" if dataset_id else "agentic"
+    if normalized == "explore":
+        return "agentic"
     if normalized not in QUERY_MODES:
         raise HTTPException(status_code=400, detail="不支持的问数模式，请使用业务问数或探索模式")
     return normalized
@@ -45,19 +61,21 @@ def _normalize_query_mode(mode: str | None, dataset_id: int | None = None) -> st
 def _ensure_query_mode_allowed(mode: str, dataset_id: int | None, current_user: User) -> None:
     if mode == "business" and not dataset_id:
         raise HTTPException(status_code=400, detail="业务问数必须选择数据集")
-    if mode == "explore" and dataset_id:
+    if mode == "agentic" and dataset_id:
         raise HTTPException(status_code=400, detail="探索模式只能选择数据源")
-    if mode == "explore" and getattr(current_user, "role", None) not in EXPLORE_ROLES:
+    if mode == "agentic" and getattr(current_user, "role", None) not in AGENTIC_ROLES:
         raise HTTPException(status_code=403, detail="探索模式仅部门管理员及以上可用")
 
 
 def _query_mode_label(mode: str) -> str:
-    return "探索问数" if mode == "explore" else "业务问数"
+    if mode in {"agentic", "explore"}:
+        return "探索模式"
+    return "业务问数"
 
 
 def _normalize_history_mode(mode: str | None) -> str:
-    if mode == "explore":
-        return "explore"
+    if mode in {"agentic", "explore"}:
+        return "agentic"
     return "business"
 
 
@@ -181,6 +199,70 @@ def _normalize_summary(question: str, result: dict, summary: str) -> str:
     if any(pattern in summary for pattern in no_data_patterns):
         return f"查询返回 {len(rows)} 条记录，请直接查看下方结果表。"
     return summary
+
+
+def _format_clarification_message(questions: list[str]) -> str:
+    if not questions:
+        questions = [
+            "你想分析哪个指标或字段？",
+            "是否需要限定时间范围、维度或筛选条件？",
+        ]
+    question_lines = "\n".join(f"{index}. {question}" for index, question in enumerate(questions, start=1))
+    return f"这个问题还不够明确，我需要先确认一下再查询：\n{question_lines}"
+
+
+def _build_agentic_clarification_payload(
+    exc: AgenticClarificationRequired,
+    runtime_llm_model: str | None,
+    datasource: DataSource | None = None,
+) -> dict:
+    message = _format_clarification_message(exc.questions)
+    return {
+        "answer": message,
+        "result": {"columns": [], "rows": []},
+        "summary": message,
+        "sql_query": None,
+        "llm_model": runtime_llm_model,
+        "history_id": None,
+        "recommendations": _get_recommendations(datasource),
+        "mode": "agentic",
+        "trust_signals": [],
+        "agent_trace": exc.trace,
+        "chart_spec": None,
+    }
+
+
+def _agentic_empty_result_confirmation(question: str, result: dict, sql_query: str) -> str:
+    columns = result.get("columns", []) if isinstance(result, dict) else []
+    column_text = f"返回字段：{', '.join(str(column) for column in columns)}。" if columns else ""
+    return (
+        "查询已执行，但没有返回数据。"
+        "这可能是正常的，也可能是时间范围、筛选条件、字段口径或数据源选择过窄导致的。"
+        f"{column_text}"
+        "请确认：时间范围是否正确、筛选条件是否过严、是否使用了正确的数据源和字段口径。"
+        "如果这些条件无误，可以告诉我新的时间范围或筛选条件，我再继续查询。"
+    )
+
+
+def _agentic_empty_result_trace(sql_query: str, result: dict) -> dict | None:
+    rows = result.get("rows", []) if isinstance(result, dict) else []
+    if rows:
+        return None
+    return {
+        "stage": "result_check",
+        "status": "warning",
+        "message": "查询结果为空，建议向用户确认筛选条件",
+        "detail": {
+            "row_count": 0,
+            "columns": result.get("columns", []) if isinstance(result, dict) else [],
+            "sql": sql_query,
+            "suggestions": [
+                "确认时间范围是否过窄",
+                "确认筛选条件是否过严",
+                "确认数据源和字段口径是否匹配问题",
+            ],
+        },
+    }
 
 
 def _get_drill_config(datasource: DataSource | None) -> dict | None:
@@ -361,6 +443,173 @@ async def _generate_safe_sql(
     return retried_sql
 
 
+def _execute_datasource_sql(datasource: DataSource, sql_query: str) -> tuple[dict, list[dict]]:
+    if datasource.source_type == "excel":
+        result = execute_excel_query(datasource.database_url, sql_query)
+        return result, result["rows"]
+
+    ds_engine = get_datasource_engine(datasource.database_url)
+    with ds_engine.connect() as conn:
+        result_proxy = conn.execute(text(sql_query))
+        columns = list(result_proxy.keys())
+        rows = [dict(row._mapping) for row in result_proxy.fetchall()]
+        return {"columns": columns, "rows": rows}, rows
+
+
+def _format_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    return message or exc.__class__.__name__
+
+
+def _format_agentic_generation_error(exc: Exception, llm_config: dict | None = None) -> str:
+    message = _format_exception(exc)
+    if isinstance(exc, httpx.RequestError):
+        config = llm_config or {}
+        model = config.get("model") or "未配置模型"
+        base_url = config.get("base_url") or "未配置"
+        return f"探索模式底层大模型连接失败: 无法连接 {model} 服务 {base_url} ({message})"
+    return message
+
+
+def _resolve_agentic_llm_config(runtime_llm_config: dict) -> tuple[dict, str | None]:
+    config = normalize_llm_config(runtime_llm_config)
+    return config, config.get("model")
+
+
+async def _append_agent_trace(agent_trace: list[dict], item: dict, on_trace=None) -> None:
+    agent_trace.append(item)
+    if on_trace:
+        await on_trace(item)
+
+
+async def _execute_agentic_sql_with_repair(
+    question: str,
+    datasource: DataSource,
+    sql_query: str,
+    query_plan: dict,
+    agent_trace: list[dict],
+    llm_model: str | None = None,
+    llm_config: dict | None = None,
+    rls_clauses: list | None = None,
+    max_execution_repairs: int = 2,
+    on_trace=None,
+) -> tuple[str, dict, list[dict]]:
+    candidate_sql = sql_query
+    for attempt in range(max_execution_repairs + 1):
+        executable_sql = apply_rls_to_sql(candidate_sql, rls_clauses) if rls_clauses else candidate_sql
+        try:
+            result, rows = _execute_datasource_sql(datasource, executable_sql)
+            trace_item = {
+                "stage": "execute",
+                "status": "success",
+                "message": f"已执行查询，返回 {len(rows)} 条记录",
+                "detail": {"attempt": attempt + 1, "sql": executable_sql},
+            }
+            await _append_agent_trace(agent_trace, trace_item, on_trace)
+            return executable_sql, result, rows
+        except Exception as exc:
+            can_retry = attempt < max_execution_repairs
+            execution_error = _format_exception(exc)
+            trace_item = {
+                "stage": "execute",
+                "status": "error",
+                "message": "SQL 执行失败，已回传错误给 Agent 修复" if can_retry else "SQL 执行失败，已达到最大修复次数",
+                "detail": {
+                    "attempt": attempt + 1,
+                    "sql": executable_sql,
+                    "generated_sql": candidate_sql,
+                    "error": execution_error,
+                },
+            }
+            await _append_agent_trace(agent_trace, trace_item, on_trace)
+            if not can_retry:
+                raise
+            repair_started = {
+                "stage": "sql_execute_fix",
+                "status": "pending",
+                "message": "正在根据执行错误修复 SQL",
+                "detail": {
+                    "attempt": attempt + 1,
+                    "failed_sql": candidate_sql,
+                    "execution_error": execution_error,
+                },
+            }
+            await _append_agent_trace(agent_trace, repair_started, on_trace)
+            try:
+                repaired = await repair_agentic_sql_after_execution_error(
+                    question,
+                    datasource,
+                    query_plan,
+                    candidate_sql,
+                    execution_error,
+                    llm_model=llm_model,
+                    llm_config=llm_config,
+                    on_trace=on_trace,
+                )
+            except Exception as repair_exc:
+                repair_error = _format_exception(repair_exc)
+                repair_failed = {
+                    "stage": "sql_execute_fix",
+                    "status": "error",
+                    "message": f"SQL 修复失败: {repair_error}",
+                    "detail": {
+                        "attempt": attempt + 1,
+                        "failed_sql": candidate_sql,
+                        "execution_error": execution_error,
+                        "error": repair_error,
+                        "error_type": repair_exc.__class__.__name__,
+                    },
+                }
+                await _append_agent_trace(agent_trace, repair_failed, on_trace)
+                raise RuntimeError(f"SQL 修复失败: {repair_error}") from repair_exc
+            agent_trace.extend(repaired.get("trace") or [])
+            candidate_sql = repaired["sql_query"]
+
+    raise RuntimeError("探索模式 SQL 执行重试失败")
+
+
+async def _build_agentic_chart_spec_with_trace(
+    question: str,
+    result: dict,
+    agent_trace: list[dict],
+    llm_model: str | None = None,
+    llm_config: dict | None = None,
+    on_trace=None,
+) -> dict | None:
+    planned = await build_agentic_chart_spec(
+        question,
+        result,
+        llm_model=llm_model,
+        llm_config=llm_config,
+        on_trace=on_trace,
+    )
+    trace = planned.get("trace") or []
+    if trace:
+        agent_trace.extend(trace)
+    return planned.get("chart_spec")
+
+
+def _build_query_execution_error_detail(
+    mode: str,
+    message: str,
+    sql_query: str,
+    agent_trace: list[dict],
+    llm_model: str | None,
+) -> str | dict:
+    if mode != "agentic":
+        return message
+    return {
+        "message": message,
+        "sql_query": sql_query,
+        "agent_trace": agent_trace,
+        "llm_model": llm_model,
+    }
+
+
+def _sse_event(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+
 @router.post("/ask", response_model=QueryAskResponse)
 @cache(expire=60)
 async def ask(
@@ -388,23 +637,65 @@ async def ask(
         dataset_context = _build_dataset_query_context(dataset)
     else:
         datasource = _get_datasource(db, datasource_id, current_user)
-    runtime_llm_model = normalize_llm_config(await get_llm_config()).get("model")
+    runtime_llm_config = normalize_llm_config(await get_llm_config())
+    agentic_llm_config, agentic_llm_model = (
+        _resolve_agentic_llm_config(runtime_llm_config) if mode == "agentic" else (None, None)
+    )
+    runtime_llm_model = agentic_llm_model if mode == "agentic" else runtime_llm_config.get("model")
 
     # 问数模式
     if not datasource:
         raise HTTPException(status_code=400, detail="请先选择或配置数据源")
 
+    agent_trace: list[dict] = []
     try:
-        query_plan = await plan_query(question, datasource)
-        metric_match = match_metric_from_question(question, datasource)
-        sql_query = await _generate_safe_sql(
-            question,
-            datasource,
-            query_plan,
-            metric_match=metric_match,
-            context=dataset_context,
+        if mode == "agentic":
+            agentic_result = await build_agentic_nl2sql(
+                question,
+                datasource,
+                llm_model=runtime_llm_model,
+                llm_config=agentic_llm_config,
+            )
+            query_plan = agentic_result.get("plan") or {}
+            metric_match = match_metric_from_question(question, datasource)
+            sql_query = agentic_result["sql_query"]
+            agent_trace = agentic_result.get("trace") or []
+        else:
+            query_plan = await plan_query(question, datasource)
+            metric_match = match_metric_from_question(question, datasource)
+            sql_query = await _generate_safe_sql(
+                question,
+                datasource,
+                query_plan,
+                metric_match=metric_match,
+                context=dataset_context,
+            )
+    except AgenticClarificationRequired as exc:
+        agent_trace = exc.trace
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="query.ask",
+            resource_type="query",
+            resource_name=datasource.name,
+            org_id=datasource.org_id,
+            message="探索模式需要澄清",
+            detail={
+                "stage": "clarify",
+                "question": question,
+                "datasource_id": datasource.id,
+                "llm_model": runtime_llm_model,
+                "questions": exc.questions,
+            },
         )
+        return _build_agentic_clarification_payload(exc, runtime_llm_model, datasource)
     except Exception as exc:
+        generation_error = (
+            _format_agentic_generation_error(exc, agentic_llm_config)
+            if mode == "agentic"
+            else _format_exception(exc)
+        )
+        error_message = f"SQL生成失败: {generation_error}"
         try_record_audit_log(
             db,
             actor=current_user,
@@ -413,7 +704,7 @@ async def ask(
             resource_name=datasource.name,
             org_id=datasource.org_id,
             status="error",
-            message=f"SQL生成失败: {exc}",
+            message=error_message,
             detail={
                 "stage": "generate_sql",
                 "question": question,
@@ -422,28 +713,33 @@ async def ask(
                 "llm_model": runtime_llm_model,
             },
         )
-        raise HTTPException(status_code=502, detail=f"SQL生成失败: {exc}")
+        raise HTTPException(status_code=502, detail=error_message)
 
     # Execute SQL based on source type
     # Apply Row-Level Security rules before execution
     rls_clauses = get_rls_clauses(db, datasource.id, current_user)
-    if rls_clauses:
+    if mode != "agentic" and rls_clauses:
         sql_query = apply_rls_to_sql(sql_query, rls_clauses)
 
     result = {"columns": [], "rows": []}
     rows = []
+    chart_spec = None
     try:
-        if datasource.source_type == "excel":
-            result = execute_excel_query(datasource.database_url, sql_query)
-            rows = result["rows"]
+        if mode == "agentic":
+            sql_query, result, rows = await _execute_agentic_sql_with_repair(
+                question,
+                datasource,
+                sql_query,
+                query_plan,
+                agent_trace,
+                llm_model=runtime_llm_model,
+                llm_config=agentic_llm_config,
+                rls_clauses=rls_clauses,
+            )
         else:
-            ds_engine = get_datasource_engine(datasource.database_url)
-            with ds_engine.connect() as conn:
-                result_proxy = conn.execute(text(sql_query))
-                columns = list(result_proxy.keys())
-                rows = [dict(row._mapping) for row in result_proxy.fetchall()]
-                result = {"columns": columns, "rows": rows}
+            result, rows = _execute_datasource_sql(datasource, sql_query)
     except Exception as exc:
+        error_message = f"SQL执行失败: {exc}"
         try_record_audit_log(
             db,
             actor=current_user,
@@ -452,7 +748,7 @@ async def ask(
             resource_name=datasource.name,
             org_id=datasource.org_id,
             status="error",
-            message=f"SQL执行失败: {exc}",
+            message=error_message,
             detail={
                 "stage": "execute_sql",
                 "question": question,
@@ -461,18 +757,44 @@ async def ask(
                 "llm_model": runtime_llm_model,
             },
         )
-        raise HTTPException(status_code=502, detail=f"SQL执行失败: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail=_build_query_execution_error_detail(
+                mode,
+                error_message,
+                sql_query,
+                agent_trace,
+                runtime_llm_model,
+            ),
+        )
+
+    if mode == "agentic":
+        empty_trace = _agentic_empty_result_trace(sql_query, result)
+        if empty_trace:
+            agent_trace.append(empty_trace)
+        elif rows:
+            chart_spec = await _build_agentic_chart_spec_with_trace(
+                question,
+                result,
+                agent_trace,
+                llm_model=runtime_llm_model,
+                llm_config=agentic_llm_config,
+            )
 
     # 生成摘要
-    try:
-        summary = await generate_summary(question, result)
-    except Exception:
-        summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
-    summary = _normalize_summary(question, result, summary)
+    empty_result_message = _agentic_empty_result_confirmation(question, result, sql_query) if mode == "agentic" and not rows else ""
+    if empty_result_message:
+        summary = empty_result_message
+    else:
+        try:
+            summary = await generate_summary(question, result)
+        except Exception:
+            summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
+        summary = _normalize_summary(question, result, summary)
 
     recommendations = _get_recommendations(datasource)
     trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
-    stored_result = {**result, "_trust_signals": trust_signals}
+    stored_result = {**result, "_trust_signals": trust_signals, "_agent_trace": agent_trace, "_chart_spec": chart_spec}
 
     history = QueryHistory(
         user_id=current_user.id,
@@ -509,7 +831,7 @@ async def ask(
     )
 
     return {
-        "answer": "已生成并执行查询。",
+        "answer": empty_result_message or "已生成并执行查询。",
         "result": result,
         "summary": summary,
         "sql_query": sql_query,
@@ -518,7 +840,254 @@ async def ask(
         "recommendations": recommendations,
         "mode": mode,
         "trust_signals": trust_signals,
+        "agent_trace": agent_trace,
+        "chart_spec": chart_spec,
     }
+
+
+@router.post("/ask-stream")
+async def ask_stream(
+    payload: QueryAskRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="问题不能为空")
+
+    mode = _normalize_query_mode(payload.mode or "business", payload.dataset_id)
+    if mode != "agentic":
+        raise HTTPException(status_code=400, detail="流式问数仅支持探索模式")
+    _ensure_query_mode_allowed(mode, payload.dataset_id, current_user)
+
+    datasource = _get_datasource(db, payload.datasource_id, current_user)
+    if not datasource:
+        raise HTTPException(status_code=400, detail="请先选择或配置数据源")
+
+    runtime_llm_config = normalize_llm_config(await get_llm_config())
+    agentic_llm_config, runtime_llm_model = _resolve_agentic_llm_config(runtime_llm_config)
+
+    async def event_stream():
+        queue: asyncio.Queue[tuple[str, dict] | None] = asyncio.Queue()
+        agent_trace: list[dict] = []
+        sql_query = ""
+        query_plan: dict = {}
+        metric_match = None
+        result = {"columns": [], "rows": []}
+        rows: list[dict] = []
+        chart_spec = None
+
+        async def emit_trace(item: dict):
+            await queue.put(("trace", item))
+
+        async def run_query():
+            nonlocal sql_query, query_plan, metric_match, result, rows, chart_spec
+            try:
+                agentic_result = await build_agentic_nl2sql(
+                    question,
+                    datasource,
+                    llm_model=runtime_llm_model,
+                    llm_config=agentic_llm_config,
+                    on_trace=emit_trace,
+                )
+                query_plan = agentic_result.get("plan") or {}
+                metric_match = match_metric_from_question(question, datasource)
+                sql_query = agentic_result["sql_query"]
+                agent_trace[:] = agentic_result.get("trace") or []
+            except AgenticClarificationRequired as exc:
+                agent_trace[:] = exc.trace
+                try_record_audit_log(
+                    db,
+                    actor=current_user,
+                    action="query.ask",
+                    resource_type="query",
+                    resource_name=datasource.name,
+                    org_id=datasource.org_id,
+                    message="探索模式需要澄清",
+                    detail={
+                        "stage": "clarify",
+                        "question": question,
+                        "datasource_id": datasource.id,
+                        "dataset_id": None,
+                        "llm_model": runtime_llm_model,
+                        "questions": exc.questions,
+                    },
+                )
+                await queue.put(("final", _build_agentic_clarification_payload(exc, runtime_llm_model, datasource)))
+                return
+            except Exception as exc:
+                message = f"SQL生成失败: {_format_agentic_generation_error(exc, agentic_llm_config)}"
+                try_record_audit_log(
+                    db,
+                    actor=current_user,
+                    action="query.ask",
+                    resource_type="query",
+                    resource_name=datasource.name,
+                    org_id=datasource.org_id,
+                    status="error",
+                    message=message,
+                    detail={
+                        "stage": "generate_sql",
+                        "question": question,
+                        "datasource_id": datasource.id,
+                        "dataset_id": None,
+                        "llm_model": runtime_llm_model,
+                    },
+                )
+                await queue.put(("error", {"message": message, "agent_trace": agent_trace, "llm_model": runtime_llm_model}))
+                return
+
+            rls_clauses = get_rls_clauses(db, datasource.id, current_user)
+            try:
+                sql_query, result, rows = await _execute_agentic_sql_with_repair(
+                    question,
+                    datasource,
+                    sql_query,
+                    query_plan,
+                    agent_trace,
+                    llm_model=runtime_llm_model,
+                    llm_config=agentic_llm_config,
+                    rls_clauses=rls_clauses,
+                    on_trace=emit_trace,
+                )
+            except Exception as exc:
+                error_message = f"SQL执行失败: {exc}"
+                try_record_audit_log(
+                    db,
+                    actor=current_user,
+                    action="query.ask",
+                    resource_type="query",
+                    resource_name=datasource.name,
+                    org_id=datasource.org_id,
+                    status="error",
+                    message=error_message,
+                    detail={
+                        "stage": "execute_sql",
+                        "question": question,
+                        "datasource_id": datasource.id,
+                        "dataset_id": None,
+                        "llm_model": runtime_llm_model,
+                    },
+                )
+                await queue.put(
+                    (
+                        "error",
+                        _build_query_execution_error_detail(
+                            mode,
+                            error_message,
+                            sql_query,
+                            agent_trace,
+                            runtime_llm_model,
+                        ),
+                    )
+                )
+                return
+
+            empty_trace = _agentic_empty_result_trace(sql_query, result)
+            if empty_trace:
+                agent_trace.append(empty_trace)
+                await emit_trace(empty_trace)
+
+            chart_spec = await _build_agentic_chart_spec_with_trace(
+                question,
+                result,
+                agent_trace,
+                llm_model=runtime_llm_model,
+                llm_config=agentic_llm_config,
+                on_trace=emit_trace,
+            ) if rows else None
+
+            empty_result_message = _agentic_empty_result_confirmation(question, result, sql_query) if not rows else ""
+            if empty_result_message:
+                summary = empty_result_message
+            else:
+                try:
+                    summary = await generate_summary(question, result)
+                except Exception:
+                    summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
+                summary = _normalize_summary(question, result, summary)
+
+            recommendations = _get_recommendations(datasource)
+            trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
+            stored_result = {**result, "_trust_signals": trust_signals, "_agent_trace": agent_trace, "_chart_spec": chart_spec}
+            history = QueryHistory(
+                user_id=current_user.id,
+                datasource_id=datasource.id,
+                parent_history_id=payload.parent_history_id,
+                question=f"[{_query_mode_label(mode)}] {question}",
+                sql_query=sql_query,
+                result_json=json.dumps(stored_result, ensure_ascii=False, default=str),
+                summary=summary,
+                mode=mode,
+                drill_context=json.dumps(payload.drill_context, ensure_ascii=False) if payload.drill_context else None,
+                llm_model=runtime_llm_model,
+            )
+            db.add(history)
+            db.commit()
+            db.refresh(history)
+            try_record_audit_log(
+                db,
+                actor=current_user,
+                action="query.ask",
+                resource_type="query",
+                resource_id=history.id,
+                resource_name=datasource.name,
+                org_id=datasource.org_id,
+                message="智能问数已完成",
+                detail={
+                    "mode": mode,
+                    "question": question,
+                    "datasource_id": datasource.id,
+                    "dataset_id": None,
+                    "llm_model": runtime_llm_model,
+                    "row_count": len(rows),
+                },
+            )
+            await queue.put(
+                (
+                    "final",
+                    {
+                        "answer": empty_result_message or "已生成并执行查询。",
+                        "result": result,
+                        "summary": summary,
+                        "sql_query": sql_query,
+                        "llm_model": runtime_llm_model,
+                        "history_id": history.id,
+                        "recommendations": recommendations,
+                        "mode": mode,
+                        "trust_signals": trust_signals,
+                        "agent_trace": agent_trace,
+                        "chart_spec": chart_spec,
+                    },
+                )
+            )
+
+        async def producer():
+            try:
+                await run_query()
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(producer())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                event, data = item
+                yield _sse_event(event, data)
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/history", response_model=HistoryListResponse)
@@ -611,10 +1180,14 @@ def get_history_detail(
 
     result = {"columns": [], "rows": []}
     trust_signals = []
+    agent_trace = []
+    chart_spec = None
     if item.result_json:
         try:
             result = json.loads(item.result_json)
             trust_signals = result.pop("_trust_signals", []) or []
+            agent_trace = result.pop("_agent_trace", []) or []
+            chart_spec = result.pop("_chart_spec", None)
         except Exception:
             pass
 
@@ -626,6 +1199,8 @@ def get_history_detail(
         "summary": item.summary or "",
         "llm_model": item.llm_model or _get_persisted_llm_model(db),
         "mode": _normalize_history_mode(item.mode),
+        "agent_trace": agent_trace,
+        "chart_spec": chart_spec,
         "drill_context": json.loads(item.drill_context) if item.drill_context else None,
         "parent_history_id": item.parent_history_id,
         "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),

@@ -65,6 +65,23 @@ class LlmSettingsTests(unittest.TestCase):
         self.assertEqual(config["base_url"], "https://dashscope.aliyuncs.com/compatible-mode/v1")
         self.assertEqual(config["model"], "qwen3.6-35b-a3b")
 
+    def test_pi_mono_normalization_defaults_to_openai_compatible_endpoint(self):
+        from app.core.llm import normalize_llm_config
+
+        config = normalize_llm_config(
+            {
+                "provider": "pi_mono",
+                "base_url": "",
+                "api_key": "",
+                "model": "",
+                "temperature": 0.2,
+            }
+        )
+
+        self.assertEqual(config["provider"], "pi")
+        self.assertEqual(config["base_url"], "http://localhost:8001/v1")
+        self.assertEqual(config["model"], "pi/pi-mono")
+
     def test_update_llm_setting_preserves_saved_gemini_model_name(self):
         from app.api.settings import update_llm_setting
         from app.schemas.settings import LlmConfigUpdate

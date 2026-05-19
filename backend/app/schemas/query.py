@@ -48,6 +48,25 @@ class MetricTrustSignal(BaseModel):
     quality_message: Optional[str] = None
 
 
+class AgentTraceStep(BaseModel):
+    stage: str
+    status: str
+    message: str
+    detail: Optional[Dict[str, Any]] = None
+
+
+class ChartSpec(BaseModel):
+    chart_type: str
+    title: Optional[str] = None
+    x_field: Optional[str] = None
+    y_field: Optional[str] = None
+    series_fields: List[str] = []
+    layout: str = "single"
+    facet_field: Optional[str] = None
+    sort_order: str = "none"
+    reason: Optional[str] = None
+
+
 class QueryAskResponse(BaseModel):
     answer: str
     result: QueryResult
@@ -59,6 +78,8 @@ class QueryAskResponse(BaseModel):
     recommendations: List[str]
     mode: str
     trust_signals: List[MetricTrustSignal] = []
+    agent_trace: List[AgentTraceStep] = []
+    chart_spec: Optional[ChartSpec] = None
 
 
 class DrillAction(BaseModel):

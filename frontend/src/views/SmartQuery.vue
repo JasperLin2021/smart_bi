@@ -9,24 +9,28 @@
               <div class="header-actions">
                 <el-radio-group v-model="queryStore.mode" size="small">
                   <el-radio-button label="business">业务问数</el-radio-button>
-                  <el-radio-button v-if="canUseExploreMode" label="explore">探索模式</el-radio-button>
+                  <el-radio-button v-if="canUseAgenticMode" label="agentic">探索模式</el-radio-button>
                 </el-radio-group>
-                <el-button size="small" text @click="clearChat">
+                <el-button size="small" type="primary" plain @click="startNewConversation">
+                  <el-icon><Plus /></el-icon>
+                  新建对话
+                </el-button>
+                <el-button size="small" text :disabled="queryStore.messages.length === 0" @click="clearChat">
                   <el-icon><Delete /></el-icon>
-                  清空对话
+                  清空当前
                 </el-button>
               </div>
             </div>
           </template>
 
-          <div class="query-scope-panel" :class="{ 'is-explore': queryStore.mode === 'explore' }">
+          <div class="query-scope-panel" :class="{ 'is-agentic': queryStore.mode === 'agentic' }">
             <div class="scope-mode">
-              <span class="scope-label">{{ queryStore.mode === "business" ? "业务数据集" : "探索数据源" }}</span>
-              <el-tag v-if="queryStore.mode === 'explore'" size="small" effect="plain" type="warning">仅使用授权数据源</el-tag>
+              <span class="scope-label">{{ scopeLabel }}</span>
+              <el-tag v-if="queryStore.mode === 'agentic'" size="small" effect="plain" type="primary">规划、校验并自动执行</el-tag>
               <el-tag v-else size="small" effect="plain" type="success">默认使用可信指标和数据集语义层</el-tag>
             </div>
             <el-select
-              v-if="queryStore.mode === 'explore'"
+              v-if="queryStore.mode === 'agentic'"
               v-model="queryStore.selectedDatasourceId"
               class="scope-select"
               filterable
@@ -142,8 +146,15 @@
         <el-card class="history-card">
           <template #header>
             <div class="card-header">
-              <span class="card-header-title">查询历史</span>
+              <div class="history-title-wrap">
+                <span class="card-header-title">查询历史</span>
+                <el-tag class="history-count-tag" size="small" effect="plain">{{ historyCountText }}</el-tag>
+              </div>
               <div class="history-header-actions">
+                <el-button size="small" text @click="queryStore.fetchHistory">
+                  <el-icon><Refresh /></el-icon>
+                  刷新
+                </el-button>
                 <el-button
                   size="small"
                   text
@@ -151,45 +162,86 @@
                   :disabled="!queryStore.history.length"
                   @click="deleteAllHistoryItems"
                 >
-                  删除全部
-                </el-button>
-                <el-button size="small" text @click="queryStore.fetchHistory">
-                  <el-icon><Refresh /></el-icon>
+                  清空历史
                 </el-button>
               </div>
             </div>
           </template>
+          <div class="history-toolbar">
+            <el-input
+              v-model="historySearch"
+              class="history-search"
+              size="small"
+              clearable
+              placeholder="搜索历史问题"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+            <el-segmented
+              v-model="historyFilter"
+              class="history-filter"
+              size="small"
+              :options="historyFilterOptions"
+            />
+          </div>
           <div class="history-list">
             <div
-              v-for="item in queryStore.history"
+              v-for="item in filteredHistory"
               :key="item.id"
               class="history-item"
+              :class="{ 'is-active': activeHistoryId === item.id }"
               @click="viewHistory(item)"
             >
+              <div class="history-item-top">
+                <el-tag size="small" :type="historyModeTagType(item.question)" effect="plain">
+                  {{ historyModeLabel(item.question) }}
+                </el-tag>
+                <span class="history-date">{{ formatHistoryDate(item.created_at) }}</span>
+              </div>
               <div class="history-content">
                 <el-icon class="history-icon"><ChatLineSquare /></el-icon>
                 <span class="history-text">{{ cleanHistoryText(item.question) }}</span>
               </div>
               <div class="history-meta">
-                <span class="history-date">{{ item.created_at }}</span>
+                <span class="history-source">{{ item.favorite ? "已收藏" : "普通历史" }}</span>
                 <div class="history-actions">
-                  <el-icon
-                    :class="['favorite-icon', { 'is-favorite': item.favorite }]"
+                  <el-button
+                    size="small"
+                    text
+                    :type="item.favorite ? 'warning' : 'info'"
+                    :icon="item.favorite ? StarFilled : Star"
                     @click.stop="queryStore.toggleFavorite(item.id)"
                   >
-                    <Star v-if="item.favorite" />
-                    <StarFilled v-else />
-                  </el-icon>
-                  <el-icon
-                    class="delete-icon"
-                    @click.stop="deleteHistoryItem(item.id)"
+                    {{ item.favorite ? "取消收藏" : "收藏" }}
+                  </el-button>
+                  <el-button
+                    size="small"
+                    text
+                    type="danger"
+                    :icon="Close"
+                    @click.stop="confirmDeleteHistoryItem(item)"
                   >
-                    <Close />
-                  </el-icon>
+                    删除
+                  </el-button>
                 </div>
               </div>
             </div>
-            <el-empty v-if="!queryStore.history.length" description="暂无历史记录" :image-size="60" />
+            <el-empty v-if="!filteredHistory.length" :description="historyEmptyDescription" :image-size="72">
+              <div class="history-empty-actions">
+                <el-button
+                  v-if="historySearch || historyFilter !== 'all'"
+                  size="small"
+                  @click="resetHistoryFilters"
+                >
+                  重置筛选
+                </el-button>
+                <el-button size="small" type="primary" plain @click="startNewConversation">
+                  新建对话
+                </el-button>
+              </div>
+            </el-empty>
           </div>
         </el-card>
       </el-col>
@@ -203,7 +255,7 @@ import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
   ChatDotRound, Search, Promotion, Delete, Refresh,
-  ChatLineSquare, Star, StarFilled, Close
+  ChatLineSquare, Star, StarFilled, Close, Plus
 } from "@element-plus/icons-vue"
 import ChatBubble from "@/components/ChatBubble.vue"
 import { useQueryStore } from "@/store/query"
@@ -216,6 +268,13 @@ const authStore = useAuthStore()
 const question = ref("")
 const chatContainerRef = ref<HTMLDivElement | null>(null)
 const datasetsLoading = ref(false)
+const historySearch = ref("")
+const historyFilter = ref<"all" | "favorite">("all")
+const activeHistoryId = ref<number | null>(null)
+const historyFilterOptions = [
+  { label: "全部", value: "all" },
+  { label: "收藏", value: "favorite" },
+]
 
 interface DatasetItem {
   id: number
@@ -226,11 +285,18 @@ interface DatasetItem {
   visibility: string
 }
 
+interface HistoryItem {
+  id: number
+  question: string
+  created_at: string
+  favorite: boolean
+}
+
 const datasets = ref<DatasetItem[]>([])
 
-const canUseExploreMode = computed(() => authStore.canUseExploreMode)
-const exploreDefaultRoles = new Set(["dept_admin", "department_admin", "org_admin", "super_admin"])
-const isDeptAdminOrAbove = computed(() => exploreDefaultRoles.has(authStore.profile?.role || ""))
+const canUseAgenticMode = computed(() => authStore.canUseAgenticMode)
+const agenticDefaultRoles = new Set(["dept_admin", "department_admin", "org_admin", "super_admin"])
+const isDeptAdminOrAbove = computed(() => agenticDefaultRoles.has(authStore.profile?.role || ""))
 const roleDefaultApplied = ref(false)
 
 const businessExamples = [
@@ -239,17 +305,20 @@ const businessExamples = [
   "蓝途科技订单量 TOP10 商品"
 ]
 
-const exploreExamples = [
-  "检查订单表最近 7 天的异常字段分布",
-  "按原始表探索退款金额和订单状态的关系",
-  "查看当前数据源里可分析的主表和关键字段"
+const agenticExamples = [
+  "先判断可用表，再统计最近 30 天各区域销售额",
+  "分析订单数据里最适合回答复购率的问题并查询",
+  "基于当前数据源生成一条安全 SQL 查看异常趋势"
 ]
 
-const examples = computed(() => queryStore.mode === "explore" ? exploreExamples : businessExamples)
+const examples = computed(() => {
+  if (queryStore.mode === "agentic") return agenticExamples
+  return businessExamples
+})
 
 const welcomeDescription = computed(() => {
-  if (queryStore.mode === "explore") {
-    return "探索结果会标记为非认证口径，适合管理员基于授权数据资产做临时分析"
+  if (queryStore.mode === "agentic") {
+    return "探索模式会先规划查询路径，再生成和校验只读 SQL，并自动执行返回结果"
   }
   return "您可以用自然语言提问，我会优先使用可信指标、数据集指标和维度生成分析结果"
 })
@@ -257,7 +326,14 @@ const welcomeDescription = computed(() => {
 const inputPlaceholder = computed(() => {
   if (!queryContextReady.value) return "请先选择问数范围..."
   if (queryStore.mode === "business") return "基于数据集、可信指标和维度提问..."
-  return "基于数据源探索提问..."
+  if (queryStore.mode === "agentic") return "基于数据源进行探索..."
+  return "请输入问题..."
+})
+
+const scopeLabel = computed(() => {
+  if (queryStore.mode === "business") return "业务数据集"
+  if (queryStore.mode === "agentic") return "探索数据源"
+  return "业务数据集"
 })
 
 const selectedDataset = computed(() =>
@@ -270,20 +346,42 @@ const activeDatasource = computed(() =>
 
 const queryContextReady = computed(() => {
   if (queryStore.mode === "business") return Boolean(queryStore.selectedDatasetId)
-  if (queryStore.mode === "explore") return Boolean(queryStore.selectedDatasourceId)
+  if (queryStore.mode === "agentic") return Boolean(queryStore.selectedDatasourceId)
   return false
 })
 
 const activeScopeText = computed(() => {
   if (queryStore.mode === "business") return selectedDataset.value?.name || "未选择数据集"
-  if (queryStore.mode === "explore") return activeDatasource.value?.name || "未选择数据源"
+  if (queryStore.mode === "agentic") return activeDatasource.value?.name || "未选择数据源"
   return "未选择数据源"
 })
 
 const activeScopeTypeText = computed(() => {
   if (queryStore.mode === "business") return "数据集"
-  if (queryStore.mode === "explore") return "数据源"
+  if (queryStore.mode === "agentic") return "数据源"
   return "数据源"
+})
+
+const filteredHistory = computed(() => {
+  const keyword = historySearch.value.trim().toLowerCase()
+  return queryStore.history.filter((item) => {
+    if (historyFilter.value === "favorite" && !item.favorite) return false
+    if (!keyword) return true
+    return cleanHistoryText(item.question).toLowerCase().includes(keyword)
+  })
+})
+
+const historyCountText = computed(() => {
+  const total = queryStore.history.length
+  if (historySearch.value || historyFilter.value !== "all") {
+    return `${filteredHistory.value.length}/${total} 条`
+  }
+  return `${total} 条`
+})
+
+const historyEmptyDescription = computed(() => {
+  if (!queryStore.history.length) return "暂无历史记录，开始一次新对话后会自动保存"
+  return "没有匹配的历史记录"
 })
 
 const datasourceName = (id: number) =>
@@ -304,17 +402,17 @@ const fetchDatasets = async () => {
 const applyRoleDefaultMode = () => {
   if (roleDefaultApplied.value || !authStore.profile?.role) return
   if (isDeptAdminOrAbove.value) {
-    queryStore.mode = "explore"
+    queryStore.mode = "agentic"
   }
   roleDefaultApplied.value = true
 }
 
 const ensureScopeDefaults = (useRoleDefault = false) => {
   if (useRoleDefault) applyRoleDefaultMode()
-  if (!canUseExploreMode.value && queryStore.mode === "explore") {
+  if (!canUseAgenticMode.value && queryStore.mode === "agentic") {
     queryStore.mode = "business"
   }
-  if (queryStore.mode === "explore") {
+  if (queryStore.mode === "agentic") {
     queryStore.scopeMode = "datasource"
   } else {
     queryStore.scopeMode = "dataset"
@@ -347,21 +445,39 @@ const useExample = (example: string) => {
   question.value = example
 }
 
-const viewHistory = async (item: { id: number; question: string }) => {
+const viewHistory = async (item: HistoryItem) => {
+  activeHistoryId.value = item.id
   await queryStore.loadHistoryDetail(item.id)
   scrollToBottom()
 }
 
-const deleteHistoryItem = async (id: number) => {
-  await queryStore.deleteHistory(id)
+const confirmDeleteHistoryItem = async (item: HistoryItem) => {
+  const title = cleanHistoryText(item.question).slice(0, 64)
+  try {
+    await ElMessageBox.confirm(
+      `将删除这条查询历史：${title || `#${item.id}`}。删除后不可恢复，是否继续？`,
+      "删除历史",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    )
+    await queryStore.deleteHistory(item.id)
+    if (activeHistoryId.value === item.id) {
+      startNewConversation()
+    }
+  } catch {
+    return
+  }
 }
 
 const deleteAllHistoryItems = async () => {
   if (!queryStore.history.length) return
   try {
     await ElMessageBox.confirm(
-      "将删除当前数据源下的全部查询历史，且不可恢复，是否继续？",
-      "删除全部历史",
+      "将删除当前数据源下的全部查询历史，筛选条件不会影响清空范围。删除后不可恢复，是否继续？",
+      "清空历史",
       {
         confirmButtonText: "删除",
         cancelButtonText: "取消",
@@ -369,17 +485,63 @@ const deleteAllHistoryItems = async () => {
       }
     )
     await queryStore.deleteAllHistory()
+    historySearch.value = ""
+    historyFilter.value = "all"
+    activeHistoryId.value = null
+    question.value = ""
   } catch {
     return
   }
 }
 
 const cleanHistoryText = (text: string) => {
-  return text.replace(/^\[(SQL|闲聊|业务问数|探索问数)\]\s*/, "")
+  return text.replace(/^\[(SQL|闲聊|业务问数|探索问数|探索模式|Agentic问数)\]\s*/, "")
+}
+
+const historyModeLabel = (text: string) => {
+  if (/^\[(探索模式|探索问数|Agentic问数)\]/.test(text)) return "探索"
+  if (/^\[业务问数\]/.test(text)) return "业务"
+  if (/^\[SQL\]/.test(text)) return "SQL"
+  return "问数"
+}
+
+const historyModeTagType = (text: string) => {
+  const label = historyModeLabel(text)
+  if (label === "探索") return "primary"
+  if (label === "业务") return "success"
+  if (label === "SQL") return "warning"
+  return "info"
+}
+
+const formatHistoryDate = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value || "-"
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+const resetHistoryFilters = () => {
+  historySearch.value = ""
+  historyFilter.value = "all"
+}
+
+const startNewConversation = () => {
+  question.value = ""
+  activeHistoryId.value = null
+  queryStore.clearMessages()
+  nextTick(() => {
+    if (chatContainerRef.value) {
+      chatContainerRef.value.scrollTop = 0
+    }
+  })
 }
 
 const clearChat = () => {
-  queryStore.clearMessages()
+  startNewConversation()
 }
 
 const scrollToBottom = async () => {
@@ -405,7 +567,7 @@ watch(() => queryStore.mode, () => {
 
 watch(() => queryStore.selectedDatasourceId, (id) => {
   if (id) datasourceStore.switchDatasource(id)
-  if (queryStore.mode === "explore") {
+  if (queryStore.mode === "agentic") {
     queryStore.fetchHistory()
   }
 })
@@ -494,6 +656,17 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.history-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.history-count-tag {
+  flex-shrink: 0;
 }
 
 .query-scope-panel {
@@ -700,20 +873,51 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+.history-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--app-border-light);
+  background: var(--app-surface);
+}
+
+.history-search {
+  min-width: 0;
+}
+
+.history-filter {
+  flex-shrink: 0;
+}
+
 .history-list {
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 282px);
   overflow-y: auto;
 }
 
 .history-item {
-  padding: 14px 20px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--app-border-light);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .history-item:hover {
   background: rgba(15, 118, 110, 0.05);
+}
+
+.history-item.is-active {
+  background: rgba(15, 118, 110, 0.08);
+  border-left: 3px solid var(--app-primary);
+  padding-left: 11px;
+}
+
+.history-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .history-content {
@@ -744,23 +948,36 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
 }
 
 .history-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  opacity: 0;
-  transition: opacity 0.2s;
+  flex-shrink: 0;
 }
 
-.history-item:hover .history-actions {
-  opacity: 1;
+.history-actions :deep(.el-button) {
+  min-height: 28px;
+  padding: 4px 6px;
 }
 
-.history-date {
+.history-date,
+.history-source {
   font-size: 11px;
   color: var(--app-text-light);
+}
+
+.history-source {
+  min-width: 0;
+}
+
+.history-empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .favorite-icon {
@@ -852,6 +1069,20 @@ onMounted(async () => {
 
   .input-area :deep(.el-input-group__append .el-button) {
     padding: 0 14px;
+  }
+
+  .history-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .history-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .history-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 </style>

@@ -4,7 +4,11 @@ import { ElMessage } from "element-plus"
 import { useDatasourceStore } from "@/store/datasource"
 
 export type QueryScopeMode = "datasource" | "dataset"
-export type QueryMode = "business" | "explore"
+export type QueryMode = "business" | "agentic"
+
+const normalizeQueryMode = (mode?: string | null): QueryMode => {
+  return mode === "agentic" || mode === "explore" ? "agentic" : "business"
+}
 
 export interface QueryResult {
   columns: string[]
@@ -41,6 +45,25 @@ export interface MetricTrustSignal {
   data_updated_at?: string | null
   quality_status: string
   quality_message?: string | null
+}
+
+export interface AgentTraceStep {
+  stage: string
+  status: string
+  message: string
+  detail?: Record<string, unknown> | null
+}
+
+export interface ChartSpec {
+  chart_type: "line" | "bar" | "horizontal_bar" | "area" | "pie" | "scatter" | "table" | "kpi" | string
+  title?: string | null
+  x_field?: string | null
+  y_field?: string | null
+  series_fields?: string[]
+  layout?: "single" | "tabs_by_field" | string
+  facet_field?: string | null
+  sort_order?: "none" | "asc" | "desc" | string
+  reason?: string | null
 }
 
 export interface DrillAction {
@@ -85,6 +108,8 @@ export interface ChatMessage {
   llmModel?: string
   recommendations?: string[]
   trustSignals?: MetricTrustSignal[]
+  agentTrace?: AgentTraceStep[]
+  chartSpec?: ChartSpec | null
   mode?: QueryMode
   error?: string
   sourceQuestion?: string
@@ -113,6 +138,115 @@ export const useQueryStore = defineStore("query", {
     generateId() {
       return Date.now().toString(36) + Math.random().toString(36).substr(2)
     },
+
+    updateMessage(id: string, patch: Partial<ChatMessage>) {
+      const idx = this.messages.findIndex(m => m.id === id)
+      if (idx !== -1) {
+        this.messages[idx] = {
+          ...this.messages[idx],
+          ...patch,
+        }
+      }
+    },
+
+    parseStreamEvent(block: string) {
+      let eventName = "message"
+      let data = ""
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim()
+        } else if (line.startsWith("data:")) {
+          data += line.slice(5).trimStart()
+        }
+      }
+      return { eventName, payload: data ? JSON.parse(data) : {} }
+    },
+
+    async askAgenticStream(
+      requestPayload: Record<string, unknown>,
+      assistantMessage: ChatMessage,
+      question: string,
+      drillContext?: DrillContext
+    ) {
+      const token = localStorage.getItem("smart-bi-token")
+      const response = await fetch("/api/query/ask-stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(requestPayload),
+      })
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}))
+        throw { response: { status: response.status, data: detail } }
+      }
+      if (!response.body) {
+        throw new Error("浏览器不支持 ReadableStream 流式响应")
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let completed = false
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split(/\n\n/)
+        buffer = blocks.pop() || ""
+
+        for (const block of blocks) {
+          if (!block.trim()) continue
+          const { eventName, payload } = this.parseStreamEvent(block)
+          if (eventName === "trace") {
+            const current = this.messages.find(m => m.id === assistantMessage.id)
+            this.updateMessage(assistantMessage.id, {
+              agentTrace: [...(current?.agentTrace || []), payload as AgentTraceStep],
+            })
+          } else if (eventName === "final") {
+            completed = true
+            this.updateMessage(assistantMessage.id, {
+              content: payload.answer || payload.summary || "查询完成",
+              status: "success",
+              historyId: payload.history_id,
+              sqlQuery: payload.sql_query,
+              result: payload.result,
+              summary: payload.summary,
+              llmModel: payload.llm_model,
+              recommendations: payload.recommendations || [],
+              trustSignals: payload.trust_signals || [],
+              chartSpec: payload.chart_spec || null,
+              agentTrace: payload.agent_trace || this.messages.find(m => m.id === assistantMessage.id)?.agentTrace || [],
+              sourceQuestion: question,
+              drillContext,
+            })
+          } else if (eventName === "error") {
+            const current = this.messages.find(m => m.id === assistantMessage.id)
+            const payloadTrace = Array.isArray(payload.agent_trace) ? payload.agent_trace : []
+            this.updateMessage(assistantMessage.id, {
+              content: "查询失败",
+              status: "error",
+              error: payload.message || "请稍后重试",
+              sqlQuery: payload.sql_query,
+              llmModel: payload.llm_model,
+              agentTrace: payloadTrace.length ? payloadTrace : current?.agentTrace || [],
+              sourceQuestion: question,
+              drillContext,
+            })
+            ElMessage.error("查询失败，请查看探索模式执行过程")
+            return false
+          }
+        }
+      }
+
+      if (!completed) {
+        throw new Error("流式响应提前结束")
+      }
+      return true
+    },
     
     async ask(
       question: string,
@@ -120,7 +254,7 @@ export const useQueryStore = defineStore("query", {
       drillContext?: DrillContext,
       parentHistoryId?: number | null
     ) {
-      const mode = queryMode || this.mode
+      const mode = normalizeQueryMode(queryMode || this.mode)
       
       // 添加用户消息
       const userMessage: ChatMessage = {
@@ -150,14 +284,22 @@ export const useQueryStore = defineStore("query", {
         const dsStore = useDatasourceStore()
         const datasourceId = this.selectedDatasourceId || dsStore.currentId
         const datasetId = mode === "business" ? this.selectedDatasetId : null
-        const response = await axios.post("/api/query/ask", {
+        const requestPayload = {
           question,
           mode,
           datasource_id: datasourceId,
           dataset_id: datasetId,
           drill_context: drillContext || null,
           parent_history_id: parentHistoryId || null,
-        })
+        }
+
+        if (mode === "agentic") {
+          const completed = await this.askAgenticStream(requestPayload, assistantMessage, question, drillContext)
+          if (completed) await this.fetchHistory()
+          return
+        }
+
+        const response = await axios.post("/api/query/ask", requestPayload)
         
         // 更新助手消息
         const idx = this.messages.findIndex(m => m.id === assistantMessage.id)
@@ -173,6 +315,8 @@ export const useQueryStore = defineStore("query", {
             llmModel: response.data.llm_model,
             recommendations: response.data.recommendations || [],
             trustSignals: response.data.trust_signals || [],
+            chartSpec: response.data.chart_spec || null,
+            agentTrace: response.data.agent_trace || [],
             sourceQuestion: question,
             drillContext
           }
@@ -180,6 +324,14 @@ export const useQueryStore = defineStore("query", {
         
         await this.fetchHistory()
       } catch (error: any) {
+        const errorDetail = error.response?.data?.detail
+        const structuredError = errorDetail && typeof errorDetail === "object" ? errorDetail : null
+        const errorAgentTrace = Array.isArray(structuredError?.agent_trace)
+          ? structuredError.agent_trace
+          : []
+        const errorMessage = typeof errorDetail === "string"
+          ? errorDetail
+          : structuredError?.message || error.message || "请稍后重试"
         // 更新助手消息为错误状态
         const idx = this.messages.findIndex(m => m.id === assistantMessage.id)
         if (idx !== -1) {
@@ -187,7 +339,10 @@ export const useQueryStore = defineStore("query", {
             ...assistantMessage,
             content: "查询失败",
             status: "error",
-            error: error.response?.data?.detail || error.message || "请稍后重试",
+            error: errorMessage,
+            sqlQuery: structuredError?.sql_query,
+            llmModel: structuredError?.llm_model,
+            agentTrace: errorAgentTrace,
             sourceQuestion: question,
             drillContext
           }
@@ -259,8 +414,8 @@ export const useQueryStore = defineStore("query", {
         this.messages = []
         
         // 添加用户消息
-        const cleanQuestion = data.question.replace(/^\[(SQL|闲聊|业务问数|探索问数)\]\s*/, "")
-        const historyMode = (data.mode === "explore" ? "explore" : "business") as QueryMode
+        const cleanQuestion = data.question.replace(/^\[(SQL|闲聊|业务问数|探索问数|探索模式|Agentic问数)\]\s*/, "")
+        const historyMode = (data.mode === "explore" ? "agentic" : normalizeQueryMode(data.mode)) as QueryMode
         const userMessage: ChatMessage = {
           id: this.generateId(),
           role: "user",
@@ -284,6 +439,8 @@ export const useQueryStore = defineStore("query", {
           llmModel: data.llm_model,
           mode: historyMode,
           trustSignals: data.trust_signals || [],
+          agentTrace: data.agent_trace || [],
+          chartSpec: data.chart_spec || null,
           sourceQuestion: cleanQuestion,
           drillContext: data.drill_context || undefined,
         }

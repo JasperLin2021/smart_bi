@@ -650,8 +650,8 @@ const designerVisible = ref(false)
 const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.profile?.id)
 const isAdmin = computed(() => ["super_admin", "org_admin"].includes(authStore.profile?.role || ""))
-const canUseExploreMode = computed(() => authStore.canUseExploreMode)
-const defaultChartCreateMode = () => canUseExploreMode.value ? "nl" : "sql"
+const canUseAgenticMode = computed(() => authStore.canUseAgenticMode)
+const defaultChartCreateMode = () => canUseAgenticMode.value ? "nl" : "sql"
 const dispatchResize = () => globalThis.dispatchEvent(new Event("resize"))
 
 // 导出
@@ -844,7 +844,7 @@ const statusOptions = [
 ]
 const chartCreateModeOptions = computed(() => {
   const options = [{ label: "SQL", value: "sql" }]
-  return canUseExploreMode.value
+  return canUseAgenticMode.value
     ? [{ label: "自然语言", value: "nl" }, ...options]
     : options
 })
@@ -1308,8 +1308,8 @@ const deleteLibraryChart = async (chart: PinnedChartData) => {
 }
 
 const generateChartFromQuestion = async () => {
-  if (!canUseExploreMode.value) {
-    ElMessage.warning("自然语言探索仅部门管理员及以上可用")
+  if (!canUseAgenticMode.value) {
+    ElMessage.warning("探索模式仅部门管理员及以上可用")
     return false
   }
   const question = chartForm.question.trim()
@@ -1324,7 +1324,7 @@ const generateChartFromQuestion = async () => {
 
   const response = await axios.post("/api/query/ask", {
     question,
-    mode: "explore",
+    mode: "agentic",
     datasource_id: chartForm.datasource_id,
   })
   chartForm.sql_query = response.data.sql_query || ""

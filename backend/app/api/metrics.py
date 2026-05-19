@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -7,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
+from app.core.llm import chat_completion, get_llm_config, normalize_llm_config
 from app.db.session import get_datasource_engine, get_db
 from app.core.audit import try_record_audit_log
 from app.core.permissions import has_action_permission, require_org_admin_or_above
@@ -16,8 +18,19 @@ from app.models.datasource import DataSource
 from app.models.dataset import Dataset
 from app.models.metric import Metric
 from app.models.organization import Organization
+from app.models.query import QueryHistory
 from app.models.user import User
-from app.schemas.metric import MetricCreate, MetricPreviewRequest, MetricPreviewResponse, MetricUpdate, MetricOut, MetricListResponse
+from app.schemas.metric import (
+    MetricCreate,
+    MetricFromQueryCreateRequest,
+    MetricFromQueryDraftRequest,
+    MetricFromQueryDraftResponse,
+    MetricPreviewRequest,
+    MetricPreviewResponse,
+    MetricUpdate,
+    MetricOut,
+    MetricListResponse,
+)
 from app.core.metric_formula import generate_metric_formula
 from app.core.metric_prompt_sync import sync_datasource_metrics_prompt
 
@@ -595,6 +608,401 @@ def _record_metric_audit(db: Session, current_user: User, action: str, metric: M
     )
 
 
+def _extract_json_object(raw: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, flags=re.S)
+        if match:
+            return _extract_json_object(match.group(1))
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(raw[start : end + 1])
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+
+def _clean_query_history_question(question: str | None) -> str:
+    return re.sub(r"^\[(SQL|闲聊|业务问数|探索问数|探索模式|Agentic问数)\]\s*", "", str(question or "")).strip()
+
+
+def _metric_from_query_permission(current_user: User) -> None:
+    if getattr(current_user, "role", None) == "department_admin":
+        return
+    if not has_action_permission(current_user, "metric.create"):
+        raise HTTPException(status_code=403, detail="需要指标创建权限")
+
+
+def _query_history_for_metric_draft(db: Session, history_id: int, current_user: User) -> tuple[QueryHistory, DataSource]:
+    history = db.query(QueryHistory).filter(QueryHistory.id == history_id).first()
+    if not history:
+        raise HTTPException(status_code=404, detail="查询历史不存在")
+    datasource = (
+        db.query(DataSource).filter(DataSource.id == history.datasource_id).first()
+        if history.datasource_id
+        else None
+    )
+    if not datasource:
+        raise HTTPException(status_code=400, detail="查询历史未绑定数据源")
+    if getattr(current_user, "role", None) != "super_admin" and datasource.org_id != getattr(current_user, "org_id", None):
+        raise HTTPException(status_code=404, detail="查询历史不存在")
+    return history, datasource
+
+
+def _history_result_payload(history: QueryHistory) -> dict[str, Any]:
+    try:
+        payload = json.loads(history.result_json or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _history_columns_and_rows(history: QueryHistory) -> tuple[list[str], list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    result = _history_result_payload(history)
+    columns = [str(column) for column in result.get("columns", [])]
+    rows = [row for row in (result.get("rows") or []) if isinstance(row, dict)]
+    chart_spec = result.get("_chart_spec") if isinstance(result.get("_chart_spec"), dict) else {}
+    agent_trace = [item for item in (result.get("_agent_trace") or []) if isinstance(item, dict)]
+    return columns, rows, chart_spec, agent_trace
+
+
+def _number_value(value: Any) -> float | None:
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _numeric_columns(columns: list[str], rows: list[dict[str, Any]]) -> list[str]:
+    numeric: list[str] = []
+    for column in columns:
+        values = [_number_value(row.get(column)) for row in rows[:50]]
+        available = [value for value in values if value is not None]
+        if available and len(available) >= max(1, min(len(rows), 50) // 2):
+            numeric.append(column)
+    return numeric
+
+
+def _column_name_match(raw: Any, columns: list[str]) -> str | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    exact = {column.lower(): column for column in columns}
+    return exact.get(text.lower())
+
+
+def _normalize_column_list(raw_items: Any, columns: list[str]) -> list[str]:
+    if isinstance(raw_items, str):
+        items = re.split(r"[,，;\n]", raw_items)
+    elif isinstance(raw_items, list):
+        items = raw_items
+    else:
+        items = []
+    normalized: list[str] = []
+    for item in items:
+        column = _column_name_match(item, columns)
+        if column and column not in normalized:
+            normalized.append(column)
+    return normalized
+
+
+def _looks_like_time_column(column: str) -> bool:
+    lower = column.lower()
+    return any(token in lower for token in ("date", "time", "day", "month", "year", "日期", "时间", "月份", "年度"))
+
+
+def _preferred_metric_column(columns: list[str], rows: list[dict[str, Any]], selected: str | None, chart_spec: dict[str, Any]) -> str | None:
+    selected_column = _column_name_match(selected, columns)
+    if selected_column:
+        return selected_column
+    numeric = _numeric_columns(columns, rows)
+    chart_y = _column_name_match(chart_spec.get("y_field"), columns)
+    if chart_y in numeric:
+        return chart_y
+    metric_keywords = ("count", "cnt", "total", "sum", "amount", "qty", "rate", "ratio", "value", "times", "occurrence", "数量", "金额", "次数", "总计", "合计", "占比", "比率")
+    for column in numeric:
+        if any(keyword in column.lower() for keyword in metric_keywords):
+            return column
+    return numeric[0] if numeric else (columns[-1] if columns else None)
+
+
+def _preferred_time_column(columns: list[str], selected: str | None, chart_spec: dict[str, Any]) -> str | None:
+    selected_column = _column_name_match(selected, columns)
+    if selected_column:
+        return selected_column
+    chart_x = _column_name_match(chart_spec.get("x_field"), columns)
+    if chart_x and _looks_like_time_column(chart_x):
+        return chart_x
+    return next((column for column in columns if _looks_like_time_column(column)), None)
+
+
+def _preferred_dimensions(
+    columns: list[str],
+    metric_column: str | None,
+    time_column: str | None,
+    selected_dimensions: list[str] | None,
+    chart_spec: dict[str, Any],
+) -> list[str]:
+    selected = _normalize_column_list(selected_dimensions or [], columns)
+    if selected:
+        return [column for column in selected if column != metric_column]
+
+    dimension_fields: list[str] = []
+    for raw in [chart_spec.get("facet_field"), *(chart_spec.get("series_fields") or []), chart_spec.get("x_field")]:
+        column = _column_name_match(raw, columns)
+        if column and column not in {metric_column, time_column} and column not in dimension_fields:
+            dimension_fields.append(column)
+    if dimension_fields:
+        return dimension_fields
+    return [column for column in columns if column not in {metric_column, time_column}]
+
+
+def _split_select_items(select_clause: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    depth = 0
+    quote: str | None = None
+    for char in select_clause:
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+            current.append(char)
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+        if char == "," and depth == 0:
+            item = "".join(current).strip()
+            if item:
+                items.append(item)
+            current = []
+            continue
+        current.append(char)
+    item = "".join(current).strip()
+    if item:
+        items.append(item)
+    return items
+
+
+def _select_clause(sql: str) -> str:
+    text_sql = str(sql or "").strip()
+    matches = list(re.finditer(r"\bselect\b", text_sql, flags=re.I))
+    if not matches:
+        return ""
+    start = matches[-1].end()
+    from_match = re.search(r"\bfrom\b", text_sql[start:], flags=re.I)
+    if not from_match:
+        return ""
+    return text_sql[start : start + from_match.start()].strip()
+
+
+def _extract_formula_from_sql(sql: str, metric_column: str | None) -> str:
+    metric_column = str(metric_column or "").strip()
+    if not metric_column:
+        return ""
+    for item in _split_select_items(_select_clause(sql)):
+        match = re.search(r"\s+as\s+([\"`']?)(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\1\s*$", item, flags=re.I)
+        if match and match.group("alias").lower() == metric_column.lower():
+            expression = item[: match.start()].strip()
+            if expression and re.search(r"\b(count|sum|avg|min|max)\s*\(", expression, flags=re.I):
+                return expression
+    if re.search(r"\bcount\s*\(\s*\*\s*\)", sql, flags=re.I) and re.search(r"(count|cnt|times|occurrence|次数)", metric_column, flags=re.I):
+        return "COUNT(*)"
+    if _safe_column_ref(metric_column):
+        return f"SUM({metric_column})"
+    return ""
+
+
+def _default_metric_name(question: str, metric_column: str | None) -> str:
+    if re.search(r"alarm|报警", question, flags=re.I):
+        return "报警发生次数"
+    if metric_column:
+        return metric_column.replace("_", " ").strip()[:64]
+    return "探索沉淀指标"
+
+
+def _default_unit(metric_column: str | None, formula: str) -> str | None:
+    text = f"{metric_column or ''} {formula}".lower()
+    if any(token in text for token in ("rate", "ratio", "percent", "率", "占比")):
+        return "%"
+    if any(token in text for token in ("count", "cnt", "times", "occurrence", "次数")):
+        return "次"
+    return None
+
+
+def _analysis_condition_warnings(question: str, sql: str) -> list[str]:
+    combined = f"{question}\n{sql}".lower()
+    warnings: list[str] = []
+    if re.search(r"\btop\s*\d+|top\d+|前\s*\d+|limit\s+\d+|row_number\s*\(|rank\s*\(", combined, flags=re.I):
+        warnings.append("TOP N、排序截断或排名属于分析条件，不建议写入指标公式。")
+    if re.search(r"最近|近\s*\d+|last\s+\d+|interval\s+'?\d+|date_sub", combined, flags=re.I):
+        warnings.append("临时时间窗口属于分析条件，可作为默认分析视图条件保留。")
+    return warnings
+
+
+def _normalize_candidate(candidate: dict[str, Any], fallback: dict[str, Any], columns: list[str]) -> dict[str, Any]:
+    normalized = dict(fallback)
+    for key in ("name", "definition", "formula", "unit", "metric_column", "time_column"):
+        value = str(candidate.get(key) or "").strip()
+        if value:
+            normalized[key] = value
+    metric_column = _column_name_match(normalized.get("metric_column"), columns) or fallback.get("metric_column")
+    time_column = _column_name_match(normalized.get("time_column"), columns) or fallback.get("time_column")
+    normalized["metric_column"] = metric_column
+    normalized["time_column"] = time_column
+    dimensions = _normalize_column_list(candidate.get("dimensions"), columns) or fallback.get("dimensions") or []
+    normalized["dimensions"] = [column for column in dimensions if column not in {metric_column, time_column}]
+    normalized["warnings"] = [str(item).strip() for item in candidate.get("warnings", []) if str(item).strip()]
+    normalized["name"] = str(normalized.get("name") or "探索沉淀指标").strip()[:128]
+    normalized["definition"] = str(normalized.get("definition") or f"从探索模式问数结果沉淀的指标：{normalized['name']}").strip()
+    normalized["formula"] = str(normalized.get("formula") or fallback.get("formula") or "").strip()
+    if not normalized["formula"]:
+        raise HTTPException(status_code=400, detail="未能从问数结果识别稳定指标公式")
+    return normalized
+
+
+async def _build_metric_from_query_draft(
+    payload: MetricFromQueryDraftRequest,
+    db: Session,
+    current_user: User,
+    *,
+    use_llm: bool = True,
+) -> dict[str, Any]:
+    _metric_from_query_permission(current_user)
+    history, datasource = _query_history_for_metric_draft(db, payload.query_history_id, current_user)
+    columns, rows, chart_spec, agent_trace = _history_columns_and_rows(history)
+    if not columns or not rows:
+        raise HTTPException(status_code=400, detail="查询历史没有可沉淀的结果数据")
+
+    question = _clean_query_history_question(history.question)
+    metric_column = _preferred_metric_column(columns, rows, payload.selected_metric_column, chart_spec)
+    time_column = _preferred_time_column(columns, payload.time_column, chart_spec)
+    dimensions = _preferred_dimensions(columns, metric_column, time_column, payload.selected_dimensions, chart_spec)
+    formula = _extract_formula_from_sql(history.sql_query or "", metric_column)
+    fallback = {
+        "name": _default_metric_name(question, metric_column),
+        "definition": f"从探索问题“{question[:80]}”沉淀的可复用指标",
+        "formula": formula,
+        "unit": _default_unit(metric_column, formula),
+        "metric_column": metric_column,
+        "dimensions": dimensions,
+        "time_column": time_column,
+        "warnings": [],
+    }
+    llm_enhanced = False
+    llm_model = None
+    llm_warnings: list[str] = []
+    candidate = dict(fallback)
+
+    if use_llm:
+        try:
+            llm_config = None
+            try:
+                llm_config = normalize_llm_config(await get_llm_config())
+                llm_model = llm_config.get("model")
+            except Exception:
+                llm_config = None
+            raw = await chat_completion(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是企业 BI 指标建模助手。根据探索模式问数结果，提取可以沉淀为稳定指标的草稿。"
+                            "不要把 TOP N、LIMIT、临时时间窗口或趋势分组写入指标公式；这些只能作为 warnings。"
+                            "只输出严格 JSON，字段：name、definition、formula、unit、metric_column、dimensions、time_column、warnings。"
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "question": question,
+                                "sql": history.sql_query,
+                                "columns": columns,
+                                "sample_rows": rows[:20],
+                                "chart_spec": chart_spec,
+                                "fallback": fallback,
+                            },
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    },
+                ],
+                temperature=0,
+                config_override=llm_config,
+            )
+            parsed = _extract_json_object(raw)
+            if parsed:
+                candidate = _normalize_candidate(parsed, fallback, columns)
+                llm_warnings = candidate.pop("warnings", [])
+                llm_enhanced = True
+        except Exception as exc:
+            llm_warnings = [f"大模型指标识别失败，已使用规则草稿: {exc}"]
+            candidate = _normalize_candidate({}, fallback, columns)
+    else:
+        candidate = _normalize_candidate({}, fallback, columns)
+
+    warnings = []
+    warnings.extend(_analysis_condition_warnings(question, history.sql_query or ""))
+    warnings.extend(llm_warnings)
+    deduped_warnings = list(dict.fromkeys(item for item in warnings if item))
+    source = {
+        "source_type": "agentic_query",
+        "source_query_history_id": history.id,
+        "source_question": question,
+        "source_sql": history.sql_query,
+        "source_chart_spec": chart_spec,
+        "source_agent_trace": agent_trace,
+        "source_columns": columns,
+        "source_metric_column": candidate.get("metric_column"),
+    }
+    validation = {
+        "status": "draft",
+        "validation_status": "passed" if candidate.get("formula") else "warning",
+        "message": "已生成指标草稿，保存后可在指标中心继续完善和认证。",
+        "row_count": len(rows),
+    }
+    return {
+        "candidate": candidate,
+        "source": source,
+        "validation": validation,
+        "warnings": deduped_warnings,
+        "llm_enhanced": llm_enhanced,
+        "llm_model": llm_model,
+    }
+
+
+def _metric_from_query_calculation_config(draft: dict[str, Any], source: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    candidate = draft.get("candidate") or {}
+    validation = draft.get("validation") or {}
+    return {
+        "calculation_mode": "aggregate",
+        "metric_field": candidate.get("metric_column"),
+        "output_alias": candidate.get("metric_column"),
+        "time_field": candidate.get("time_column"),
+        "time_grain": "day" if candidate.get("time_column") else "",
+        "filters": [],
+        "source": {
+            **source,
+            "validation_status": validation.get("validation_status"),
+            "validation_message": validation.get("message"),
+            "analysis_warnings": warnings,
+        },
+    }
+
+
 @router.get("", response_model=MetricListResponse)
 def list_metrics(
     db: Session = Depends(get_db),
@@ -672,6 +1080,96 @@ def create_metric(
         org_id=getattr(datasource, "org_id", None),
         message="指标已创建",
         detail={"dataset_id": metric.dataset_id, "datasource_id": metric.datasource_id, "status": metric.status},
+    )
+    return metric
+
+
+@router.post("/from-query/draft", response_model=MetricFromQueryDraftResponse)
+async def draft_metric_from_query(
+    payload: MetricFromQueryDraftRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await _build_metric_from_query_draft(payload, db, current_user)
+
+
+@router.post("/from-query", response_model=MetricOut)
+async def create_metric_from_query(
+    payload: MetricFromQueryCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    selected_dimensions = payload.dimensions if payload.dimensions is not None else payload.selected_dimensions
+    draft_payload = MetricFromQueryDraftRequest(
+        query_history_id=payload.query_history_id,
+        selected_metric_column=payload.selected_metric_column,
+        selected_dimensions=selected_dimensions or [],
+        time_column=payload.time_column,
+    )
+    use_llm = not all([payload.name, payload.definition, payload.formula])
+    draft = await _build_metric_from_query_draft(draft_payload, db, current_user, use_llm=use_llm)
+    candidate = draft["candidate"]
+    source = draft["source"]
+    warnings = draft["warnings"]
+    history, datasource = _query_history_for_metric_draft(db, payload.query_history_id, current_user)
+
+    name = str(payload.name or candidate.get("name") or "").strip()[:128]
+    definition = str(payload.definition or candidate.get("definition") or "").strip()
+    formula = str(payload.formula or candidate.get("formula") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="指标名称不能为空")
+    if not definition:
+        raise HTTPException(status_code=400, detail="指标定义不能为空")
+    if not formula:
+        raise HTTPException(status_code=400, detail="指标公式不能为空")
+    if db.query(Metric).filter(Metric.name == name).first():
+        raise HTTPException(status_code=400, detail="指标名称已存在")
+
+    status = payload.status or "draft"
+    certification_status = payload.certification_status or "pending_review"
+    _ensure_metric_values(status, certification_status, "unknown")
+    dimensions = selected_dimensions or candidate.get("dimensions") or []
+    metric = Metric(
+        dataset_id=None,
+        datasource_id=datasource.id,
+        name=name,
+        description=f"由探索模式问数沉淀：{_clean_query_history_question(history.question)[:120]}",
+        definition=definition,
+        column_name=candidate.get("metric_column"),
+        formula=formula,
+        calculation_config=_metric_from_query_calculation_config(draft, source, warnings),
+        owner_name=payload.owner_name or getattr(current_user, "username", None),
+        unit=payload.unit if payload.unit is not None else candidate.get("unit"),
+        aggregation="count" if formula.upper().startswith("COUNT(") else "sum",
+        tags=["探索沉淀"],
+        status=status,
+        dimensions=dimensions,
+        certification_status=certification_status,
+        caliber_version="v1",
+        quality_status="unknown",
+        is_active=1,
+    )
+    _touch_certification(metric, current_user)
+    db.add(metric)
+    db.commit()
+    db.refresh(metric)
+    _sync_metric_catalog_asset(db, metric, datasource)
+    sync_datasource_metrics_prompt(db, datasource.id)
+    db.commit()
+    db.refresh(metric)
+    _record_metric_audit(
+        db,
+        current_user,
+        "metric.create_from_query",
+        metric,
+        org_id=getattr(datasource, "org_id", None),
+        message="已从探索结果创建指标草稿",
+        detail={
+            "query_history_id": history.id,
+            "datasource_id": datasource.id,
+            "status": metric.status,
+            "certification_status": metric.certification_status,
+        },
     )
     return metric
 

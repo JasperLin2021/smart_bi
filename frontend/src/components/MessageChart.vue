@@ -59,6 +59,19 @@
       </div>
     </div>
 
+    <el-tabs
+      v-if="showFacetTabs"
+      v-model="selectedFacet"
+      class="chart-facet-tabs"
+    >
+      <el-tab-pane
+        v-for="value in facetValues"
+        :key="value"
+        :label="value"
+        :name="value"
+      />
+    </el-tabs>
+
     <div v-if="selectedRow && (drillLoading || drillActions.length || drillAttempted)" class="drill-bar">
       <div class="drill-bar-title">已选中图表项：{{ selectedSummary }}</div>
       <div v-if="drillLoading" class="drill-loading">正在生成下钻建议...</div>
@@ -219,7 +232,7 @@ import { Star, Setting } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import * as echarts from "echarts"
-import { useQueryStore, type ChatMessage, type DrillAction } from "@/store/query"
+import { useQueryStore, type ChartSpec, type ChatMessage, type DrillAction } from "@/store/query"
 import { useDatasourceStore } from "@/store/datasource"
 import PinnedChartCard from "@/components/PinnedChartCard.vue"
 import {
@@ -234,6 +247,7 @@ const props = defineProps<{
   columns: string[]
   rows: Array<Record<string, any>>
   sqlQuery?: string
+  chartSpec?: ChartSpec | null
 }>()
 
 interface DashboardOption {
@@ -274,6 +288,7 @@ const drillAttempted = ref(false)
 const selectedXField = ref("")
 const selectedYField = ref("")
 const selectedGroupFields = ref<string[]>([])
+const selectedFacet = ref("")
 
 // 固定相关
 const showPinDialog = ref(false)
@@ -320,6 +335,40 @@ const numericColumns = computed(() => {
     const val = props.rows[0][col]
     return typeof val === "number" || (!isNaN(Number(val)) && val !== null && val !== "")
   })
+})
+
+const normalizeChartType = (value?: string | null): "line" | "bar" | "pie" => {
+  if (value === "bar" || value === "horizontal_bar") return "bar"
+  if (value === "pie" || value === "donut") return "pie"
+  return "line"
+}
+
+const normalizeSortOrder = (value?: string | null): "none" | "desc" | "asc" => {
+  if (value === "desc" || value === "asc") return value
+  return "none"
+}
+
+const resolveColumn = (value?: string | null) => {
+  if (!value) return ""
+  return props.columns.find(col => col === value || col.toLowerCase() === value.toLowerCase()) || ""
+}
+
+const facetField = computed(() => {
+  const spec = props.chartSpec
+  if (!spec || spec.layout !== "tabs_by_field") return ""
+  return resolveColumn(spec.facet_field)
+})
+
+const facetValues = computed(() => {
+  if (!facetField.value) return []
+  return [...new Set(props.rows.map(row => String(row[facetField.value] ?? "")).filter(Boolean))]
+})
+
+const showFacetTabs = computed(() => facetField.value && facetValues.value.length > 1)
+
+const chartRows = computed(() => {
+  if (!showFacetTabs.value || !selectedFacet.value || !facetField.value) return props.rows
+  return props.rows.filter(row => String(row[facetField.value]) === selectedFacet.value)
 })
 
 // 可分组的列（非X轴和非Y轴的字段）
@@ -397,9 +446,41 @@ const autoDetectFields = () => {
   selectedGroupFields.value = finalGroupFields
 }
 
+const applyChartSpec = () => {
+  const spec = props.chartSpec
+  if (!spec || !props.columns.length) return false
+
+  const xField = resolveColumn(spec.x_field)
+  const yField = resolveColumn(spec.y_field)
+  const rawSeriesFields = Array.isArray(spec.series_fields) ? spec.series_fields : []
+  const validSeriesFields = rawSeriesFields
+    .map(field => resolveColumn(field))
+    .filter((field): field is string => Boolean(field) && field !== xField && field !== yField && field !== facetField.value)
+
+  chartType.value = normalizeChartType(spec.chart_type)
+  sortOrder.value = normalizeSortOrder(spec.sort_order)
+  if (xField) selectedXField.value = xField
+  if (yField) selectedYField.value = yField
+  selectedGroupFields.value = validSeriesFields
+
+  if (spec.layout === "tabs_by_field" && facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
+    selectedFacet.value = facetValues.value[0]
+  }
+  return Boolean(xField && yField)
+}
+
+const configureChartFields = () => {
+  if (!applyChartSpec()) {
+    autoDetectFields()
+  }
+  if (facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
+    selectedFacet.value = facetValues.value[0]
+  }
+}
+
 // 判断是否为多系列数据
 const isMultiSeries = computed(() => {
-  return selectedGroupFields.value.length > 0 && selectedXField.value && props.rows.length > 0
+  return selectedGroupFields.value.length > 0 && selectedXField.value && chartRows.value.length > 0
 })
 
 const selectedSummary = computed(() => {
@@ -451,15 +532,16 @@ const buildMultiSeriesOption = () => {
   }
   
   // 获取所有分组和X轴值
-  const groups = [...new Set(props.rows.map(r => getGroupKey(r)))]
-  let xValues = [...new Set(props.rows.map(r => String(r[selectedXField.value])))]
+  const rows = chartRows.value
+  const groups = [...new Set(rows.map(r => getGroupKey(r)))]
+  let xValues = [...new Set(rows.map(r => String(r[selectedXField.value])))]
   
   // 对X轴排序
   xValues.sort()
   
   // 构建数据Map
   const dataMap = new Map<string, Map<string, number>>()
-  props.rows.forEach(row => {
+  rows.forEach(row => {
     const group = getGroupKey(row)
     const x = String(row[selectedXField.value])
     const value = Number(row[selectedYField.value]) || 0
@@ -510,11 +592,12 @@ const buildMultiSeriesOption = () => {
 const buildSingleSeriesOption = () => {
   const xField = selectedXField.value
   const yField = selectedYField.value
-  if (!xField || !yField || !props.rows?.length) return null
+  const rows = chartRows.value
+  if (!xField || !yField || !rows.length) return null
 
   // 饼图
   if (chartType.value === "pie") {
-    let data = props.rows.map(row => ({
+    let data = rows.map(row => ({
       name: String(row[xField]),
       value: Number(row[yField]) || 0
     }))
@@ -534,7 +617,7 @@ const buildSingleSeriesOption = () => {
   }
 
   // 柱状图/折线图
-  let dataPoints = props.rows.map(r => ({
+  let dataPoints = rows.map(r => ({
     x: String(r[xField]),
     y: Number(r[yField]) || 0
   }))
@@ -578,18 +661,18 @@ const findRowFromChartSelection = (params: any) => {
   if (!selectedXField.value) return null
 
   if (chartType.value === "pie") {
-    return props.rows.find(row => String(row[selectedXField.value]) === String(params.name)) || null
+    return chartRows.value.find(row => String(row[selectedXField.value]) === String(params.name)) || null
   }
 
   const selectedName = String(params.name)
   if (isMultiSeries.value && selectedGroupFields.value.length > 0) {
     const selectedSeries = String(params.seriesName || "")
-    return props.rows.find((row) => {
+    return chartRows.value.find((row) => {
       return String(row[selectedXField.value]) === selectedName && getGroupKey(row) === selectedSeries
     }) || null
   }
 
-  return props.rows.find(row => String(row[selectedXField.value]) === selectedName) || null
+  return chartRows.value.find(row => String(row[selectedXField.value]) === selectedName) || null
 }
 
 const handleChartClick = async (params: any) => {
@@ -790,12 +873,32 @@ watch(() => props.rows, () => {
   drillActions.value = []
   drillLoading.value = false
   drillAttempted.value = false
-  autoDetectFields()
+  configureChartFields()
   renderChart()
 }, { deep: true, immediate: true })
+watch(() => props.chartSpec, () => {
+  selectedRow.value = null
+  drillActions.value = []
+  drillLoading.value = false
+  drillAttempted.value = false
+  configureChartFields()
+  renderChart()
+}, { deep: true })
+watch(facetValues, () => {
+  if (facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
+    selectedFacet.value = facetValues.value[0]
+  }
+})
+watch(selectedFacet, () => {
+  selectedRow.value = null
+  drillActions.value = []
+  drillLoading.value = false
+  drillAttempted.value = false
+  renderChart()
+})
 
 onMounted(() => {
-  autoDetectFields()
+  configureChartFields()
   renderChart()
   window.addEventListener("resize", () => chartInstance?.resize())
 })
@@ -850,6 +953,23 @@ onMounted(() => {
   padding: 12px;
   background: #f5f7fa;
   border-bottom: 1px solid #e4e7ed;
+}
+
+.chart-facet-tabs {
+  padding: 0 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.chart-facet-tabs :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.chart-facet-tabs :deep(.el-tabs__item) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dimension-item {

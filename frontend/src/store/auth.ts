@@ -19,7 +19,7 @@ export const useAuthStore = defineStore("auth", {
     isOrgAdmin(): boolean {
       return this.profile?.role === 'org_admin' || this.profile?.role === 'super_admin'
     },
-    canUseExploreMode(): boolean {
+    canUseAgenticMode(): boolean {
       return ['dept_admin', 'department_admin', 'org_admin', 'super_admin'].includes(this.profile?.role || '')
     },
     isSuperAdmin(): boolean {

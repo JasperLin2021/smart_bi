@@ -7,6 +7,19 @@ from app.core.excel_executor import _normalize_table_name
 from app.core.excel_uploads import resolve_excel_source_path
 
 
+SQL_ALIAS_STOPWORDS = {
+    "group",
+    "order",
+    "where",
+    "join",
+    "on",
+    "limit",
+    "having",
+    "select",
+    "union",
+}
+
+
 def _extract_aliases(sql: str) -> dict[str, str]:
     alias_map: dict[str, str] = {}
     pattern = re.compile(
@@ -14,6 +27,8 @@ def _extract_aliases(sql: str) -> dict[str, str]:
         re.I,
     )
     for _, table, alias in pattern.findall(sql):
+        if alias.lower() in SQL_ALIAS_STOPWORDS:
+            alias = ""
         alias_map[(alias or table).lower()] = table.lower()
     return alias_map
 
@@ -93,15 +108,22 @@ def _load_column_values(file_path: str, table_name: str, column_name: str) -> se
 
 def detect_excel_join_risk(file_path: str, sql: str) -> dict[str, str] | None:
     alias_map = _extract_aliases(sql)
-    if len(alias_map) < 2:
+    table_columns = _load_excel_table_columns(file_path)
+    alias_map = {
+        alias: table
+        for alias, table in alias_map.items()
+        if table in table_columns
+    }
+    if len(set(alias_map.values())) < 2:
         return None
 
-    table_columns = _load_excel_table_columns(file_path)
     join_pairs = _extract_join_key_pairs(sql)
     for left_alias, left_col, right_alias, right_col in join_pairs:
         left_table = alias_map.get(left_alias)
         right_table = alias_map.get(right_alias)
         if not left_table or not right_table:
+            continue
+        if left_table == right_table:
             continue
 
         left_values = _load_column_values(file_path, left_table, left_col)
@@ -131,6 +153,8 @@ def detect_excel_join_risk(file_path: str, sql: str) -> dict[str, str] | None:
             continue
         joined_table = alias_map.get(alias)
         if not joined_table:
+            continue
+        if joined_table == base_table:
             continue
         if column in base_columns and column in table_columns.get(joined_table, set()):
             duplicate_column_refs.append(f"{joined_table}.{column}")

@@ -29,3 +29,10 @@ test("llm settings includes aliyun bailian qwen dashscope preset", () => {
   assert.match(llmSettings, /dashscope:\s*\{\s*base_url:\s*"https:\/\/dashscope\.aliyuncs\.com\/compatible-mode\/v1",\s*model:\s*"qwen3\.6-35b-a3b"/)
   assert.doesNotMatch(llmSettings, /sk-[a-z0-9]{20,}/i)
 })
+
+test("llm settings includes pi mono openai compatible preset", () => {
+  const llmSettings = read("src/views/LlmSettings.vue")
+
+  assert.match(llmSettings, /label="Pi \/ pi-mono"\s+value="pi"/)
+  assert.match(llmSettings, /pi:\s*\{\s*base_url:\s*"http:\/\/localhost:8001\/v1",\s*model:\s*"pi\/pi-mono"/)
+})
