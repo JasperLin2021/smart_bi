@@ -23,21 +23,35 @@
                 <small>{{ traceSummary }}</small>
               </div>
             </template>
-            <div class="trace-current-card" v-if="latestTraceStep" :class="`trace-current-card--${latestTraceStep.status}`">
-              <div class="trace-current-head">
-                <el-tag size="small" :type="traceStatusType(latestTraceStep.status)" effect="plain">
-                  {{ traceStageLabel(latestTraceStep.stage) }}
-                </el-tag>
-                <div class="trace-step-main trace-current-main">
-                  <span>{{ latestTraceStep.message }}</span>
-                  <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
+            <div class="agent-trace-compact" :class="traceCurrentStatusClass">
+              <div class="trace-summary-strip">
+                <div class="trace-summary-main">
+                  <span class="trace-stage-pill">{{ latestTraceStep ? traceStageLabel(latestTraceStep.stage) : "等待开始" }}</span>
+                  <strong>{{ latestTraceStep ? latestTraceStep.message : "等待探索模式开始执行" }}</strong>
+                </div>
+                <div class="trace-summary-chips">
+                  <span class="trace-summary-chip">{{ completedTraceCount }}/{{ agentTraceSteps.length }} 完成</span>
+                  <span v-if="warningTraceCount" class="trace-summary-chip trace-summary-chip--warning">{{ warningTraceCount }} 警告</span>
+                  <span v-if="failedTraceCount" class="trace-summary-chip trace-summary-chip--error">{{ failedTraceCount }} 失败</span>
+                  <span class="trace-summary-chip trace-summary-chip--status">{{ traceRunningText }}</span>
                 </div>
               </div>
-              <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
-                <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="查看详情">
-                  <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
-                </el-collapse-item>
-              </el-collapse>
+              <div class="trace-progress-line" aria-hidden="true">
+                <i :style="{ width: `${traceProgressPercent}%` }"></i>
+              </div>
+              <div v-if="latestTraceStep" class="trace-latest-row" :class="`trace-latest-row--${latestTraceStep.status}`">
+                <span class="trace-step-index">#{{ latestTraceIndex + 1 }}</span>
+                <span class="trace-stage-pill trace-stage-pill--soft">{{ traceStageLabel(latestTraceStep.stage) }}</span>
+                <div class="trace-row-message">
+                  <strong>{{ latestTraceStep.message }}</strong>
+                  <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
+                </div>
+                <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
+                  <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="详情">
+                    <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
             </div>
             <el-collapse v-if="historicalTraceSteps.length" v-model="traceHistoryOpen" class="trace-history-collapse">
               <el-collapse-item name="trace-history">
@@ -47,22 +61,22 @@
                     <small>{{ historicalTraceSteps.length }} 步已折叠</small>
                   </div>
                 </template>
-                <div class="trace-list trace-list--history">
+                <div class="trace-history-list">
                   <div
                     v-for="step in historicalTraceSteps"
                     :key="`${step.item.stage}-${step.item.message}-${step.index}`"
-                    class="trace-step"
-                    :class="`trace-step--${step.item.status}`"
+                    class="trace-history-row"
+                    :class="`trace-history-row--${step.item.status}`"
                   >
-                    <el-tag size="small" :type="traceStatusType(step.item.status)" effect="plain">
-                      {{ traceStageLabel(step.item.stage) }}
-                    </el-tag>
-                    <div class="trace-step-main">
-                      <span>{{ step.item.message }}</span>
+                    <span class="trace-step-dot" :class="`trace-step-dot--${step.item.status}`"></span>
+                    <span class="trace-step-index">#{{ step.index + 1 }}</span>
+                    <span class="trace-stage-pill trace-stage-pill--soft">{{ traceStageLabel(step.item.stage) }}</span>
+                    <div class="trace-row-message">
+                      <strong>{{ step.item.message }}</strong>
                       <small>{{ traceStatusLabel(step.item.status) }}</small>
                     </div>
                     <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="step.item.detail">
-                      <el-collapse-item :name="traceStepName(step.item, step.index)" title="查看详情">
+                      <el-collapse-item :name="traceStepName(step.item, step.index)" title="详情">
                         <pre class="trace-detail">{{ formatTraceDetail(step.item.detail) }}</pre>
                       </el-collapse-item>
                     </el-collapse>
@@ -88,21 +102,35 @@
                 <small>{{ traceSummary }}</small>
               </div>
             </template>
-            <div class="trace-current-card" v-if="latestTraceStep" :class="`trace-current-card--${latestTraceStep.status}`">
-              <div class="trace-current-head">
-                <el-tag size="small" :type="traceStatusType(latestTraceStep.status)" effect="plain">
-                  {{ traceStageLabel(latestTraceStep.stage) }}
-                </el-tag>
-                <div class="trace-step-main trace-current-main">
-                  <span>{{ latestTraceStep.message }}</span>
-                  <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
+            <div class="agent-trace-compact" :class="traceCurrentStatusClass">
+              <div class="trace-summary-strip">
+                <div class="trace-summary-main">
+                  <span class="trace-stage-pill">{{ latestTraceStep ? traceStageLabel(latestTraceStep.stage) : "等待开始" }}</span>
+                  <strong>{{ latestTraceStep ? latestTraceStep.message : "等待探索模式开始执行" }}</strong>
+                </div>
+                <div class="trace-summary-chips">
+                  <span class="trace-summary-chip">{{ completedTraceCount }}/{{ agentTraceSteps.length }} 完成</span>
+                  <span v-if="warningTraceCount" class="trace-summary-chip trace-summary-chip--warning">{{ warningTraceCount }} 警告</span>
+                  <span v-if="failedTraceCount" class="trace-summary-chip trace-summary-chip--error">{{ failedTraceCount }} 失败</span>
+                  <span class="trace-summary-chip trace-summary-chip--status">{{ traceRunningText }}</span>
                 </div>
               </div>
-              <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
-                <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="查看详情">
-                  <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
-                </el-collapse-item>
-              </el-collapse>
+              <div class="trace-progress-line" aria-hidden="true">
+                <i :style="{ width: `${traceProgressPercent}%` }"></i>
+              </div>
+              <div v-if="latestTraceStep" class="trace-latest-row" :class="`trace-latest-row--${latestTraceStep.status}`">
+                <span class="trace-step-index">#{{ latestTraceIndex + 1 }}</span>
+                <span class="trace-stage-pill trace-stage-pill--soft">{{ traceStageLabel(latestTraceStep.stage) }}</span>
+                <div class="trace-row-message">
+                  <strong>{{ latestTraceStep.message }}</strong>
+                  <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
+                </div>
+                <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
+                  <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="详情">
+                    <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
             </div>
             <el-collapse v-if="historicalTraceSteps.length" v-model="traceHistoryOpen" class="trace-history-collapse">
               <el-collapse-item name="trace-history">
@@ -112,22 +140,22 @@
                     <small>{{ historicalTraceSteps.length }} 步已折叠</small>
                   </div>
                 </template>
-                <div class="trace-list trace-list--history">
+                <div class="trace-history-list">
                   <div
                     v-for="step in historicalTraceSteps"
                     :key="`${step.item.stage}-${step.item.message}-${step.index}`"
-                    class="trace-step"
-                    :class="`trace-step--${step.item.status}`"
+                    class="trace-history-row"
+                    :class="`trace-history-row--${step.item.status}`"
                   >
-                    <el-tag size="small" :type="traceStatusType(step.item.status)" effect="plain">
-                      {{ traceStageLabel(step.item.stage) }}
-                    </el-tag>
-                    <div class="trace-step-main">
-                      <span>{{ step.item.message }}</span>
+                    <span class="trace-step-dot" :class="`trace-step-dot--${step.item.status}`"></span>
+                    <span class="trace-step-index">#{{ step.index + 1 }}</span>
+                    <span class="trace-stage-pill trace-stage-pill--soft">{{ traceStageLabel(step.item.stage) }}</span>
+                    <div class="trace-row-message">
+                      <strong>{{ step.item.message }}</strong>
                       <small>{{ traceStatusLabel(step.item.status) }}</small>
                     </div>
                     <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="step.item.detail">
-                      <el-collapse-item :name="traceStepName(step.item, step.index)" title="查看详情">
+                      <el-collapse-item :name="traceStepName(step.item, step.index)" title="详情">
                         <pre class="trace-detail">{{ formatTraceDetail(step.item.detail) }}</pre>
                       </el-collapse-item>
                     </el-collapse>
@@ -187,22 +215,27 @@
               </div>
             </div>
             <el-collapse v-model="agentNotesPanelOpen" class="assumption-collapse">
-              <el-collapse-item name="agent-notes" title="查看假设与可调整项">
+              <el-collapse-item name="agent-notes" title="查看本次查询口径">
                 <div v-if="agentAssumptions.length" class="assumption-list">
                   <span v-for="item in agentAssumptions" :key="item">{{ item }}</span>
                 </div>
                 <div v-if="agentRiskFlags.length" class="assumption-risk-list">
                   <span v-for="item in agentRiskFlags" :key="item">{{ riskFlagLabel(item) }}</span>
                 </div>
-                <div v-if="agentRefinementActions.length" class="refinement-actions">
-                  <button
+                <div v-if="agentRefinementActions.length" class="refinement-draft-list">
+                  <div
                     v-for="action in agentRefinementActions"
                     :key="`${action.label}-${action.question}`"
-                    type="button"
-                    @click="runRefinement(action.question)"
+                    class="refinement-draft-item"
                   >
-                    {{ action.label }}
-                  </button>
+                    <div>
+                      <strong>{{ action.label }}</strong>
+                      <span>{{ action.question }}</span>
+                    </div>
+                    <button type="button" class="fill-refinement-button" @click="emitRefinement(action.question)">
+                      填入输入框
+                    </button>
+                  </div>
                 </div>
               </el-collapse-item>
             </el-collapse>
@@ -216,21 +249,35 @@
                   <small>{{ traceSummary }}</small>
                 </div>
               </template>
-              <div class="trace-current-card" v-if="latestTraceStep" :class="`trace-current-card--${latestTraceStep.status}`">
-                <div class="trace-current-head">
-                  <el-tag size="small" :type="traceStatusType(latestTraceStep.status)" effect="plain">
-                    {{ traceStageLabel(latestTraceStep.stage) }}
-                  </el-tag>
-                  <div class="trace-step-main trace-current-main">
-                    <span>{{ latestTraceStep.message }}</span>
-                    <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
+              <div class="agent-trace-compact" :class="traceCurrentStatusClass">
+                <div class="trace-summary-strip">
+                  <div class="trace-summary-main">
+                    <span class="trace-stage-pill">{{ latestTraceStep ? traceStageLabel(latestTraceStep.stage) : "等待开始" }}</span>
+                    <strong>{{ latestTraceStep ? latestTraceStep.message : "等待探索模式开始执行" }}</strong>
+                  </div>
+                  <div class="trace-summary-chips">
+                    <span class="trace-summary-chip">{{ completedTraceCount }}/{{ agentTraceSteps.length }} 完成</span>
+                    <span v-if="warningTraceCount" class="trace-summary-chip trace-summary-chip--warning">{{ warningTraceCount }} 警告</span>
+                    <span v-if="failedTraceCount" class="trace-summary-chip trace-summary-chip--error">{{ failedTraceCount }} 失败</span>
+                    <span class="trace-summary-chip trace-summary-chip--status">{{ traceRunningText }}</span>
                   </div>
                 </div>
-                <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
-                  <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="查看详情">
-                    <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
-                  </el-collapse-item>
-                </el-collapse>
+                <div class="trace-progress-line" aria-hidden="true">
+                  <i :style="{ width: `${traceProgressPercent}%` }"></i>
+                </div>
+                <div v-if="latestTraceStep" class="trace-latest-row" :class="`trace-latest-row--${latestTraceStep.status}`">
+                  <span class="trace-step-index">#{{ latestTraceIndex + 1 }}</span>
+                  <span class="trace-stage-pill trace-stage-pill--soft">{{ traceStageLabel(latestTraceStep.stage) }}</span>
+                  <div class="trace-row-message">
+                    <strong>{{ latestTraceStep.message }}</strong>
+                    <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
+                  </div>
+                  <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
+                    <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="详情">
+                      <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
+                    </el-collapse-item>
+                  </el-collapse>
+                </div>
               </div>
               <el-collapse v-if="historicalTraceSteps.length" v-model="traceHistoryOpen" class="trace-history-collapse">
                 <el-collapse-item name="trace-history">
@@ -240,22 +287,22 @@
                       <small>{{ historicalTraceSteps.length }} 步已折叠</small>
                     </div>
                   </template>
-                  <div class="trace-list trace-list--history">
+                  <div class="trace-history-list">
                     <div
                       v-for="step in historicalTraceSteps"
                       :key="`${step.item.stage}-${step.item.message}-${step.index}`"
-                      class="trace-step"
-                      :class="`trace-step--${step.item.status}`"
+                      class="trace-history-row"
+                      :class="`trace-history-row--${step.item.status}`"
                     >
-                      <el-tag size="small" :type="traceStatusType(step.item.status)" effect="plain">
-                        {{ traceStageLabel(step.item.stage) }}
-                      </el-tag>
-                      <div class="trace-step-main">
-                        <span>{{ step.item.message }}</span>
+                      <span class="trace-step-dot" :class="`trace-step-dot--${step.item.status}`"></span>
+                      <span class="trace-step-index">#{{ step.index + 1 }}</span>
+                      <span class="trace-stage-pill trace-stage-pill--soft">{{ traceStageLabel(step.item.stage) }}</span>
+                      <div class="trace-row-message">
+                        <strong>{{ step.item.message }}</strong>
                         <small>{{ traceStatusLabel(step.item.status) }}</small>
                       </div>
                       <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="step.item.detail">
-                        <el-collapse-item :name="traceStepName(step.item, step.index)" title="查看详情">
+                        <el-collapse-item :name="traceStepName(step.item, step.index)" title="详情">
                           <pre class="trace-detail">{{ formatTraceDetail(step.item.detail) }}</pre>
                         </el-collapse-item>
                       </el-collapse>
@@ -290,13 +337,6 @@
             </div>
           </div>
           
-          <!-- SQL 查询 (可折叠) -->
-          <el-collapse v-if="message.sqlQuery" class="sql-collapse">
-            <el-collapse-item title="技术细节 / SQL 查询语句" name="sql">
-              <pre class="sql-code">{{ message.sqlQuery }}</pre>
-            </el-collapse-item>
-          </el-collapse>
-          
           <!-- 分析总结 -->
           <div v-if="message.summary && message.summary !== message.content" class="summary-box">
             <div class="summary-title">
@@ -324,101 +364,129 @@
                 v-for="action in emptyDiagnosticActions"
                 :key="`${action.label}-${action.question}`"
                 type="button"
-                @click="runRefinement(action.question)"
+                @click="emitRefinement(action.question)"
               >
-                {{ action.label }}
+                {{ action.label }}，填入输入框
               </button>
             </div>
-          </div>
-
-          <div v-if="canCreateAction" class="decision-action-bar">
-            <div>
-              <strong>生成行动项</strong>
-              <span>把这次分析结论交给责任人跟踪处理</span>
-            </div>
-            <el-button size="small" type="primary" plain :icon="Tickets" @click="openActionDialog">
-              创建
-            </el-button>
           </div>
 
           <div v-if="hasResult" class="analysis-action-card">
             <div class="analysis-action-header">
               <div>
                 <strong>结果操作</strong>
-                <span>{{ analysisMetaText }}</span>
+                <span>打开结果详情、生成行动项、异常归因或沉淀指标</span>
               </div>
-              <el-tag size="small" type="info" effect="plain">{{ analysisStatusText }}</el-tag>
+              <el-tag class="precheck-status-chip" size="small" :type="precheckStatusType" effect="plain">
+                {{ analysisStatusText }}
+              </el-tag>
             </div>
-            <div class="analysis-action-groups">
-              <section class="analysis-action-group">
-                <div class="analysis-group-label">
-                  <el-icon><MagicStick /></el-icon>
-                  <span>智能分析</span>
-                </div>
-                <div class="analysis-buttons">
-                  <el-button size="small" type="primary" plain :loading="insightLoading" :icon="DataAnalysis" @click="runAutoInsights">
-                    自动洞察
-                  </el-button>
-                  <el-button size="small" plain :loading="attributionLoading" :icon="Aim" @click="runAttribution">
-                    异常归因
-                  </el-button>
-                </div>
-              </section>
-              <section v-if="props.message.historyId" class="analysis-action-group">
-                <div class="analysis-group-label">
-                  <el-icon><CollectionTag /></el-icon>
-                  <span>沉淀资产</span>
-                </div>
-                <div class="analysis-buttons">
-                  <el-button size="small" plain :loading="metricDraftLoading" :icon="DocumentAdd" @click="openMetricDraftDrawer">
-                    保存为指标
-                  </el-button>
-                  <el-button size="small" plain :icon="CollectionTag" @click="openInsightDialog">
-                    保存为洞察
-                  </el-button>
-                </div>
-              </section>
+            <div v-if="attributionPrecheckResult" class="precheck-summary-strip" :class="`precheck-summary-strip--${attributionPrecheckResult.status}`">
+              <strong>{{ precheckStatusText }}</strong>
+              <span>{{ attributionPrecheckResult.summary }}</span>
+            </div>
+            <div class="analysis-action-grid">
+              <div
+                role="button"
+                tabindex="0"
+                class="analysis-action-tile analysis-action-tile--result"
+                @click="openResultDetail('chart')"
+                @keydown.enter.prevent="openResultDetail('chart')"
+                @keydown.space.prevent="openResultDetail('chart')"
+              >
+                <span class="analysis-action-icon analysis-action-icon--result">
+                  <el-icon><DataLine /></el-icon>
+                </span>
+                <span class="analysis-action-copy">
+                  <strong>生成结果</strong>
+                  <small>查看可视化、明细、SQL 和总结</small>
+                  <span class="analysis-result-shortcuts" @click.stop>
+                    <button type="button" @click.stop="openResultDetail('chart')">图表</button>
+                    <button type="button" @click.stop="openResultDetail('table')">明细</button>
+                    <button v-if="message.sqlQuery" type="button" @click.stop="openResultDetail('sql')">SQL</button>
+                    <button v-if="message.summary" type="button" @click.stop="openResultDetail('summary')">总结</button>
+                  </span>
+                </span>
+              </div>
+              <button
+                v-if="canCreateAction"
+                type="button"
+                class="analysis-action-tile analysis-action-tile--action"
+                @click="openActionDialog"
+              >
+                <span class="analysis-action-icon analysis-action-icon--action">
+                  <el-icon><Tickets /></el-icon>
+                </span>
+                <span class="analysis-action-copy">
+                  <strong>生成行动项</strong>
+                  <small>把这次分析结论交给责任人跟踪处理</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="analysis-action-tile"
+                :class="`analysis-action-tile--${attributionPrecheckResult?.status || 'checking'}`"
+                :disabled="attributionActionDisabled"
+                @click="runAttribution"
+              >
+                <span class="analysis-action-icon">
+                  <el-icon :class="{ 'is-loading': attributionLoading || attributionPrecheckLoading }">
+                    <Loading v-if="attributionLoading || attributionPrecheckLoading" />
+                    <Aim v-else />
+                  </el-icon>
+                </span>
+                <span class="analysis-action-copy">
+                  <strong>{{ attributionActionLabel }}</strong>
+                  <small>{{ attributionActionDescription }}</small>
+                </span>
+              </button>
+              <button
+                v-if="props.message.historyId"
+                type="button"
+                class="analysis-action-tile"
+                :disabled="metricDraftLoading"
+                @click="openMetricDraftDrawer"
+              >
+                <span class="analysis-action-icon analysis-action-icon--metric">
+                  <el-icon :class="{ 'is-loading': metricDraftLoading }">
+                    <Loading v-if="metricDraftLoading" />
+                    <DocumentAdd v-else />
+                  </el-icon>
+                </span>
+                <span class="analysis-action-copy">
+                  <strong>保存为指标</strong>
+                  <small>生成可编辑的指标草稿和绑定口径</small>
+                </span>
+              </button>
             </div>
           </div>
 
-          <el-collapse v-if="insightResult || attributionResult" v-model="analysisResultPanels" class="insight-panel-collapse">
-            <el-collapse-item v-if="insightResult" name="auto-insights">
+          <!-- 查询结果图表 -->
+          <div v-if="hasResult" class="chart-container result-inline-panel">
+            <div class="result-inline-toolbar">
+              <span>
+                <el-icon><TrendCharts /></el-icon>
+                可视化预览
+              </span>
+              <el-button text size="small" :icon="FullScreen" @click="openResultDetail('chart')">
+                放大查看
+              </el-button>
+            </div>
+            <MessageChart
+              :message="message"
+              :columns="message.result!.columns"
+              :rows="message.result!.rows"
+              :sql-query="message.sqlQuery"
+              :chart-spec="message.chartSpec"
+            />
+          </div>
+
+          <el-collapse v-if="attributionResult" v-model="analysisResultPanels" class="attribution-panel-collapse">
+            <el-collapse-item name="anomaly-attribution">
               <template #title>
-                <div class="insight-collapse-title">
+                <div class="attribution-collapse-title">
                   <div>
-                    <span>自动洞察</span>
-                    <small>{{ insightCountText }}</small>
-                  </div>
-                  <el-tag v-if="insightEnhancementLabel" size="small" type="success" effect="plain">
-                    {{ insightEnhancementLabel }}
-                  </el-tag>
-                </div>
-              </template>
-              <section class="insight-section">
-                <div class="insight-summary-card">
-                  <div>
-                    <span>摘要</span>
-                    <p>{{ insightResult.summary }}</p>
-                  </div>
-                  <el-tag size="small" effect="plain">{{ insightModelLabel }}</el-tag>
-                </div>
-                <div v-if="insightResult.insights.length" class="insight-list">
-                  <div v-for="item in insightResult.insights" :key="`${item.type}-${item.title}`" class="insight-item">
-                    <el-tag size="small" :type="insightTagType(item.severity)" effect="light">{{ insightSeverityLabel(item.severity) }}</el-tag>
-                    <div>
-                      <strong>{{ item.title }}</strong>
-                      <p>{{ item.description }}</p>
-                    </div>
-                  </div>
-                </div>
-                <el-empty v-else description="暂未发现显著洞察" :image-size="56" />
-              </section>
-            </el-collapse-item>
-            <el-collapse-item v-if="attributionResult" name="anomaly-attribution">
-              <template #title>
-                <div class="insight-collapse-title">
-                  <div>
-                    <span>异常归因</span>
+                    <span>{{ attributionPanelTitle }}</span>
                     <small>{{ attributionDriverCountText }}</small>
                   </div>
                   <el-tag v-if="attributionEnhancementLabel" size="small" type="success" effect="plain">
@@ -426,10 +494,10 @@
                   </el-tag>
                 </div>
               </template>
-              <section class="insight-section">
-                <div class="insight-summary-card">
+              <section class="attribution-section">
+                <div class="attribution-summary-card">
                   <div>
-                    <span>归因结论</span>
+                    <span>分析结论</span>
                     <p>{{ attributionResult.summary }}</p>
                   </div>
                   <el-tag size="small" :type="attributionConfidenceType" effect="plain">
@@ -438,7 +506,7 @@
                 </div>
                 <div class="attribution-overview">
                   <div>
-                    <span>归因指标</span>
+                    <span>分析指标</span>
                     <strong>{{ attributionResult.metric_column || "自动识别" }}</strong>
                   </div>
                   <div>
@@ -470,22 +538,6 @@
             </el-collapse-item>
           </el-collapse>
           
-          <!-- 查询结果图表 -->
-          <div v-if="hasResult" class="chart-container">
-            <MessageChart 
-              :message="message"
-              :columns="message.result!.columns" 
-              :rows="message.result!.rows" 
-              :sql-query="message.sqlQuery"
-              :chart-spec="message.chartSpec"
-            />
-          </div>
-          
-          <!-- 查询结果表格 -->
-          <div v-if="hasResult" class="table-container">
-            <MessageTable :message="message" :columns="message.result!.columns" :rows="message.result!.rows" />
-          </div>
-          
           <!-- 推荐标签 -->
           <div v-if="message.recommendations?.length" class="recommendations">
             <span class="rec-label">推荐维度：</span>
@@ -505,7 +557,7 @@
     <el-dialog
       v-model="actionDialogVisible"
       title="从问数结果创建行动项"
-      width="min(560px, calc(100vw - 32px))"
+      width="min(600px, calc(100vw - 32px))"
       destroy-on-close
     >
       <el-form label-position="top">
@@ -532,8 +584,19 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="负责人 ID">
-          <el-input-number v-model="actionForm.owner_id" :min="1" style="width: 180px" />
+        <el-form-item label="负责人">
+          <el-tree-select
+            v-model="actionForm.owner_id"
+            class="action-owner-tree-select"
+            :data="actionAssignableTree"
+            :props="{ label: 'label', children: 'children', value: 'value', disabled: 'disabled' }"
+            :loading="actionAssignableLoading"
+            placeholder="按部门选择负责人"
+            filterable
+            clearable
+            check-strictly
+            style="width: 100%"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -542,33 +605,52 @@
       </template>
     </el-dialog>
 
-    <!-- Save as insight dialog -->
     <el-dialog
-      v-model="saveInsightDialogVisible"
-      title="保存为洞察"
-      width="min(520px, calc(100vw - 32px))"
+      v-model="resultDetailVisible"
+      title="问数结果详情"
+      width="min(1080px, calc(100vw - 32px))"
+      class="result-detail-dialog"
       destroy-on-close
-      class="save-insight-dialog"
     >
-      <div class="save-insight-intro">
-        <el-icon><CollectionTag /></el-icon>
+      <div class="result-detail-summary">
         <div>
-          <strong>把本次分析沉淀为洞察</strong>
-          <span>洞察将保存到查询洞察列表，保留问题、SQL、图表和结果上下文，方便复盘或继续生成行动项。</span>
+          <span>原始问题</span>
+          <strong>{{ resultQuestionText }}</strong>
+        </div>
+        <div class="result-detail-metrics">
+          <span>{{ resultRowCount }} 行</span>
+          <span>{{ resultColumnCount }} 字段</span>
+          <span v-if="message.chartSpec">图表建议</span>
+          <span v-if="message.sqlQuery">SQL 已生成</span>
         </div>
       </div>
-      <el-form label-position="top" @submit.prevent>
-        <el-form-item label="洞察标题" required>
-          <el-input v-model="insightTitle" maxlength="100" show-word-limit placeholder="为这条查询结果起个有意义的名字" />
-        </el-form-item>
-        <el-form-item label="来源摘要">
-          <el-input :model-value="insightSourceSummary" type="textarea" :rows="3" disabled />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="saveInsightDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingInsight" :disabled="!insightTitle.trim()" @click="doSaveInsight">保存洞察</el-button>
-      </template>
+      <el-tabs v-model="resultDetailTab" class="result-detail-tabs">
+        <el-tab-pane label="图表" name="chart" lazy>
+          <div class="result-detail-pane result-detail-pane--chart">
+            <MessageChart
+              v-if="hasResult"
+              :message="message"
+              :columns="message.result!.columns"
+              :rows="message.result!.rows"
+              :sql-query="message.sqlQuery"
+              :chart-spec="message.chartSpec"
+            />
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="数据明细" name="table" lazy>
+          <div class="result-detail-pane">
+            <MessageTable v-if="hasResult" :message="message" :columns="message.result!.columns" :rows="message.result!.rows" />
+          </div>
+        </el-tab-pane>
+        <el-tab-pane v-if="message.sqlQuery" label="SQL" name="sql" lazy>
+          <div class="result-detail-pane">
+            <pre class="result-detail-sql">{{ message.sqlQuery }}</pre>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane v-if="message.summary" label="总结" name="summary" lazy>
+          <div class="result-detail-pane result-detail-summary-text markdown-body" v-html="renderedSummary"></div>
+        </el-tab-pane>
+      </el-tabs>
     </el-dialog>
 
     <el-drawer
@@ -582,6 +664,19 @@
         <el-icon class="is-loading"><Loading /></el-icon>
         <span>正在识别可沉淀指标...</span>
       </div>
+      <section v-else-if="metricDraftDatasetMissing" class="metric-draft-empty-dataset">
+        <div class="metric-draft-empty-icon">
+          <el-icon><DocumentAdd /></el-icon>
+        </div>
+        <div>
+          <span>缺少基础数据集</span>
+          <strong>当前数据源下没有可绑定的同源数据集</strong>
+          <p>{{ metricDraftDatasetError || "请先创建基础数据集，再回到探索结果保存为指标草稿。" }}</p>
+        </div>
+        <button type="button" class="metric-draft-create-dataset" @click="openDatasetBuilderForMetric">
+          创建基础数据集
+        </button>
+      </section>
       <template v-else>
         <section class="metric-draft-hero">
           <div>
@@ -688,11 +783,23 @@
       </template>
       <template #footer>
         <el-button @click="metricDraftDrawerVisible = false">取消</el-button>
-        <el-button type="primary" :loading="metricDraftSaving" :disabled="metricDraftLoading" @click="saveMetricDraft">
+        <el-button v-if="metricDraftDatasetMissing" type="primary" @click="openDatasetBuilderForMetric">
+          创建基础数据集
+        </el-button>
+        <el-button v-else type="primary" :loading="metricDraftSaving" :disabled="metricDraftLoading" @click="saveMetricDraft">
           保存指标草稿
         </el-button>
       </template>
     </el-drawer>
+
+    <DatasetCenter
+      v-if="datasetBuilderVisible"
+      embedded
+      auto-create
+      :preferred-datasource-id="metricDraftDatasourceId"
+      @saved="handleMetricDatasetCreated"
+      @closed="datasetBuilderVisible = false"
+    />
   </div>
 </template>
 
@@ -704,12 +811,14 @@ import { ElMessage } from "element-plus"
 import {
   Aim,
   CircleCheck,
-  CollectionTag,
+  DataLine,
   DataAnalysis,
   DocumentAdd,
+  FullScreen,
   Loading,
   MagicStick,
   Tickets,
+  TrendCharts,
   WarningFilled,
 } from "@element-plus/icons-vue"
 import { marked } from "marked"
@@ -721,6 +830,8 @@ import {
   type DrillContext,
 } from "@/store/query"
 import { useAuthStore } from "@/store/auth"
+import { useDatasourceStore } from "@/store/datasource"
+import DatasetCenter from "@/views/DatasetCenter.vue"
 import MessageChart from "./MessageChart.vue"
 import MessageTable from "./MessageTable.vue"
 
@@ -728,19 +839,39 @@ const props = defineProps<{
   message: ChatMessage
 }>()
 
+const emit = defineEmits<{
+  (event: "use-refinement", question: string): void
+}>()
+
+interface AssignableUser {
+  id: number
+  username: string
+  role: string
+  role_label: string
+  department: string
+}
+
+interface AssignableDept {
+  department: string
+  users: AssignableUser[]
+}
+
 const queryStore = useQueryStore()
 const authStore = useAuthStore()
+const datasourceStore = useDatasourceStore()
 const router = useRouter()
 const actionDialogVisible = ref(false)
 const actionSaving = ref(false)
-const saveInsightDialogVisible = ref(false)
-const insightTitle = ref("")
-const savingInsight = ref(false)
+const actionAssignableLoading = ref(false)
+const actionAssignableUsers = ref<AssignableDept[]>([])
 const metricDraftDrawerVisible = ref(false)
 const metricDraftLoading = ref(false)
 const metricDraftSaving = ref(false)
 const metricDraftResponse = ref<MetricDraftResponse | null>(null)
 const metricDraftWarnings = ref<string[]>([])
+const metricDraftDatasetMissing = ref(false)
+const metricDraftDatasetError = ref("")
+const datasetBuilderVisible = ref(false)
 const metricDraftForm = reactive({
   dataset_id: null as number | null,
   name: "",
@@ -752,32 +883,6 @@ const metricDraftForm = reactive({
   time_column: "",
 })
 
-const openInsightDialog = () => {
-  insightTitle.value = insightTitle.value.trim() || defaultInsightTitle.value
-  saveInsightDialogVisible.value = true
-}
-
-const doSaveInsight = async () => {
-  if (!props.message.historyId) return
-  if (!insightTitle.value.trim()) {
-    ElMessage.warning("请输入洞察标题")
-    return
-  }
-  savingInsight.value = true
-  try {
-    await axios.post("/api/query/save-insight", {
-      history_id: props.message.historyId,
-      title: insightTitle.value.trim(),
-    })
-    ElMessage.success("已保存为洞察")
-    saveInsightDialogVisible.value = false
-    insightTitle.value = ""
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || "保存失败")
-  } finally {
-    savingInsight.value = false
-  }
-}
 const actionForm = reactive({
   title: "",
   description: "",
@@ -786,25 +891,12 @@ const actionForm = reactive({
   owner_id: null as number | null,
   linked_metric_id: null as number | null,
 })
-const insightLoading = ref(false)
 const attributionLoading = ref(false)
-const insightResult = ref<AutoInsightResponse | null>(null)
 const attributionResult = ref<AttributionResponse | null>(null)
+const attributionPrecheckLoading = ref(false)
+const attributionPrecheckResult = ref<AnomalyPrecheckResponse | null>(null)
+const attributionPrecheckKey = ref("")
 const analysisResultPanels = ref<string[]>([])
-
-interface AutoInsightResponse {
-  summary: string
-  insights: Array<{
-    type: string
-    title: string
-    description: string
-    severity: string
-  }>
-  metadata: Record<string, unknown> & {
-    llm_enhanced?: boolean
-    llm_model?: string | null
-  }
-}
 
 interface AttributionResponse {
   metric_column: string | null
@@ -820,6 +912,30 @@ interface AttributionResponse {
     impact: string
   }>
   recommendations: string[]
+}
+
+interface AnomalyPrecheckResponse {
+  status: "anomaly" | "normal" | "insufficient"
+  has_anomaly: boolean
+  metric_column: string | null
+  time_column?: string | null
+  anomaly_count: number
+  summary: string
+  severity: "info" | "success" | "warning" | "danger"
+  confidence: string
+  recommended_action: "anomaly_attribution" | "contribution_analysis" | "refine_query"
+  action_label: string
+  llm_enhanced?: boolean
+  llm_model?: string | null
+  anomalies: Array<{
+    type: string
+    title: string
+    description: string
+    severity: string
+    metric_column?: string
+    value?: string
+    score?: number
+  }>
 }
 
 interface MetricDraftResponse {
@@ -890,17 +1006,70 @@ const hasEmptyDiagnostics = computed(() =>
 
 const resultRowCount = computed(() => props.message.result?.rows?.length || 0)
 const resultColumnCount = computed(() => props.message.result?.columns?.length || 0)
+type ResultDetailTab = "chart" | "table" | "sql" | "summary"
+const resultDetailVisible = ref(false)
+const resultDetailTab = ref<ResultDetailTab>("chart")
+const resultQuestionText = computed(() => props.message.sourceQuestion || props.message.content || "本次问数结果")
 
-const analysisMetaText = computed(() => `${resultRowCount.value} 行结果 · ${resultColumnCount.value} 个字段`)
+const openResultDetail = (tab: ResultDetailTab = "chart") => {
+  resultDetailTab.value = tab
+  resultDetailVisible.value = true
+}
 
 const analysisStatusText = computed(() => {
-  if (insightLoading.value) return "正在生成自动洞察"
-  if (attributionLoading.value) return "正在分析异常归因"
-  if (insightResult.value && attributionResult.value) return "已完成洞察与归因"
-  if (insightResult.value) return "已生成自动洞察"
-  if (attributionResult.value) return "已生成异常归因"
-  return "可继续分析或沉淀"
+  if (attributionLoading.value) return attributionPanelTitle.value === "贡献分析" ? "正在分析贡献构成" : "正在分析异常归因"
+  if (attributionPrecheckLoading.value) return "正在预检异常"
+  if (metricDraftLoading.value) return "正在识别指标草稿"
+  if (attributionResult.value) return `已生成${attributionPanelTitle.value}`
+  if (props.message.fromHistory) return "历史结果已加载，可按需分析"
+  if (attributionPrecheckResult.value?.status === "anomaly") return `发现 ${attributionPrecheckResult.value.anomaly_count || 1} 个异常候选`
+  if (attributionPrecheckResult.value?.status === "normal") return "未发现明显异常"
+  if (attributionPrecheckResult.value?.status === "insufficient") return "数据不足以判断异常"
+  return "结果已生成，正在准备分析"
 })
+
+const precheckStatusText = computed(() => {
+  if (attributionPrecheckLoading.value) return "智能预检中"
+  if (attributionPrecheckResult.value?.status === "anomaly") return "发现异常候选"
+  if (attributionPrecheckResult.value?.status === "normal") return "未发现明显异常"
+  if (attributionPrecheckResult.value?.status === "insufficient") return "数据不足"
+  return "等待预检"
+})
+
+const precheckStatusType = computed(() => {
+  if (attributionPrecheckResult.value?.status === "anomaly") return "warning"
+  if (attributionPrecheckResult.value?.status === "normal") return "success"
+  if (attributionPrecheckResult.value?.status === "insufficient") return "info"
+  return attributionPrecheckLoading.value ? "info" : "info"
+})
+
+const attributionAnalysisMode = computed(() =>
+  attributionPrecheckResult.value?.recommended_action === "contribution_analysis" ? "contribution_analysis" : "anomaly_attribution"
+)
+
+const attributionPanelTitle = computed(() =>
+  attributionAnalysisMode.value === "contribution_analysis" ? "贡献分析" : "异常归因"
+)
+
+const attributionActionLabel = computed(() => {
+  if (attributionPrecheckLoading.value) return "预检中"
+  if (attributionPrecheckResult.value?.action_label) return attributionPrecheckResult.value.action_label
+  return "异常归因"
+})
+
+const attributionActionDescription = computed(() => {
+  if (attributionPrecheckLoading.value) return "图表已可查看，正在后台判断是否存在异常"
+  if (attributionPrecheckResult.value?.status === "anomaly") return "针对异常候选定位主要驱动因素"
+  if (attributionPrecheckResult.value?.status === "normal") return "未发现明显异常，解释主要贡献构成"
+  if (attributionPrecheckResult.value?.status === "insufficient") return "需要更多时间点、数值指标或对比维度"
+  return "定位主要驱动因素和可跟进方向"
+})
+
+const attributionActionDisabled = computed(() =>
+  attributionLoading.value ||
+  attributionPrecheckLoading.value ||
+  attributionPrecheckResult.value?.recommended_action === "refine_query"
+)
 
 const metricDraftColumns = computed(() => props.message.result?.columns || [])
 const metricDraftDimensionColumns = computed(() =>
@@ -926,16 +1095,52 @@ const metricDraftDatasetLabel = computed(() => {
   return source?.source_dataset_name || source?.dataset_binding?.dataset_name || "未绑定数据集"
 })
 
-const defaultInsightTitle = computed(() => {
-  const source = props.message.sourceQuestion || props.message.content || "查询洞察"
-  return source.length > 80 ? `${source.slice(0, 80)}...` : source
+const metricDraftDatasourceId = computed(() =>
+  metricDraftResponse.value?.source.dataset_binding?.datasource_id ||
+  props.message.datasourceId ||
+  queryStore.selectedDatasourceId ||
+  datasourceStore.currentId ||
+  null
+)
+
+const currentUserRoleLabel = computed(() => {
+  const role = authStore.profile?.role || ""
+  const map: Record<string, string> = {
+    user: "普通用户",
+    dept_admin: "部门管理员",
+    department_admin: "部门管理员",
+    org_admin: "组织管理员",
+    super_admin: "超级管理员",
+  }
+  return map[role] || role || "用户"
 })
 
-const insightSourceSummary = computed(() => {
-  const question = props.message.sourceQuestion || props.message.content || "未记录问题"
-  const rowText = `${resultRowCount.value} 行结果`
-  const summary = props.message.summary || "暂无分析总结"
-  return `问题：${question}\n结果：${rowText}\n总结：${summary}`
+const actionAssignableTree = computed(() => {
+  const groups = actionAssignableUsers.value.length
+    ? actionAssignableUsers.value
+    : authStore.profile
+      ? [{
+          department: "我的账号",
+          users: [{
+            id: authStore.profile.id,
+            username: authStore.profile.username,
+            role: authStore.profile.role,
+            role_label: currentUserRoleLabel.value,
+            department: "我的账号",
+          }],
+        }]
+      : []
+
+  return groups.map(dept => ({
+    value: `dept:${dept.department}`,
+    label: dept.department,
+    disabled: true,
+    children: dept.users.map(user => ({
+      value: user.id,
+      label: `${user.username}（${user.role_label || user.role}）`,
+      disabled: false,
+    })),
+  }))
 })
 
 // 渲染 Markdown
@@ -950,20 +1155,9 @@ const canCreateAction = computed(() =>
   Boolean(props.message.historyId || props.message.summary || props.message.result?.rows?.length)
 )
 
-const insightEnhancementLabel = computed(() =>
-  insightResult.value?.metadata?.llm_enhanced ? "大模型增强" : ""
-)
-
 const attributionEnhancementLabel = computed(() =>
   attributionResult.value?.llm_enhanced ? "大模型增强" : ""
 )
-
-const insightCountText = computed(() => `${insightResult.value?.insights?.length || 0} 条洞察`)
-
-const insightModelLabel = computed(() => {
-  const model = insightResult.value?.metadata?.llm_model
-  return model ? `模型 ${model}` : "规则识别"
-})
 
 const attributionDriverCountText = computed(() => `${attributionResult.value?.drivers?.length || 0} 个驱动因素`)
 
@@ -1004,9 +1198,30 @@ const latestTraceStep = computed((): AgentTraceStep | null => (
 const historicalTraceSteps = computed(() => (
   agentTraceSteps.value.slice(0, -1).map((item, index) => ({ item, index }))
 ))
+const completedTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "success").length)
 const failedTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "error").length)
 const pendingTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "pending").length)
 const warningTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "warning").length)
+
+const traceProgressPercent = computed(() => {
+  const total = agentTraceSteps.value.length
+  if (!total) return 0
+  if (failedTraceCount.value) return Math.max(8, Math.round((completedTraceCount.value / total) * 100))
+  if (pendingTraceCount.value) return Math.max(8, Math.round(((completedTraceCount.value + 0.5) / total) * 100))
+  return 100
+})
+
+const traceRunningText = computed(() => {
+  if (failedTraceCount.value) return "需要处理"
+  if (pendingTraceCount.value) return "执行中"
+  if (warningTraceCount.value) return "有警告"
+  if (agentTraceSteps.value.length) return "已完成"
+  return "待开始"
+})
+
+const traceCurrentStatusClass = computed(() => (
+  latestTraceStep.value ? `trace-dashboard--${latestTraceStep.value.status}` : "trace-dashboard--idle"
+))
 
 const traceSummary = computed(() => {
   const total = agentTraceSteps.value.length
@@ -1045,15 +1260,10 @@ const riskFlagLabel = (flag: string) => {
   return labels[flag] || flag
 }
 
-const runRefinement = async (question: string) => {
+const emitRefinement = (question: string) => {
   const refinedQuestion = question.trim()
-  if (!refinedQuestion || queryStore.loading) return
-  await queryStore.ask(
-    refinedQuestion,
-    "agentic",
-    undefined,
-    props.message.historyId || null,
-  )
+  if (!refinedQuestion) return
+  emit("use-refinement", refinedQuestion)
 }
 
 const traceStageLabel = (stage: string) => {
@@ -1071,16 +1281,6 @@ const traceStageLabel = (stage: string) => {
     chart_plan: "图表",
   }
   return labels[stage] || stage
-}
-
-const traceStatusType = (status: string) => {
-  const types: Record<string, "success" | "warning" | "info" | "danger"> = {
-    success: "success",
-    warning: "warning",
-    error: "danger",
-    pending: "info",
-  }
-  return types[status] || "info"
 }
 
 const traceStatusLabel = (status: string) => {
@@ -1138,20 +1338,40 @@ watch(
 )
 
 watch(
-  () => [Boolean(insightResult.value), Boolean(attributionResult.value)],
+  () => Boolean(attributionResult.value),
   () => {
     const nextPanels = new Set(analysisResultPanels.value)
-    if (insightResult.value) nextPanels.add("auto-insights")
     if (attributionResult.value) nextPanels.add("anomaly-attribution")
     analysisResultPanels.value = Array.from(nextPanels)
   }
+)
+
+watch(
+  () => hasResult.value,
+  (ready) => {
+    if (ready && !props.message.fromHistory) void runAttributionPrecheck()
+  },
+  { immediate: true }
 )
 
 const formatTraceDetail = (detail: Record<string, unknown>) => {
   return JSON.stringify(detail, null, 2)
 }
 
-const openActionDialog = () => {
+const fetchActionAssignableUsers = async () => {
+  if (actionAssignableUsers.value.length || actionAssignableLoading.value) return
+  actionAssignableLoading.value = true
+  try {
+    const response = await axios.get("/api/users/assignable")
+    actionAssignableUsers.value = response.data || []
+  } catch {
+    ElMessage.warning("负责人列表加载失败，已保留当前登录用户作为默认负责人")
+  } finally {
+    actionAssignableLoading.value = false
+  }
+}
+
+const openActionDialog = async () => {
   const question = props.message.sourceQuestion || "跟进分析结论"
   actionForm.title = question.length > 36 ? `${question.slice(0, 36)}...` : question
   actionForm.description = props.message.summary || props.message.content || "请根据本次问数结果安排后续跟进。"
@@ -1160,6 +1380,7 @@ const openActionDialog = () => {
   actionForm.owner_id = authStore.profile?.id || null
   actionForm.linked_metric_id = props.message.trustSignals?.[0]?.metric_id || null
   actionDialogVisible.value = true
+  await fetchActionAssignableUsers()
 }
 
 const createActionItem = async () => {
@@ -1195,21 +1416,40 @@ const createActionItem = async () => {
   }
 }
 
-const runAutoInsights = async () => {
-  if (!props.message.result) return
-  insightLoading.value = true
+const runAttributionPrecheck = async () => {
+  if (!props.message.result || !hasResult.value || attributionPrecheckLoading.value) return
+  const columns = props.message.result.columns || []
+  const rows = props.message.result.rows || []
+  const nextKey = `${props.message.id}:${columns.join("|")}:${rows.length}:${props.message.sqlQuery || ""}`
+  if (attributionPrecheckKey.value === nextKey) return
+  attributionPrecheckKey.value = nextKey
+  attributionPrecheckLoading.value = true
   try {
-    const res = await axios.post("/api/insights/auto-insights", {
-      columns: props.message.result.columns,
-      rows: props.message.result.rows,
+    const res = await axios.post<AnomalyPrecheckResponse>("/api/insights/anomaly-precheck", {
+      columns,
+      rows,
       question: props.message.sourceQuestion || props.message.content,
       sql_query: props.message.sqlQuery,
-    })
-    insightResult.value = res.data
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "自动洞察生成失败")
+    }, { suppressGlobalError: true } as any)
+    attributionPrecheckResult.value = res.data
+  } catch {
+    attributionPrecheckResult.value = {
+      status: "normal",
+      has_anomaly: false,
+      metric_column: null,
+      time_column: null,
+      anomaly_count: 0,
+      anomalies: [],
+      summary: "轻量预检暂不可用，可直接查看图表或手动做贡献分析。",
+      severity: "info",
+      confidence: "low",
+      recommended_action: "contribution_analysis",
+      action_label: "贡献分析",
+      llm_enhanced: false,
+      llm_model: null,
+    }
   } finally {
-    insightLoading.value = false
+    attributionPrecheckLoading.value = false
   }
 }
 
@@ -1222,10 +1462,12 @@ const runAttribution = async () => {
       rows: props.message.result.rows,
       question: props.message.sourceQuestion || props.message.content,
       sql_query: props.message.sqlQuery,
+      metric_column: attributionPrecheckResult.value?.metric_column || null,
+      analysis_mode: attributionAnalysisMode.value,
     })
     attributionResult.value = res.data
   } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "异常归因生成失败")
+    ElMessage.error(error.response?.data?.detail || `${attributionPanelTitle.value}生成失败`)
   } finally {
     attributionLoading.value = false
   }
@@ -1252,15 +1494,24 @@ const openMetricDraftDrawer = async () => {
   metricDraftLoading.value = true
   metricDraftResponse.value = null
   metricDraftWarnings.value = []
+  metricDraftDatasetMissing.value = false
+  metricDraftDatasetError.value = ""
   try {
     const res = await axios.post<MetricDraftResponse>("/api/metrics/from-query/draft", {
       query_history_id: props.message.historyId,
-    })
+    }, { suppressGlobalError: true } as any)
     metricDraftResponse.value = res.data
     metricDraftWarnings.value = res.data.warnings || []
     fillMetricDraftForm(res.data)
   } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "指标草稿生成失败")
+    const detail = error.response?.data?.detail || "指标草稿生成失败"
+    const message = typeof detail === "string" ? detail : detail?.message || "指标草稿生成失败"
+    if (message.includes("没有可绑定的同源数据集") || message.includes("先创建基础数据集")) {
+      metricDraftDatasetMissing.value = true
+      metricDraftDatasetError.value = message
+      return
+    }
+    ElMessage.error(message)
     metricDraftDrawerVisible.value = false
   } finally {
     metricDraftLoading.value = false
@@ -1270,7 +1521,8 @@ const openMetricDraftDrawer = async () => {
 const saveMetricDraft = async () => {
   if (!props.message.historyId) return
   if (!metricDraftForm.dataset_id) {
-    ElMessage.warning("当前结果未绑定数据集，请先创建基础数据集")
+    metricDraftDatasetMissing.value = true
+    metricDraftDatasetError.value = "当前数据源下没有可绑定的同源数据集，请先创建基础数据集。"
     return
   }
   if (!metricDraftForm.name.trim() || !metricDraftForm.definition.trim() || !metricDraftForm.formula.trim()) {
@@ -1302,6 +1554,17 @@ const saveMetricDraft = async () => {
   }
 }
 
+const openDatasetBuilderForMetric = () => {
+  metricDraftDrawerVisible.value = false
+  datasetBuilderVisible.value = true
+}
+
+const handleMetricDatasetCreated = async () => {
+  datasetBuilderVisible.value = false
+  if (!props.message.historyId) return
+  await openMetricDraftDrawer()
+}
+
 const safePercentage = (value: number) => {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) return 0
@@ -1318,26 +1581,6 @@ const driverImpactLabel = (impact: string) => (impact === "negative" ? "负向" 
 
 const driverImpactProgressStatus = (impact: string) => {
   return impact === "negative" ? "exception" : "success"
-}
-
-const insightSeverityLabel = (severity: string) => {
-  const labels: Record<string, string> = {
-    success: "机会",
-    warning: "关注",
-    danger: "风险",
-    info: "洞察",
-  }
-  return labels[severity] || "洞察"
-}
-
-const insightTagType = (severity: string) => {
-  const types: Record<string, "success" | "warning" | "info" | "danger"> = {
-    success: "success",
-    warning: "warning",
-    danger: "danger",
-    info: "info",
-  }
-  return types[severity] || "info"
 }
 
 const certificationLabel = (status: string) => {
@@ -1553,13 +1796,6 @@ const formatTime = (date: Date) => {
   padding: 0;
 }
 
-.sql-collapse {
-  background: var(--app-surface);
-  border-radius: 12px;
-  border: 1px solid var(--app-border-light);
-  overflow: hidden;
-}
-
 .model-chip {
   display: inline-flex;
   align-items: center;
@@ -1728,6 +1964,61 @@ const formatTime = (date: Date) => {
   box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
 }
 
+.refinement-draft-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.refinement-draft-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #ccfbf1;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.refinement-draft-item div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.refinement-draft-item strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.refinement-draft-item span {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.fill-refinement-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #99f6e4;
+  border-radius: 9px;
+  color: #0f766e;
+  background: #f0fdfa;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.fill-refinement-button:hover {
+  transform: translateY(-1px);
+  background: #ccfbf1;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+}
+
 .empty-diagnostics-panel {
   display: grid;
   gap: 10px;
@@ -1799,50 +2090,209 @@ const formatTime = (date: Date) => {
   white-space: nowrap;
 }
 
-.trace-current-card {
+.agent-trace-compact {
   display: grid;
   gap: 8px;
   padding: 10px;
+  margin-bottom: 8px;
   border: 1px solid #99f6e4;
-  border-left: 3px solid #0f766e;
   border-radius: 10px;
   background: #ffffff;
-  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.08);
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.08);
 }
 
-.trace-current-head {
+.trace-summary-strip {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 8px 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
-.trace-step-main.trace-current-main span {
+.trace-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trace-summary-main strong {
+  min-width: 0;
+  overflow: hidden;
   color: #0f172a;
-  font-weight: 600;
-  white-space: normal;
-  word-break: break-word;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.trace-step-main.trace-current-main small {
+.trace-summary-chips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.trace-summary-chip,
+.trace-stage-pill,
+.trace-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.trace-summary-chip {
+  color: #475569;
+  border: 1px solid #dbe4f0;
+  background: #f8fafc;
+}
+
+.trace-summary-chip--status,
+.trace-stage-pill {
   color: #0f766e;
+  border: 1px solid #99f6e4;
+  background: #ccfbf1;
 }
 
-.trace-current-card--error {
-  border-color: #fecaca;
-  border-left-color: #dc2626;
-  box-shadow: 0 8px 20px rgba(220, 38, 38, 0.08);
-}
-
-.trace-current-card--warning {
+.trace-summary-chip--warning {
+  color: #92400e;
   border-color: #fde68a;
-  border-left-color: #d97706;
-  box-shadow: 0 8px 20px rgba(217, 119, 6, 0.08);
+  background: #fffbeb;
 }
 
-.trace-current-card--pending {
+.trace-summary-chip--error {
+  color: #991b1b;
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.trace-stage-pill--soft {
+  color: #0f766e;
+  border-color: #ccfbf1;
+  background: #f0fdfa;
+}
+
+.trace-step-index {
+  min-width: 34px;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-progress-line {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.trace-progress-line i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f766e 0%, #14b8a6 100%);
+  transition: width 0.24s ease;
+}
+
+.trace-dashboard--pending .trace-summary-chip--status {
+  color: #0e7490;
+  border-color: #a5f3fc;
+  background: #cffafe;
+  animation: tracePulse 1.2s ease-in-out infinite;
+}
+
+.trace-dashboard--warning .trace-summary-chip--status {
+  color: #92400e;
+  border-color: #fde68a;
+  background: #fef3c7;
+}
+
+.trace-dashboard--error .trace-summary-chip--status {
+  color: #991b1b;
+  border-color: #fecaca;
+  background: #fee2e2;
+}
+
+@keyframes tracePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.86;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 1;
+  }
+}
+
+.trace-latest-row,
+.trace-history-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.trace-latest-row--success {
   border-color: #99f6e4;
-  border-left-color: #0891b2;
+  background: #f0fdfa;
+}
+
+.trace-latest-row--pending {
+  border-color: #a5f3fc;
+  background: #ecfeff;
+}
+
+.trace-latest-row--warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.trace-latest-row--error {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.trace-history-list {
+  display: grid;
+  gap: 6px;
+}
+
+.trace-history-row {
+  grid-template-columns: 12px auto auto minmax(0, 1fr);
+  padding: 7px 8px;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.trace-history-row--warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.trace-history-row--error {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.trace-history-row--pending {
+  border-color: #bfdbfe;
+  background: #f8fbff;
 }
 
 .trace-history-collapse {
@@ -1892,38 +2342,49 @@ const formatTime = (date: Date) => {
   white-space: nowrap;
 }
 
-.trace-list {
-  display: grid;
-  gap: 8px;
+.trace-step-dot {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-left: 1px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #0f766e;
+  box-shadow: 0 0 0 2px #ccfbf1;
 }
 
-.trace-step {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 8px 10px;
-  padding: 8px 10px;
-  border: 1px solid #dbe4f0;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
+.trace-step-dot--pending {
+  background: #0891b2;
 }
 
-.trace-step-main {
-  display: flex;
-  flex-direction: column;
+.trace-step-dot--warning {
+  background: #d97706;
+  box-shadow: 0 0 0 2px #fde68a;
+}
+
+.trace-step-dot--error {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px #fecaca;
+}
+
+.trace-row-message {
+  display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.trace-step-main span {
+.trace-row-message strong {
+  min-width: 0;
   overflow: hidden;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.trace-step-main small {
+.trace-row-message small {
   color: #64748b;
   font-size: 11px;
 }
@@ -1966,21 +2427,6 @@ const formatTime = (date: Date) => {
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.trace-step--error {
-  border-color: #fecaca;
-  background: #fff7f7;
-}
-
-.trace-step--warning {
-  border-color: #fde68a;
-  background: #fffbeb;
-}
-
-.trace-step--pending {
-  border-color: #bfdbfe;
-  background: #f8fbff;
 }
 
 .trust-panel {
@@ -2052,32 +2498,6 @@ const formatTime = (date: Date) => {
 .trust-item p {
   grid-column: 1 / -1;
   margin: 0;
-}
-
-.sql-collapse :deep(.el-collapse-item__header) {
-  padding: 0 16px;
-  font-size: 13px;
-  height: 44px;
-  font-weight: 500;
-  color: var(--app-text);
-}
-
-.sql-collapse :deep(.el-collapse-item__content) {
-  padding: 0;
-}
-
-.sql-code {
-  background: #1e1b4b;
-  color: #e0e7ff;
-  padding: 16px;
-  border-radius: 0 0 12px 12px;
-  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
-  font-size: 13px;
-  overflow-x: auto;
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.6;
 }
 
 .summary-box {
@@ -2175,17 +2595,6 @@ const formatTime = (date: Date) => {
   color: var(--app-text);
 }
 
-.decision-action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--app-border-light);
-  border-radius: 10px;
-  background: var(--app-surface-muted);
-}
-
 .analysis-action-card {
   display: grid;
   gap: 12px;
@@ -2219,41 +2628,183 @@ const formatTime = (date: Date) => {
   font-size: 12px;
 }
 
-.analysis-action-groups {
+.precheck-status-chip {
+  flex-shrink: 0;
+}
+
+.precheck-summary-strip {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.precheck-summary-strip strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.precheck-summary-strip span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.precheck-summary-strip--anomaly {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.precheck-summary-strip--anomaly strong {
+  color: #92400e;
+}
+
+.precheck-summary-strip--normal {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.precheck-summary-strip--normal strong {
+  color: #047857;
+}
+
+.precheck-summary-strip--insufficient {
+  border-color: #dbe4f0;
+  background: #f8fafc;
+}
+
+.analysis-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.analysis-action-group {
+.analysis-action-tile {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
-  padding: 10px;
-  border: 1px solid #dbe4f0;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.analysis-group-label {
-  display: flex;
   align-items: center;
-  gap: 6px;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 700;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--app-text);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
-.analysis-group-label .el-icon {
-  color: #2563eb;
+.analysis-action-tile:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #99f6e4;
+  background: #f8fffd;
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.1);
 }
 
-.analysis-buttons {
+.analysis-action-tile:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.24);
+  outline-offset: 2px;
+}
+
+.analysis-action-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.analysis-action-tile--result {
+  grid-column: 1 / -1;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.analysis-action-tile--action {
+  border-color: #c7d2fe;
+  background: #f8f7ff;
+}
+
+.analysis-action-tile--anomaly {
+  border-color: #fde68a;
+  background: #fffdf5;
+}
+
+.analysis-action-tile--normal {
+  border-color: #bbf7d0;
+  background: #f8fffb;
+}
+
+.analysis-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.analysis-action-icon--result {
+  color: #ffffff;
+  background: #0f766e;
+}
+
+.analysis-action-icon--action {
+  color: #3730a3;
+  background: #e0e7ff;
+}
+
+.analysis-action-icon--metric {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.analysis-result-shortcuts {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 
-.insight-panel-collapse {
+.analysis-result-shortcuts button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.analysis-result-shortcuts button:hover {
+  transform: translateY(-1px);
+  border-color: #0f766e;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+}
+
+.analysis-action-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.analysis-action-copy strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.analysis-action-copy small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.attribution-panel-collapse {
   width: 100%;
   border: 1px solid #dbe4f0;
   border-radius: 12px;
@@ -2261,7 +2812,7 @@ const formatTime = (date: Date) => {
   overflow: hidden;
 }
 
-.insight-panel-collapse :deep(.el-collapse-item__header) {
+.attribution-panel-collapse :deep(.el-collapse-item__header) {
   min-height: 48px;
   height: auto;
   padding: 0 14px;
@@ -2269,11 +2820,11 @@ const formatTime = (date: Date) => {
   border-bottom: 1px solid #eef2f7;
 }
 
-.insight-panel-collapse :deep(.el-collapse-item__content) {
+.attribution-panel-collapse :deep(.el-collapse-item__content) {
   padding: 12px 14px 14px;
 }
 
-.insight-collapse-title {
+.attribution-collapse-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2282,30 +2833,30 @@ const formatTime = (date: Date) => {
   min-width: 0;
 }
 
-.insight-collapse-title > div {
+.attribution-collapse-title > div {
   display: flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
 }
 
-.insight-collapse-title span {
+.attribution-collapse-title span {
   color: var(--app-text);
   font-weight: 700;
 }
 
-.insight-collapse-title small {
+.attribution-collapse-title small {
   color: var(--app-text-muted);
   font-size: 12px;
 }
 
-.insight-section {
+.attribution-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.insight-summary-card {
+.attribution-summary-card {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -2316,49 +2867,36 @@ const formatTime = (date: Date) => {
   background: var(--app-surface-muted);
 }
 
-.insight-summary-card > div {
+.attribution-summary-card > div {
   min-width: 0;
 }
 
-.insight-summary-card span {
+.attribution-summary-card span {
   display: block;
   color: var(--app-text);
   font-size: 12px;
   font-weight: 700;
 }
 
-.insight-summary-card p {
+.attribution-summary-card p {
   margin: 4px 0 0;
   color: var(--app-text-muted);
   font-size: 12px;
   line-height: 1.6;
 }
 
-.insight-list,
 .driver-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.insight-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid var(--app-border-light);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.insight-item strong,
 .driver-item strong {
   display: block;
   color: var(--app-text);
   font-size: 13px;
 }
 
-.insight-item p,
 .driver-item span {
   margin: 4px 0 0;
   color: var(--app-text-muted);
@@ -2434,41 +2972,72 @@ const formatTime = (date: Date) => {
   border: 1px solid #e2e8f0;
 }
 
-.save-insight-intro {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
-  margin-bottom: 14px;
-  border: 1px solid #dbe4f0;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.save-insight-intro .el-icon {
-  color: #2563eb;
-  margin-top: 2px;
-}
-
-.save-insight-intro strong {
-  display: block;
-  color: var(--app-text);
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-
-.save-insight-intro span {
-  color: var(--app-text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .metric-draft-loading {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 120px;
   color: var(--app-text-muted);
+}
+
+.metric-draft-empty-dataset {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.metric-draft-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.metric-draft-empty-dataset span {
+  display: block;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.metric-draft-empty-dataset strong {
+  display: block;
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.metric-draft-empty-dataset p {
+  margin: 6px 0 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.metric-draft-create-dataset {
+  grid-column: 1 / -1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #0f766e;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.metric-draft-create-dataset:hover {
+  transform: translateY(-1px);
+  background: #0d9488;
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.16);
 }
 
 .metric-draft-hero {
@@ -2630,23 +3199,6 @@ const formatTime = (date: Date) => {
   word-break: break-word;
 }
 
-.decision-action-bar div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.decision-action-bar strong {
-  color: var(--app-text);
-  font-size: 14px;
-}
-
-.decision-action-bar span {
-  color: var(--app-text-muted);
-  font-size: 12px;
-}
-
 .chart-container,
 .table-container {
   background: var(--app-surface);
@@ -2654,6 +3206,164 @@ const formatTime = (date: Date) => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.result-inline-panel {
+  display: grid;
+}
+
+.result-inline-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--app-border-light);
+  background: #f8fafc;
+}
+
+.result-inline-toolbar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.result-inline-toolbar :deep(.el-button) {
+  color: #0f766e;
+  font-weight: 800;
+}
+
+.result-inline-toolbar :deep(.el-button:hover) {
+  color: #0d9488;
+  background: #ccfbf1;
+}
+
+:global(.result-detail-dialog.el-dialog),
+:global(.result-detail-dialog .el-dialog) {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+:global(.result-detail-dialog.el-dialog .el-dialog__header),
+:global(.result-detail-dialog .el-dialog__header) {
+  padding: 18px 20px 12px;
+  margin: 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
+:global(.result-detail-dialog.el-dialog .el-dialog__title),
+:global(.result-detail-dialog .el-dialog__title) {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+:global(.result-detail-dialog.el-dialog .el-dialog__body),
+:global(.result-detail-dialog .el-dialog__body) {
+  padding: 16px 18px 18px;
+}
+
+.result-detail-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid #ccfbf1;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.result-detail-summary > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.result-detail-summary span {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.result-detail-summary strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.result-detail-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.result-detail-metrics span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.result-detail-tabs {
+  min-height: 460px;
+}
+
+.result-detail-tabs :deep(.el-tabs__item) {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.result-detail-tabs :deep(.el-tabs__item.is-active) {
+  color: #0f766e;
+}
+
+.result-detail-tabs :deep(.el-tabs__active-bar) {
+  background: #0f766e;
+}
+
+.result-detail-pane {
+  min-height: 420px;
+  padding: 12px 0 0;
+}
+
+.result-detail-pane--chart {
+  min-height: 460px;
+}
+
+.result-detail-sql {
+  max-height: 520px;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #dbeafe;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.result-detail-summary-text {
+  max-height: 520px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--app-border-light);
+  border-radius: 10px;
+  background: #ffffff;
 }
 
 .recommendations {
@@ -2675,26 +3385,34 @@ const formatTime = (date: Date) => {
 }
 
 @media (max-width: 640px) {
-  .decision-action-bar,
-  .analysis-action-header,
+    .analysis-action-header,
+    .result-detail-summary,
   .metric-draft-hero,
-  .insight-summary-card {
+  .attribution-summary-card {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .analysis-action-groups,
-  .attribution-overview {
+  .refinement-draft-item {
     grid-template-columns: 1fr;
   }
 
-  .analysis-buttons {
-    flex-direction: column;
+  .fill-refinement-button {
+    justify-self: stretch;
   }
 
-  .analysis-buttons :deep(.el-button) {
-    width: 100%;
-    margin-left: 0;
+  .result-detail-metrics {
+    justify-content: flex-start;
+  }
+
+  .analysis-action-grid,
+  .attribution-overview,
+  .trace-summary-chips {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-draft-empty-dataset {
+    grid-template-columns: 1fr;
   }
 
   .driver-item {

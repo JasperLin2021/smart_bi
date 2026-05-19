@@ -204,12 +204,21 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f bac
 生产升级流程：
 
 ```bash
+git fetch origin
+git status --short
 git pull --ff-only
+
+# 升级前备份生产数据和上传文件；至少保留本次升级前的 PostgreSQL dump。
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "backup-$(date +%Y%m%d-%H%M%S).sql"
+
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=120 backend frontend migrate
+curl -f "http://localhost:${FRONTEND_PORT:-16006}/"
 ```
 
-`postgres_prod_data` 和 `backend_prod_uploads` 是生产持久化卷。升级或迁移前请先备份 PostgreSQL 和上传文件。
+`postgres_prod_data` 和 `backend_prod_uploads` 是生产持久化卷。升级或迁移前请先备份 PostgreSQL 和上传文件。若升级后健康检查失败，先保留容器日志，再回退到上一稳定 Git 提交并使用备份恢复数据。
 
 默认演示账号：
 
@@ -613,12 +622,21 @@ Production publishes only `FRONTEND_PORT`, defaulting to `16006`. Put an HTTPS r
 Production upgrade flow:
 
 ```bash
+git fetch origin
+git status --short
 git pull --ff-only
+
+# Back up production data and uploads before upgrading; keep at least one PostgreSQL dump.
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres \
+  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "backup-$(date +%Y%m%d-%H%M%S).sql"
+
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=120 backend frontend migrate
+curl -f "http://localhost:${FRONTEND_PORT:-16006}/"
 ```
 
-`postgres_prod_data` and `backend_prod_uploads` are production persistence volumes. Back up PostgreSQL and uploaded files before upgrades or migrations.
+`postgres_prod_data` and `backend_prod_uploads` are production persistence volumes. Back up PostgreSQL and uploaded files before upgrades or migrations. If the post-upgrade health check fails, keep the container logs, return to the previous stable Git commit, and restore from the backup.
 
 Default demo accounts:
 

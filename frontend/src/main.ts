@@ -31,6 +31,8 @@ axios.interceptors.response.use(
       }
       return Promise.reject(error)
     }
+    const suppressGlobalError = Boolean((error?.config as any)?.suppressGlobalError)
+    if (suppressGlobalError) return Promise.reject(error)
     const message =
       error?.response?.data?.detail || error?.message || "服务异常，请稍后重试"
     ElMessage.error(message)

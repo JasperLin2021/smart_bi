@@ -106,6 +106,7 @@
                 v-for="message in queryStore.messages"
                 :key="message.id"
                 :message="message"
+                @use-refinement="applyRefinementDraft"
               />
             </div>
           </div>
@@ -119,6 +120,7 @@
               <el-tag size="small" effect="plain">{{ activeScopeTypeText }}</el-tag>
             </div>
             <el-input
+              ref="composerInputRef"
               v-model="question"
               class="composer-input"
               type="textarea"
@@ -180,7 +182,7 @@
               v-for="item in filteredHistory"
               :key="item.id"
               class="history-item"
-              :class="{ 'is-active': activeHistoryId === item.id }"
+              :class="{ 'is-active': activeHistoryId === item.id, 'is-loading': historyLoadingId === item.id }"
               @click="viewHistory(item)"
             >
               <div class="history-item-top">
@@ -195,12 +197,14 @@
               </div>
               <div class="history-meta">
                 <span class="history-source">{{ item.favorite ? "已收藏" : "普通历史" }}</span>
+                <el-icon v-if="historyLoadingId === item.id" class="history-loading-icon is-loading"><Loading /></el-icon>
                 <div class="history-actions">
                   <el-button
                     size="small"
                     text
                     :type="item.favorite ? 'warning' : 'info'"
                     :icon="item.favorite ? StarFilled : Star"
+                    :disabled="Boolean(historyLoadingId)"
                     @click.stop="queryStore.toggleFavorite(item.id)"
                   >
                     {{ item.favorite ? "取消收藏" : "收藏" }}
@@ -210,6 +214,7 @@
                     text
                     type="danger"
                     :icon="Close"
+                    :disabled="Boolean(historyLoadingId)"
                     @click.stop="confirmDeleteHistoryItem(item)"
                   >
                     删除
@@ -260,7 +265,7 @@ import { ElMessage, ElMessageBox } from "element-plus"
 import {
   ChatDotRound, Search, Promotion, Delete, Refresh,
   ChatLineSquare, Star, StarFilled, Close, Plus,
-  DataAnalysis, MagicStick, Monitor, TrendCharts, Compass
+  DataAnalysis, MagicStick, Monitor, TrendCharts, Compass, Loading
 } from "@element-plus/icons-vue"
 import ChatBubble from "@/components/ChatBubble.vue"
 import { useQueryStore } from "@/store/query"
@@ -271,11 +276,14 @@ const queryStore = useQueryStore()
 const datasourceStore = useDatasourceStore()
 const authStore = useAuthStore()
 const question = ref("")
+const composerInputRef = ref<any>(null)
 const chatContainerRef = ref<HTMLDivElement | null>(null)
 const datasetsLoading = ref(false)
 const historySearch = ref("")
 const historyFilter = ref<"all" | "favorite">("all")
 const activeHistoryId = ref<number | null>(null)
+const historyLoadingId = ref<number | null>(null)
+const isRestoringHistory = ref(false)
 const composeFocused = ref(false)
 const historyFilterOptions = [
   { label: "全部", value: "all" },
@@ -474,10 +482,28 @@ const useExample = (example: string) => {
   composeFocused.value = true
 }
 
+const applyRefinementDraft = async (draftQuestion: string) => {
+  const nextQuestion = draftQuestion.trim()
+  if (!nextQuestion) return
+  question.value = nextQuestion
+  composeFocused.value = true
+  await nextTick()
+  composerInputRef.value?.focus?.()
+  ElMessage.success("已填入建议问题，可编辑后发送")
+}
+
 const viewHistory = async (item: HistoryItem) => {
-  activeHistoryId.value = item.id
-  await queryStore.loadHistoryDetail(item.id)
-  scrollToBottom()
+  if (historyLoadingId.value || queryStore.loading) return
+  historyLoadingId.value = item.id
+  isRestoringHistory.value = true
+  try {
+    await queryStore.loadHistoryDetail(item.id)
+    activeHistoryId.value = item.id
+    await scrollToBottom()
+  } finally {
+    isRestoringHistory.value = false
+    historyLoadingId.value = null
+  }
 }
 
 const confirmDeleteHistoryItem = async (item: HistoryItem) => {
@@ -580,24 +606,29 @@ const scrollToBottom = async () => {
   }
 }
 
+const refreshHistoryForScope = () => {
+  if (isRestoringHistory.value) return
+  queryStore.fetchHistory()
+}
+
 watch(() => queryStore.messages.length, () => {
   scrollToBottom()
 })
 
 watch(() => queryStore.scopeMode, () => {
   ensureScopeDefaults()
-  queryStore.fetchHistory()
+  refreshHistoryForScope()
 })
 
 watch(() => queryStore.mode, () => {
   ensureScopeDefaults()
-  queryStore.fetchHistory()
+  refreshHistoryForScope()
 })
 
 watch(() => queryStore.selectedDatasourceId, (id) => {
   if (id) datasourceStore.switchDatasource(id)
   if (queryStore.mode === "agentic") {
-    queryStore.fetchHistory()
+    refreshHistoryForScope()
   }
 })
 
@@ -607,13 +638,13 @@ watch(() => queryStore.selectedDatasetId, () => {
     datasourceStore.switchDatasource(selectedDataset.value.datasource_id)
   }
   if (queryStore.mode === "business") {
-    queryStore.fetchHistory()
+    refreshHistoryForScope()
   }
 })
 
 watch(() => authStore.profile?.role, () => {
   ensureScopeDefaults(true)
-  queryStore.fetchHistory()
+  refreshHistoryForScope()
 })
 
 onMounted(async () => {
@@ -1335,6 +1366,11 @@ onMounted(async () => {
   padding-left: 11px;
 }
 
+.history-item.is-loading {
+  background: #f0fdfa;
+  pointer-events: none;
+}
+
 .history-item-top,
 .history-meta {
   display: flex;
@@ -1375,6 +1411,11 @@ onMounted(async () => {
 .history-source {
   color: var(--query-light);
   font-size: 11px;
+}
+
+.history-loading-icon {
+  flex-shrink: 0;
+  color: var(--query-primary);
 }
 
 .history-actions {

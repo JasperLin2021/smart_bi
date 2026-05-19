@@ -1,6 +1,6 @@
 <template>
-  <div class="dataset-page">
-    <section class="dataset-toolbar" aria-label="数据集工具栏">
+  <div class="dataset-page" :class="{ 'dataset-page--embedded': embedded }">
+    <section v-if="!embedded" class="dataset-toolbar" aria-label="数据集工具栏">
       <div class="dataset-toolbar-title">
         <strong>数据集中心</strong>
         <span>{{ filteredDatasets.length }} / {{ datasets.length }} 个数据集</span>
@@ -19,11 +19,11 @@
           :options="statusOptions"
           @change="fetchDatasets"
         />
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建数据集</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate()">新建数据集</el-button>
       </div>
     </section>
 
-    <el-card class="dataset-card" shadow="never">
+    <el-card v-if="!embedded" class="dataset-card" shadow="never">
       <el-table
         v-loading="loading"
         :data="filteredDatasets"
@@ -126,16 +126,20 @@
         </el-table-column>
       </el-table>
     </el-card>
+    <div v-else class="dataset-embedded-anchor" aria-hidden="true"></div>
 
     <el-drawer
       v-model="drawerVisible"
       :title="editingId ? '编辑数据集' : '新建数据集'"
-      size="92%"
-      class="dataset-drawer"
+      :size="embedded ? 'min(1040px, 96vw)' : '92%'"
+      :class="['dataset-drawer', { 'dataset-drawer--embedded': embedded }]"
+      :modal-class="embedded ? 'dataset-drawer-modal dataset-drawer-modal--embedded' : 'dataset-drawer-modal'"
       :close-on-click-modal="false"
+      :append-to-body="embedded"
       destroy-on-close
+      @closed="handleDrawerClosed"
     >
-      <div class="designer-shell">
+      <div class="designer-shell" :class="{ 'embedded-designer-shell': embedded }">
         <aside class="step-rail">
           <button
             v-for="(step, index) in steps"
@@ -793,12 +797,28 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
+import { useRoute, useRouter } from "vue-router"
 import { EditPen, Plus, Refresh, Search, View as ViewIcon } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
 import { useAuthStore } from "@/store/auth"
+
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+  autoCreate?: boolean
+  preferredDatasourceId?: number | null
+}>(), {
+  embedded: false,
+  autoCreate: false,
+  preferredDatasourceId: null,
+})
+
+const emit = defineEmits<{
+  (event: "saved", payload: { datasource_id: number | null }): void
+  (event: "closed"): void
+}>()
 
 interface SchemaColumn {
   name: string
@@ -861,6 +881,9 @@ interface FieldRoleConfig {
 
 const datasourceStore = useDatasourceStore()
 const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+const embedded = computed(() => props.embedded)
 const datasets = ref<DatasetItem[]>([])
 const datasourceDetails = ref<Record<number, DataSourceDetail>>({})
 const loading = ref(false)
@@ -914,6 +937,14 @@ const steps: { key: StepKey; title: string; subtitle: string }[] = [
   { key: "fields", title: "业务口径", subtitle: "维度、筛选、指标" },
   { key: "publish", title: "保存发布", subtitle: "权限与摘要" },
 ]
+
+const routeDatasourceId = computed(() => {
+  const raw = route.query.datasource_id
+  const value = Array.isArray(raw) ? raw[0] : raw
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+})
+const shouldOpenCreateFromRoute = computed(() => route.query.create === "dataset")
 
 const statusOptions = [
   { label: "全部", value: "all" },
@@ -1409,12 +1440,12 @@ const applySavedFieldModel = (dataset: DatasetItem) => {
   }
 }
 
-const resetForm = () => {
+const resetForm = (preferredDatasourceId: number | null = null) => {
   editingId.value = null
   activeStep.value = "source"
   form.name = ""
   form.description = ""
-  form.datasource_id = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
+  form.datasource_id = preferredDatasourceId || props.preferredDatasourceId || datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
   form.table = ""
   form.visibility = "private"
   fieldRoleConfigs.value = []
@@ -1449,10 +1480,31 @@ const ensureDatasourceReady = async () => {
   }
 }
 
-const openCreate = async () => {
-  resetForm()
+const openCreate = async (preferredDatasourceId: number | null = null) => {
+  resetForm(preferredDatasourceId)
   await ensureDatasourceReady()
   drawerVisible.value = true
+}
+
+const clearCreateDatasetQuery = () => {
+  const nextQuery = { ...route.query }
+  delete nextQuery.create
+  delete nextQuery.datasource_id
+  delete nextQuery.from
+  router.replace({ path: route.path, query: nextQuery })
+}
+
+const openCreateFromRoute = async () => {
+  if (embedded.value) return
+  if (!shouldOpenCreateFromRoute.value) return
+  await openCreate(routeDatasourceId.value)
+  clearCreateDatasetQuery()
+}
+
+const handleDrawerClosed = () => {
+  if (embedded.value) {
+    emit("closed")
+  }
 }
 
 const openEdit = async (dataset: DatasetItem) => {
@@ -1783,6 +1835,9 @@ const saveDataset = async () => {
     }
     drawerVisible.value = false
     await fetchDatasets()
+    if (embedded.value) {
+      emit("saved", { datasource_id: form.datasource_id })
+    }
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || "数据集保存失败")
   } finally {
@@ -1813,7 +1868,29 @@ onMounted(async () => {
   await datasourceStore.fetchDatasources().catch(() => undefined)
   await fetchDatasourceDetails()
   await fetchDatasets()
+  if (embedded.value && props.autoCreate) {
+    await openCreate(props.preferredDatasourceId)
+    return
+  }
+  await openCreateFromRoute()
 })
+
+watch(
+  () => [route.query.create, route.query.datasource_id, route.query.tab],
+  async () => {
+    if (embedded.value) return
+    if (route.query.tab !== "datasets") return
+    await openCreateFromRoute()
+  }
+)
+
+watch(
+  () => [props.autoCreate, props.preferredDatasourceId],
+  async () => {
+    if (!embedded.value || !props.autoCreate) return
+    await openCreate(props.preferredDatasourceId)
+  }
+)
 </script>
 
 <style scoped>
@@ -1821,6 +1898,36 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.dataset-page--embedded,
+.dataset-embedded-anchor {
+  display: contents;
+}
+
+:global(.dataset-drawer-modal--embedded) {
+  overflow-x: hidden;
+}
+
+:global(.dataset-drawer-modal--embedded .el-overlay-dialog) {
+  overflow-x: hidden;
+}
+
+:global(.dataset-drawer-modal--embedded .el-drawer) {
+  max-width: calc(100vw - 16px);
+}
+
+:global(.dataset-drawer-modal--embedded .el-drawer__body) {
+  overflow-x: hidden;
+}
+
+.dataset-drawer--embedded :deep(.el-drawer__body) {
+  padding: 14px;
+  overflow-x: hidden;
+}
+
+.dataset-drawer--embedded :deep(.el-drawer__footer) {
+  padding: 12px 14px;
 }
 
 .dataset-toolbar {
@@ -1939,6 +2046,64 @@ onMounted(async () => {
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 20px;
   min-height: calc(100vh - 190px);
+}
+
+.embedded-designer-shell {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-height: min(760px, calc(100vh - 170px));
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.embedded-designer-shell .step-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.embedded-designer-shell .designer-panel,
+.embedded-designer-shell .designer-section,
+.embedded-designer-shell .field-panel,
+.embedded-designer-shell .logic-panel,
+.embedded-designer-shell .preview-panel,
+.embedded-designer-shell .publish-panel,
+.embedded-designer-shell .summary-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.embedded-designer-shell .field-layout,
+.embedded-designer-shell .publish-layout,
+.embedded-designer-shell .field-config-controls,
+.embedded-designer-shell .advanced-builder-grid,
+.embedded-designer-shell .model-summary-grid,
+.embedded-designer-shell .join-sides,
+.embedded-designer-shell .filter-builder,
+.embedded-designer-shell .aggregation-builder,
+.embedded-designer-shell .join-meta-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.embedded-designer-shell .field-config-list,
+.embedded-designer-shell .field-token-panel,
+.embedded-designer-shell .selected-field-list.compact {
+  max-width: 100%;
+}
+
+.embedded-designer-shell .section-head,
+.embedded-designer-shell .fields-section-head,
+.embedded-designer-shell .field-panel-hero,
+.embedded-designer-shell .field-config-top,
+.embedded-designer-shell .fields-head-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.embedded-designer-shell .fields-head-actions,
+.embedded-designer-shell .fields-health-pill {
+  width: 100%;
 }
 
 .step-rail {

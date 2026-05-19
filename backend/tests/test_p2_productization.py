@@ -239,6 +239,63 @@ class P2ProductizationTests(unittest.TestCase):
         self.assertEqual(result["drivers"][0]["contribution"], 120)
         self.assertTrue(result["llm_enhanced"])
 
+    def test_anomaly_precheck_detects_candidate_and_uses_system_llm(self):
+        from app.api.insights import AnomalyPrecheckRequest, anomaly_precheck
+
+        rows = [
+            {"day": "2026-05-01", "alarm_count": 10},
+            {"day": "2026-05-02", "alarm_count": 12},
+            {"day": "2026-05-03", "alarm_count": 11},
+            {"day": "2026-05-04", "alarm_count": 80},
+        ]
+
+        async def fake_config():
+            return {
+                "provider": "deepseek",
+                "base_url": "http://llm.example/v1",
+                "api_key": "",
+                "model": "deepseek-v4-flash",
+                "temperature": 0.2,
+            }
+
+        with patch("app.api.insights.get_llm_config", new=fake_config), patch(
+            "app.api.insights.chat_completion",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "summary": "检测到 2026-05-04 alarm_count 明显高于前序水平，建议做异常归因。",
+                        "anomalies": [
+                            {
+                                "type": "trend_spike",
+                                "title": "alarm_count 突增",
+                                "description": "2026-05-04 的 alarm_count 为 80，明显高于前序值。",
+                                "severity": "warning",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ) as mocked_chat:
+            result = asyncio.run(
+                anomaly_precheck(
+                    AnomalyPrecheckRequest(
+                        columns=["day", "alarm_count"],
+                        rows=rows,
+                        question="报警数是否异常",
+                    ),
+                    current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+                )
+            )
+
+        self.assertEqual(result["status"], "anomaly")
+        self.assertTrue(result["has_anomaly"])
+        self.assertEqual(result["recommended_action"], "anomaly_attribution")
+        self.assertEqual(result["action_label"], "查看异常归因")
+        self.assertTrue(result["llm_enhanced"])
+        self.assertEqual(result["llm_model"], "deepseek-v4-flash")
+        self.assertEqual(mocked_chat.await_args.kwargs["config_override"]["model"], "deepseek-v4-flash")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -133,7 +133,9 @@ export interface ChatMessage {
   mode?: QueryMode
   error?: string
   sourceQuestion?: string
+  datasourceId?: number | null
   drillContext?: DrillContext
+  fromHistory?: boolean
 }
 
 export interface QueryHistoryItem {
@@ -269,6 +271,7 @@ export const useQueryStore = defineStore("query", {
             emptyDiagnostics: payload.empty_diagnostics || null,
             agentTrace: payload.agent_trace || this.messages.find(m => m.id === assistantMessage.id)?.agentTrace || [],
             sourceQuestion: question,
+            datasourceId: assistantMessage.datasourceId || null,
             drillContext,
           })
         } else if (eventName === "error") {
@@ -282,6 +285,7 @@ export const useQueryStore = defineStore("query", {
             llmModel: payload.llm_model,
             agentTrace: payloadTrace.length ? payloadTrace : current?.agentTrace || [],
             sourceQuestion: question,
+            datasourceId: assistantMessage.datasourceId || null,
             drillContext,
           })
           ElMessage.error("查询失败，请查看探索模式执行过程")
@@ -343,12 +347,14 @@ export const useQueryStore = defineStore("query", {
       }
       this.messages.push(assistantMessage)
       this.loading = true
+      let datasourceId: number | null = null
       
       try {
         const dsStore = useDatasourceStore()
-        const datasourceId = this.selectedDatasourceId || dsStore.currentId
+        datasourceId = this.selectedDatasourceId || dsStore.currentId || null
         const datasetId = mode === "business" ? this.selectedDatasetId : null
         const conversationContextKey = this.buildConversationContextKey(mode, datasourceId)
+        assistantMessage.datasourceId = datasourceId || null
         const canContinueConversation = this.currentConversationContextKey === conversationContextKey
         const effectiveParentHistoryId = parentHistoryId ?? (canContinueConversation ? this.currentConversationRootHistoryId : null)
         const requestPayload = {
@@ -400,6 +406,7 @@ export const useQueryStore = defineStore("query", {
             emptyDiagnostics: response.data.empty_diagnostics || null,
             agentTrace: response.data.agent_trace || [],
             sourceQuestion: question,
+            datasourceId: datasourceId || null,
             drillContext
           }
         }
@@ -426,6 +433,7 @@ export const useQueryStore = defineStore("query", {
             llmModel: structuredError?.llm_model,
             agentTrace: errorAgentTrace,
             sourceQuestion: question,
+            datasourceId: datasourceId || null,
             drillContext
           }
         }
@@ -543,7 +551,9 @@ export const useQueryStore = defineStore("query", {
             agentNotes: turn.agent_notes || null,
             emptyDiagnostics: turn.empty_diagnostics || null,
             sourceQuestion: cleanQuestion,
+            datasourceId: turn.datasource_id || conversationDatasourceId || null,
             drillContext: turn.drill_context || undefined,
+            fromHistory: true,
           })
         })
 
