@@ -72,11 +72,61 @@
       />
     </el-tabs>
 
+    <div v-if="showHighCardinalityFacetExplorer" class="facet-explorer">
+      <div class="facet-explorer-main">
+        <el-segmented
+          v-model="facetViewMode"
+          :options="facetViewOptions"
+          size="small"
+          class="facet-view-segmented"
+        />
+        <el-select
+          v-if="facetViewMode === 'custom'"
+          v-model="selectedFacetValues"
+          filterable
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          :max-collapse-tags="2"
+          size="small"
+          class="facet-search-select"
+          :placeholder="`搜索选择 ${facetField}`"
+        >
+          <el-option
+            v-for="item in facetValueOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </el-select>
+      </div>
+      <div class="facet-explorer-meta">
+        <span>{{ facetField }} · {{ facetValues.length }} 项</span>
+        <span>{{ facetExplorerHint }}</span>
+      </div>
+    </div>
+
     <div v-if="selectedRow && (drillLoading || drillActions.length || drillAttempted)" class="drill-bar">
-      <div class="drill-bar-title">已选中图表项：{{ selectedSummary }}</div>
-      <div v-if="drillLoading" class="drill-loading">正在生成下钻建议...</div>
-      <div v-else-if="!drillActions.length" class="drill-empty">当前图表项没有可用的下钻建议</div>
+      <div class="drill-bar-title">
+        <span>已选中图表项：{{ selectedSummary }}</span>
+        <span v-if="drillLoading" class="drill-status-chip">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          后台生成中
+        </span>
+      </div>
+      <div v-if="!drillLoading && !drillActions.length" class="drill-empty">当前图表项没有可用的下钻建议</div>
       <div class="drill-actions-bar">
+        <el-button
+          v-if="drillLoading && !drillActions.length"
+          class="drill-action-loading"
+          size="small"
+          type="primary"
+          plain
+          disabled
+          :loading="drillLoading"
+        >
+          下钻建议生成中
+        </el-button>
         <el-button
           v-for="action in drillActions"
           :key="action.id"
@@ -227,8 +277,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch, nextTick } from "vue"
-import { Star, Setting } from "@element-plus/icons-vue"
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, nextTick } from "vue"
+import { Loading, Star, Setting } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import * as echarts from "echarts"
@@ -241,6 +291,11 @@ import {
   chartColorAt,
   colorizeCategoryData,
 } from "@/utils/chartColors"
+
+const FACET_TAB_LIMIT = 8
+const HIGH_CARDINALITY_FACET_TOP_N = 10
+const OTHER_FACET_BUCKET_LABEL = "其他"
+type FacetViewMode = "overall" | "top" | "custom"
 
 const props = defineProps<{
   message: ChatMessage
@@ -279,16 +334,21 @@ const chartType = ref<"line" | "bar" | "pie">("line")
 const sortOrder = ref<"none" | "desc" | "asc">("none")
 const showDimensionConfig = ref(false)
 let chartInstance: echarts.ECharts | null = null
+let chartResizeObserver: ResizeObserver | null = null
+let chartResizeFrame = 0
 const selectedRow = ref<Record<string, any> | null>(null)
 const drillActions = ref<DrillAction[]>([])
 const drillLoading = ref(false)
 const drillAttempted = ref(false)
+let drillRequestId = 0
 
 // 用户选择的维度
 const selectedXField = ref("")
 const selectedYField = ref("")
 const selectedGroupFields = ref<string[]>([])
 const selectedFacet = ref("")
+const facetViewMode = ref<FacetViewMode>("overall")
+const selectedFacetValues = ref<string[]>([])
 
 // 固定相关
 const showPinDialog = ref(false)
@@ -364,12 +424,80 @@ const facetValues = computed(() => {
   return [...new Set(props.rows.map(row => String(row[facetField.value] ?? "")).filter(Boolean))]
 })
 
-const showFacetTabs = computed(() => facetField.value && facetValues.value.length > 1)
+const facetStats = computed(() => {
+  if (!facetField.value) return []
+  const stats = new Map<string, number>()
+  props.rows.forEach((row) => {
+    const facetValue = String(row[facetField.value] ?? "").trim()
+    if (!facetValue) return
+    const value = selectedYField.value ? Number(row[selectedYField.value]) || 0 : 1
+    stats.set(facetValue, (stats.get(facetValue) || 0) + value)
+  })
+  return Array.from(stats.entries())
+    .map(([value, total]) => ({ value, total }))
+    .sort((a, b) => b.total - a.total || a.value.localeCompare(b.value))
+})
+
+const topFacetValues = computed(() =>
+  facetStats.value.slice(0, HIGH_CARDINALITY_FACET_TOP_N).map(item => item.value)
+)
+
+const topFacetValueSet = computed(() => new Set(topFacetValues.value))
+const selectedFacetValueSet = computed(() => new Set(selectedFacetValues.value))
+
+const showFacetTabs = computed(() =>
+  Boolean(facetField.value && facetValues.value.length > 1 && facetValues.value.length <= FACET_TAB_LIMIT)
+)
+
+const showHighCardinalityFacetExplorer = computed(() =>
+  Boolean(facetField.value && facetValues.value.length > FACET_TAB_LIMIT)
+)
+
+const facetViewOptions = computed(() => [
+  { label: "总览", value: "overall" },
+  { label: `TOP${HIGH_CARDINALITY_FACET_TOP_N}`, value: "top" },
+  { label: "自选", value: "custom" },
+])
+
+const facetValueOptions = computed(() =>
+  facetStats.value.map(item => ({
+    label: `${item.value} · ${item.total.toLocaleString()}`,
+    value: item.value,
+  }))
+)
+
+const facetExplorerHint = computed(() => {
+  if (facetViewMode.value === "overall") return "已按时间汇总全部分类"
+  if (facetViewMode.value === "top") return `展示 TOP${HIGH_CARDINALITY_FACET_TOP_N}，其余合并为${OTHER_FACET_BUCKET_LABEL}`
+  return selectedFacetValues.value.length
+    ? `已选择 ${selectedFacetValues.value.length} 项`
+    : `请选择要查看的 ${facetField.value}`
+})
+
+const facetValueForRow = (row: Record<string, any>) => {
+  if (!facetField.value) return ""
+  return String(row[facetField.value] ?? "").trim()
+}
 
 const chartRows = computed(() => {
+  if (showHighCardinalityFacetExplorer.value && facetViewMode.value === "custom") {
+    if (!selectedFacetValueSet.value.size) return []
+    return props.rows.filter(row => selectedFacetValueSet.value.has(facetValueForRow(row)))
+  }
   if (!showFacetTabs.value || !selectedFacet.value || !facetField.value) return props.rows
   return props.rows.filter(row => String(row[facetField.value]) === selectedFacet.value)
 })
+
+const activeGroupFields = computed(() => {
+  if (showHighCardinalityFacetExplorer.value && facetField.value) {
+    return facetViewMode.value === "overall" ? [] : [facetField.value]
+  }
+  return selectedGroupFields.value
+})
+
+const usesHighCardinalityFacetGrouping = computed(() =>
+  showHighCardinalityFacetExplorer.value && Boolean(facetField.value) && facetViewMode.value !== "overall"
+)
 
 // 可分组的列（非X轴和非Y轴的字段）
 const groupableColumns = computed(() => {
@@ -469,23 +597,32 @@ const applyChartSpec = () => {
   return Boolean(xField && yField)
 }
 
+const syncFacetSelectionDefaults = () => {
+  if (facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
+    selectedFacet.value = facetValues.value[0]
+  }
+  if (!showHighCardinalityFacetExplorer.value) return
+
+  const validSelected = selectedFacetValues.value.filter(value => facetValues.value.includes(value))
+  selectedFacetValues.value = validSelected.length ? validSelected : [...topFacetValues.value]
+}
+
 const configureChartFields = () => {
   if (!applyChartSpec()) {
     autoDetectFields()
   }
-  if (facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
-    selectedFacet.value = facetValues.value[0]
-  }
+  syncFacetSelectionDefaults()
 }
 
 // 判断是否为多系列数据
 const isMultiSeries = computed(() => {
-  return selectedGroupFields.value.length > 0 && selectedXField.value && chartRows.value.length > 0
+  return activeGroupFields.value.length > 0 && selectedXField.value && chartRows.value.length > 0
 })
 
 const selectedSummary = computed(() => {
   if (!selectedRow.value || !selectedXField.value) return ""
-  return `${selectedXField.value}: ${selectedRow.value[selectedXField.value]}`
+  const groupSummary = isMultiSeries.value ? ` · ${activeGroupFields.value[0]}: ${getGroupKey(selectedRow.value)}` : ""
+  return `${selectedXField.value}: ${selectedRow.value[selectedXField.value]}${groupSummary}`
 })
 
 const effectiveDatasourceId = computed(() =>
@@ -522,18 +659,48 @@ const certificationTagType = (status: string) => {
   return types[status] || "info"
 }
 
+const aggregateRowsByField = (rows: Array<Record<string, any>>, xField: string, yField: string) => {
+  const dataMap = new Map<string, number>()
+  rows.forEach((row) => {
+    const x = String(row[xField] ?? "").trim()
+    if (!x) return
+    dataMap.set(x, (dataMap.get(x) || 0) + (Number(row[yField]) || 0))
+  })
+  return Array.from(dataMap.entries()).map(([x, y]) => ({ x, y }))
+}
+
+const groupLabelForRow = (row: Record<string, any>) => {
+  if (usesHighCardinalityFacetGrouping.value) {
+    const value = facetValueForRow(row)
+    if (facetViewMode.value === "top" && !topFacetValueSet.value.has(value)) {
+      return OTHER_FACET_BUCKET_LABEL
+    }
+    return value
+  }
+  return activeGroupFields.value.map(field => String(row[field])).join(" | ")
+}
+
+const orderChartGroups = (groups: string[]) => {
+  if (!usesHighCardinalityFacetGrouping.value) return groups
+  if (facetViewMode.value === "top") {
+    const ordered = topFacetValues.value.filter(value => groups.includes(value))
+    if (groups.includes(OTHER_FACET_BUCKET_LABEL)) ordered.push(OTHER_FACET_BUCKET_LABEL)
+    return ordered
+  }
+  if (facetViewMode.value === "custom") {
+    return selectedFacetValues.value.filter(value => groups.includes(value))
+  }
+  return groups
+}
+
 // 构建多系列图表配置
 const buildMultiSeriesOption = () => {
-  if (selectedGroupFields.value.length === 0 || !selectedXField.value || !selectedYField.value) return null
-  
-  // 生成组合分组键
-  const getGroupKey = (row: Record<string, any>) => {
-    return selectedGroupFields.value.map(field => String(row[field])).join(" | ")
-  }
+  if (activeGroupFields.value.length === 0 || !selectedXField.value || !selectedYField.value) return null
   
   // 获取所有分组和X轴值
   const rows = chartRows.value
-  const groups = [...new Set(rows.map(r => getGroupKey(r)))]
+  const rawGroups = [...new Set(rows.map(r => getGroupKey(r)).filter(Boolean))]
+  const groups = orderChartGroups(rawGroups)
   let xValues = [...new Set(rows.map(r => String(r[selectedXField.value])))]
   
   // 对X轴排序
@@ -597,9 +764,9 @@ const buildSingleSeriesOption = () => {
 
   // 饼图
   if (chartType.value === "pie") {
-    let data = rows.map(row => ({
-      name: String(row[xField]),
-      value: Number(row[yField]) || 0
+    let data = aggregateRowsByField(rows, xField, yField).map(point => ({
+      name: point.x,
+      value: point.y
     }))
     if (sortOrder.value === "desc") data.sort((a, b) => b.value - a.value)
     else if (sortOrder.value === "asc") data.sort((a, b) => a.value - b.value)
@@ -617,10 +784,7 @@ const buildSingleSeriesOption = () => {
   }
 
   // 柱状图/折线图
-  let dataPoints = rows.map(r => ({
-    x: String(r[xField]),
-    y: Number(r[yField]) || 0
-  }))
+  let dataPoints = aggregateRowsByField(rows, xField, yField)
   
   if (sortOrder.value === "desc") dataPoints.sort((a, b) => b.y - a.y)
   else if (sortOrder.value === "asc") dataPoints.sort((a, b) => a.y - b.y)
@@ -653,8 +817,22 @@ const buildOption = () => {
   return buildSingleSeriesOption()
 }
 
+const resizeChart = () => {
+  if (chartResizeFrame) cancelAnimationFrame(chartResizeFrame)
+  chartResizeFrame = requestAnimationFrame(() => {
+    chartResizeFrame = 0
+    chartInstance?.resize()
+  })
+}
+
+const ensureChartResizeObserver = () => {
+  if (!chartRef.value || chartResizeObserver) return
+  chartResizeObserver = new ResizeObserver(resizeChart)
+  chartResizeObserver.observe(chartRef.value)
+}
+
 const getGroupKey = (row: Record<string, any>) => {
-  return selectedGroupFields.value.map(field => String(row[field])).join(" | ")
+  return groupLabelForRow(row)
 }
 
 const findRowFromChartSelection = (params: any) => {
@@ -665,7 +843,7 @@ const findRowFromChartSelection = (params: any) => {
   }
 
   const selectedName = String(params.name)
-  if (isMultiSeries.value && selectedGroupFields.value.length > 0) {
+  if (isMultiSeries.value && activeGroupFields.value.length > 0) {
     const selectedSeries = String(params.seriesName || "")
     return chartRows.value.find((row) => {
       return String(row[selectedXField.value]) === selectedName && getGroupKey(row) === selectedSeries
@@ -675,10 +853,20 @@ const findRowFromChartSelection = (params: any) => {
   return chartRows.value.find(row => String(row[selectedXField.value]) === selectedName) || null
 }
 
+const resetDrillState = () => {
+  drillRequestId += 1
+  selectedRow.value = null
+  drillActions.value = []
+  drillLoading.value = false
+  drillAttempted.value = false
+}
+
 const handleChartClick = async (params: any) => {
   const row = findRowFromChartSelection(params)
   if (!row) return
+  const requestId = ++drillRequestId
   selectedRow.value = row
+  drillActions.value = []
   drillAttempted.value = true
   drillLoading.value = true
   try {
@@ -693,11 +881,14 @@ const handleChartClick = async (params: any) => {
       props.columns,
       row
     )
+    if (requestId !== drillRequestId) return
     drillActions.value = preview.actions
   } catch {
+    if (requestId !== drillRequestId) return
     drillActions.value = []
     ElMessage.error("加载钻取动作失败")
   } finally {
+    if (requestId !== drillRequestId) return
     drillLoading.value = false
   }
 }
@@ -714,6 +905,7 @@ const renderChart = async () => {
   if (option) {
     chartInstance.clear()
     chartInstance.setOption(option)
+    resizeChart()
     chartInstance.off("click")
     chartInstance.on("click", (params) => {
       void handleChartClick(params)
@@ -862,45 +1054,46 @@ const savePinChartToDashboard = async () => {
 }
 
 watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields], () => {
-  selectedRow.value = null
-  drillActions.value = []
-  drillLoading.value = false
-  drillAttempted.value = false
+  syncFacetSelectionDefaults()
+  resetDrillState()
+  renderChart()
+}, { deep: true })
+watch([facetViewMode, selectedFacetValues], () => {
+  resetDrillState()
   renderChart()
 }, { deep: true })
 watch(() => props.rows, () => {
-  selectedRow.value = null
-  drillActions.value = []
-  drillLoading.value = false
-  drillAttempted.value = false
+  resetDrillState()
   configureChartFields()
   renderChart()
 }, { deep: true, immediate: true })
 watch(() => props.chartSpec, () => {
-  selectedRow.value = null
-  drillActions.value = []
-  drillLoading.value = false
-  drillAttempted.value = false
+  resetDrillState()
   configureChartFields()
   renderChart()
 }, { deep: true })
 watch(facetValues, () => {
-  if (facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
-    selectedFacet.value = facetValues.value[0]
-  }
+  syncFacetSelectionDefaults()
 })
 watch(selectedFacet, () => {
-  selectedRow.value = null
-  drillActions.value = []
-  drillLoading.value = false
-  drillAttempted.value = false
+  resetDrillState()
   renderChart()
 })
 
 onMounted(() => {
   configureChartFields()
+  ensureChartResizeObserver()
   renderChart()
-  window.addEventListener("resize", () => chartInstance?.resize())
+  window.addEventListener("resize", resizeChart)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", resizeChart)
+  chartResizeObserver?.disconnect()
+  chartResizeObserver = null
+  if (chartResizeFrame) cancelAnimationFrame(chartResizeFrame)
+  chartInstance?.dispose()
+  chartInstance = null
 })
 </script>
 
@@ -972,6 +1165,46 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.facet-explorer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #dbe7df;
+  background: linear-gradient(180deg, #f7fbf8 0%, #ffffff 100%);
+}
+
+.facet-explorer-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.facet-view-segmented {
+  flex: 0 0 auto;
+}
+
+.facet-search-select {
+  width: min(420px, 48vw);
+}
+
+.facet-explorer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #66746f;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.facet-explorer-meta span:first-child {
+  color: #0f766e;
+  font-weight: 700;
+}
+
 .dimension-item {
   display: flex;
   align-items: center;
@@ -1016,15 +1249,37 @@ onMounted(() => {
 }
 
 .drill-bar-title {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: #64748b;
+  font-size: 12px;
   margin-bottom: 8px;
+}
+
+.drill-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .drill-actions-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.drill-action-loading {
+  cursor: progress;
 }
 
 .detail-action-bar {
@@ -1149,5 +1404,28 @@ onMounted(() => {
   border-radius: 6px;
   background: #fff;
   overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .facet-explorer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .facet-explorer-main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .facet-search-select {
+    width: 100%;
+  }
+
+  .facet-explorer-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    white-space: normal;
+  }
 }
 </style>

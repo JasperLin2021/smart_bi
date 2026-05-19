@@ -112,6 +112,8 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <div id="smart-query-header-actions" class="smart-query-header-actions-target"></div>
+
           <el-button :icon="Refresh" circle @click="refresh" />
 
           <!-- Notification bell -->
@@ -259,7 +261,7 @@ const isMobileLayout = ref(false)
 
 const activePath = computed(() => route.path)
 const effectiveSidebarCollapsed = computed(() => isSidebarCollapsed.value || isMobileLayout.value)
-const sidebarWidth = computed(() => (effectiveSidebarCollapsed.value ? "72px" : "260px"))
+const sidebarWidth = computed(() => (effectiveSidebarCollapsed.value ? "72px" : "224px"))
 
 type MenuRole = "dept_admin" | "org_admin" | "super_admin"
 type MenuItem = {
@@ -290,8 +292,8 @@ const menuEntries: MenuEntry[] = [
     label: "工作台",
     icon: DataLine,
     items: [
-      { path: "/dashboard", label: "仪表盘", icon: DataLine },
       { path: "/smart-query", label: "智能问数", icon: ChatDotRound },
+      { path: "/dashboard", label: "仪表盘", icon: DataLine },
       { path: "/analysis-workbench", label: "自助分析", icon: TrendCharts },
       { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/action-items", label: "行动闭环", icon: Tickets },
@@ -303,10 +305,9 @@ const menuEntries: MenuEntry[] = [
     label: "数据准备",
     icon: Coin,
     items: [
-      { path: "/data-access", label: "准备总览", icon: DataLine },
+      { path: "/data-development", label: "数据接入", icon: Document },
       { path: "/data-link", label: "连接器接入", icon: Coin },
       { path: "/data-pipelines", label: "可视化ETL", icon: SetUp, roles: ["org_admin", "super_admin"] },
-      { path: "/data-development", label: "数据接入", icon: Document },
       { path: "/olap-status", label: "OLAP 数据平台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/data-catalog", label: "数据目录", icon: FolderOpened },
     ],
@@ -460,7 +461,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px 18px 14px;
+  padding: 18px 14px 14px;
   border-bottom: 1px solid var(--app-border);
 }
 
@@ -588,7 +589,7 @@ onBeforeUnmount(() => {
 .app-menu {
   background: transparent;
   border: none;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 
 .app-sidebar.collapsed .app-menu {
@@ -634,8 +635,8 @@ onBeforeUnmount(() => {
 }
 
 .app-menu:not(.el-menu--collapse) :deep(.el-sub-menu .el-menu-item) {
-  margin-left: 12px;
-  padding-left: 42px !important;
+  margin-left: 8px;
+  padding-left: 38px !important;
   min-width: 0;
 }
 
@@ -726,6 +727,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18px;
   padding: 0 22px;
   height: 64px;
   background: var(--app-surface);
@@ -735,7 +737,9 @@ onBeforeUnmount(() => {
 .header-left {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 4px;
+  min-width: 0;
 }
 
 .page-title {
@@ -752,7 +756,22 @@ onBeforeUnmount(() => {
 .header-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex: 1;
   gap: 12px;
+  min-width: 0;
+}
+
+.smart-query-header-actions-target {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+
+.smart-query-header-actions-target:empty {
+  display: none;
 }
 
 .dropdown-user {

@@ -68,6 +68,10 @@ class AgentActionPolicyTests(unittest.TestCase):
         self.assertEqual(renamed_plan["actions"][0]["type"], "navigate")
         self.assertEqual(renamed_plan["actions"][0]["params"]["route"], "/data-development")
 
+        prep_plan = asyncio.run(plan_agent_actions("打开数据准备", context))
+        self.assertEqual(prep_plan["actions"][0]["type"], "navigate")
+        self.assertEqual(prep_plan["actions"][0]["params"]["route"], "/data-development")
+
         admin_context = build_agent_context(
             role="org_admin",
             route="/dashboard",

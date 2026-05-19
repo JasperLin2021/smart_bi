@@ -6,12 +6,12 @@ import { test } from "node:test"
 const root = resolve(import.meta.dirname, "..")
 const read = (path) => readFileSync(resolve(root, path), "utf8")
 
-test("data access is an independent top-level sidebar menu", () => {
+test("data access is the first data preparation sidebar entry", () => {
   const router = read("src/router/index.ts")
   const layout = read("src/layouts/MainLayout.vue")
 
-  assert.match(router, /path:\s*"\/data-access"/)
-  assert.match(router, /import\("@\/views\/DataAccessCenter\.vue"\)/)
+  assert.match(router, /path:\s*"\/data-access",\s*redirect:\s*"\/data-development"/)
+  assert.doesNotMatch(router, /import\("@\/views\/DataAccessCenter\.vue"\)/)
   assert.match(router, /path:\s*"\/data-development"/)
   assert.match(router, /import\("@\/views\/DataSourceDatasetCenter\.vue"\)/)
   assert.match(router, /path:\s*"\/datasource-settings",\s*redirect:\s*\{\s*path:\s*"\/data-development",\s*query:\s*\{\s*tab:\s*"datasources"\s*\}\s*\}/)
@@ -19,7 +19,10 @@ test("data access is an independent top-level sidebar menu", () => {
   assert.match(layout, /key:\s*"data-access"[\s\S]*?label:\s*"数据准备"/)
 
   const dataAccessBlock = layout.match(/key:\s*"data-access"[\s\S]*?key:\s*"bi-assets"/)?.[0] || ""
-  assert.match(dataAccessBlock, /path:\s*"\/data-access",\s*label:\s*"准备总览"/)
+  assert.doesNotMatch(dataAccessBlock, /path:\s*"\/data-access"/)
+  assert.doesNotMatch(dataAccessBlock, /label:\s*"准备总览"/)
+  assert.match(dataAccessBlock, /items:\s*\[\s*\{\s*path:\s*"\/data-development",\s*label:\s*"数据接入"/)
+  assert.match(dataAccessBlock, /path:\s*"\/data-development",\s*label:\s*"数据接入"[\s\S]*path:\s*"\/data-link",\s*label:\s*"连接器接入"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-link",\s*label:\s*"连接器接入"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"可视化ETL"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-development",\s*label:\s*"数据接入"/)
@@ -30,6 +33,7 @@ test("data access is an independent top-level sidebar menu", () => {
   assert.match(dataAccessBlock, /path:\s*"\/olap-status",\s*label:\s*"OLAP 数据平台"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/olap-status",\s*label:\s*"数据平台"/)
   assert.match(dataAccessBlock, /path:\s*"\/data-catalog",\s*label:\s*"数据目录"/)
+  assert.doesNotMatch(dataAccessBlock, /数据准备中心/)
 })
 
 test("data access development workbench combines data sources and datasets", () => {
@@ -48,24 +52,6 @@ test("data access development workbench combines data sources and datasets", () 
   assert.doesNotMatch(view, /development-header/)
   assert.doesNotMatch(view, /scope-card/)
   assert.doesNotMatch(view, /DATA WORKBENCH/)
-})
-
-test("data access center exposes integration-style operations", () => {
-  const view = read("src/views/DataAccessCenter.vue")
-
-  assert.match(view, /数据准备中心/)
-  assert.match(view, /\/api\/data-access\/overview/)
-  assert.match(view, /连接器接入/)
-  assert.match(view, /多源异构接入/)
-  assert.match(view, /数据开发/)
-  assert.match(view, /同步与物化/)
-  assert.match(view, /任务运维/)
-  assert.match(view, /OLAP 数据平台/)
-  assert.match(view, /path:\s*"\/data-link"/)
-  assert.doesNotMatch(view, /title:\s*"连接器接入"[\s\S]*?path:\s*"\/data-development\?tab=datasources"/)
-  assert.match(view, /\/data-development\?tab=datasets/)
-  assert.match(view, /\/data-pipelines/)
-  assert.match(view, /\/olap-status/)
 })
 
 test("connector access page is named as connector entry instead of generic data access", () => {

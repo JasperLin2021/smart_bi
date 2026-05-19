@@ -143,6 +143,7 @@ export interface QueryHistoryItem {
   question: string
   created_at: string
   favorite: boolean
+  mode?: QueryMode
   parent_history_id?: number | null
 }
 
@@ -460,6 +461,7 @@ export const useQueryStore = defineStore("query", {
         const params: Record<string, any> = {}
         const datasourceId = this.selectedDatasourceId || dsStore.currentId
         if (datasourceId) params.datasource_id = datasourceId
+        params.mode = this.mode
         const response = await axios.get("/api/query/history", { params })
         this.history = response.data.items
       } catch (error) {
@@ -495,6 +497,7 @@ export const useQueryStore = defineStore("query", {
         const params: Record<string, any> = {}
         const datasourceId = this.selectedDatasourceId || dsStore.currentId
         if (datasourceId) params.datasource_id = datasourceId
+        params.mode = this.mode
         await axios.delete("/api/query/history", { params })
         this.history = []
         this.messages = []

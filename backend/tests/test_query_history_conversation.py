@@ -62,6 +62,62 @@ class QueryHistoryConversationTests(unittest.TestCase):
         self.assertEqual(result["items"][1]["question"], "[探索模式] 看最近30天报警趋势")
         self.assertEqual(result["items"][1]["created_at"], "2026-05-19 10:05")
 
+    def test_history_list_filters_by_query_mode(self):
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": "sqlite:///:memory:"}),
+            patch.dict("sys.modules", {"duckdb": SimpleNamespace(), "pandas": SimpleNamespace()}),
+        ):
+            from app.api.query import history
+            from app.models.query import QueryHistory
+
+            db = self._db()
+            base = datetime(2026, 5, 19, 10, 0)
+            db.add_all(
+                [
+                    QueryHistory(
+                        id=1,
+                        user_id=7,
+                        datasource_id=3,
+                        question="[业务问数] 看销售额",
+                        mode="business",
+                        created_at=base,
+                    ),
+                    QueryHistory(
+                        id=2,
+                        user_id=7,
+                        datasource_id=3,
+                        question="[探索模式] 看报警趋势",
+                        mode="agentic",
+                        created_at=base + timedelta(minutes=1),
+                    ),
+                    QueryHistory(
+                        id=3,
+                        user_id=7,
+                        datasource_id=3,
+                        question="[探索问数] 旧探索历史",
+                        mode="explore",
+                        created_at=base + timedelta(minutes=2),
+                    ),
+                    QueryHistory(
+                        id=4,
+                        user_id=7,
+                        datasource_id=3,
+                        question="[业务问数] 旧业务历史",
+                        mode=None,
+                        created_at=base + timedelta(minutes=3),
+                    ),
+                ]
+            )
+            db.commit()
+
+            business = history(datasource_id=3, mode="business", db=db, current_user=SimpleNamespace(id=7))
+            agentic = history(datasource_id=3, mode="agentic", db=db, current_user=SimpleNamespace(id=7))
+
+        self.assertEqual([item["id"] for item in business["items"]], [4, 1])
+        self.assertEqual([item["mode"] for item in business["items"]], ["business", "business"])
+        self.assertEqual([item["id"] for item in agentic["items"]], [3, 2])
+        self.assertEqual([item["mode"] for item in agentic["items"]], ["agentic", "agentic"])
+
     def test_history_detail_returns_conversation_turns_for_root(self):
         with (
             patch.dict(os.environ, {"DATABASE_URL": "sqlite:///:memory:"}),

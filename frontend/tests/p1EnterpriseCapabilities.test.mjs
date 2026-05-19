@@ -25,6 +25,8 @@ test("P1 enterprise capabilities are visible in the expected sidebar groups", ()
   const dataAccessBlock = layout.match(/key:\s*"data-access"[\s\S]*?key:\s*"bi-assets"/)?.[0] || ""
   const biAnalysisBlock = layout.match(/key:\s*"bi-assets"[\s\S]*?key:\s*"system-admin"/)?.[0] || ""
 
+  assert.match(workspaceBlock, /items:\s*\[\s*\{\s*path:\s*"\/smart-query",\s*label:\s*"智能问数"/)
+  assert.match(workspaceBlock, /path:\s*"\/smart-query",\s*label:\s*"智能问数"[\s\S]*path:\s*"\/dashboard",\s*label:\s*"仪表盘"/)
   assert.match(workspaceBlock, /path:\s*"\/dashboard",\s*label:\s*"仪表盘"/)
   assert.match(workspaceBlock, /path:\s*"\/analysis-workbench",\s*label:\s*"自助分析"/)
   assert.match(workspaceBlock, /path:\s*"\/report-center",\s*label:\s*"复杂报表"/)

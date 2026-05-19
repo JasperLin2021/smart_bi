@@ -4,7 +4,7 @@ import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import inspect, or_, text
+from sqlalchemy import and_, inspect, or_, text
 from sqlalchemy.orm import Session
 from fastapi_cache.decorator import cache
 from fastapi.responses import StreamingResponse
@@ -45,6 +45,7 @@ router = APIRouter(prefix="/query", tags=["query"])
 
 QUERY_MODES = {"business", "explore", "agentic"}
 AGENTIC_ROLES = {"dept_admin", "department_admin", "org_admin", "super_admin"}
+AGENTIC_HISTORY_PREFIXES = ("探索模式", "探索问数", "Agentic问数")
 
 
 def _normalize_query_mode(mode: str | None, dataset_id: int | None = None) -> str:
@@ -77,6 +78,37 @@ def _normalize_history_mode(mode: str | None) -> str:
     if mode in {"agentic", "explore"}:
         return "agentic"
     return "business"
+
+
+def _infer_history_mode(item: QueryHistory) -> str:
+    if any(item.question.startswith(f"[{prefix}]") for prefix in AGENTIC_HISTORY_PREFIXES):
+        return "agentic"
+    return _normalize_history_mode(item.mode)
+
+
+def _history_mode_condition(mode: str | None):
+    if not mode:
+        return None
+    normalized = _normalize_query_mode(mode)
+    agentic_prefix_conditions = [
+        QueryHistory.question.like(f"[{prefix}]%")
+        for prefix in AGENTIC_HISTORY_PREFIXES
+    ]
+    agentic_condition = or_(
+        QueryHistory.mode.in_(["agentic", "explore"]),
+        *agentic_prefix_conditions,
+    )
+    if normalized == "agentic":
+        return agentic_condition
+    return and_(
+        or_(QueryHistory.mode.is_(None), QueryHistory.mode.notin_(["agentic", "explore"])),
+        *[~condition for condition in agentic_prefix_conditions],
+    )
+
+
+def _apply_history_mode_filter(query, mode: str | None):
+    condition = _history_mode_condition(mode)
+    return query.filter(condition) if condition is not None else query
 
 
 def _root_history_id(item: QueryHistory) -> int:
@@ -136,7 +168,7 @@ def _history_detail_payload(item: QueryHistory, db: Session) -> dict:
         "result": result,
         "summary": item.summary or "",
         "llm_model": item.llm_model or _get_persisted_llm_model(db),
-        "mode": _normalize_history_mode(item.mode),
+        "mode": _infer_history_mode(item),
         "agent_trace": agent_trace,
         "chart_spec": chart_spec,
         "agent_notes": agent_notes,
@@ -1398,12 +1430,14 @@ async def ask_stream(
 @router.get("/history", response_model=HistoryListResponse)
 def history(
     datasource_id: int | None = None,
+    mode: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(QueryHistory).filter(QueryHistory.user_id == current_user.id)
     if datasource_id:
         query = query.filter(QueryHistory.datasource_id == datasource_id)
+    query = _apply_history_mode_filter(query, mode)
     rows = query.order_by(QueryHistory.created_at.desc()).limit(200).all()
 
     grouped: dict[int, list[QueryHistory]] = {}
@@ -1422,6 +1456,7 @@ def history(
         )
         if datasource_id:
             root_query = root_query.filter(QueryHistory.datasource_id == datasource_id)
+        root_query = _apply_history_mode_filter(root_query, mode)
         for root in root_query.all():
             grouped.setdefault(root.id, []).append(root)
 
@@ -1442,6 +1477,7 @@ def history(
                 "question": root.question,
                 "created_at": latest.created_at.strftime("%Y-%m-%d %H:%M"),
                 "favorite": root.favorite,
+                "mode": _infer_history_mode(root),
                 "parent_history_id": root.parent_history_id,
             }
             for root, latest in items
@@ -1496,12 +1532,14 @@ def delete_history(
 @router.delete("/history")
 def delete_all_history(
     datasource_id: int | None = None,
+    mode: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(QueryHistory).filter(QueryHistory.user_id == current_user.id)
     if datasource_id:
         query = query.filter(QueryHistory.datasource_id == datasource_id)
+    query = _apply_history_mode_filter(query, mode)
     deleted = query.delete(synchronize_session=False)
     db.commit()
     return {"status": "ok", "deleted": deleted}

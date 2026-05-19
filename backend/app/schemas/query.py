@@ -135,6 +135,7 @@ class HistoryItem(BaseModel):
     question: str
     created_at: str
     favorite: bool
+    mode: str = "business"
     parent_history_id: Optional[int] = None
 
 
