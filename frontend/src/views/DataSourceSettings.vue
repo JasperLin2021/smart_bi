@@ -259,9 +259,25 @@
                 <el-input v-model="form.metrics_prompt" type="textarea" :rows="5" placeholder="可用的业务指标描述（可选）" />
                 <div class="governance-field-hint">填写核心指标口径，智能问数时会参考。</div>
               </el-form-item>
-              <el-form-item label="推荐问题">
+              <el-form-item>
+                <template #label>
+                  <div class="semantic-label-row">
+                    <span>推荐问题</span>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :icon="MagicStick"
+                      :loading="generatingRecommendQuestions"
+                      :disabled="!isEdit || !editId"
+                      @click="generateRecommendQuestions"
+                    >
+                      AI 生成
+                    </el-button>
+                  </div>
+                </template>
                 <el-input v-model="recommendQuestionsText" type="textarea" :rows="5" placeholder="每行一个推荐问题（可选）" />
-                <div class="governance-field-hint">每行一个常用问题，显示在问数入口。</div>
+                <div class="governance-field-hint">每行一个常用问题，显示在问数入口。新增数据源需先保存后再生成。</div>
               </el-form-item>
             </div>
           </el-tab-pane>
@@ -445,6 +461,7 @@ import {
   Delete,
   Edit,
   Grid,
+  MagicStick,
   MoreFilled,
   Plus,
   Refresh,
@@ -548,6 +565,7 @@ const editId = ref<number | null>(null)
 const saving = ref(false)
 const selectedExcelFile = ref<File | null>(null)
 const selectedExcelName = ref("")
+const generatingRecommendQuestions = ref(false)
 
 // Schema modal state
 const schemaModalVisible = ref(false)
@@ -748,6 +766,44 @@ const selectConnectorType = (type: string) => {
 
 const recommendQuestionsText = ref("")
 
+const generateRecommendQuestions = async () => {
+  if (!isEdit.value || !editId.value) {
+    ElMessage.warning("请先保存数据源后再生成推荐问题")
+    return
+  }
+
+  generatingRecommendQuestions.value = true
+  try {
+    const response = await axios.post(`/api/datasources/${editId.value}/generate-recommend-questions`)
+    const generated = Array.isArray(response.data?.recommend_questions)
+      ? response.data.recommend_questions.map((item: unknown) => String(item || "").trim()).filter(Boolean)
+      : []
+    if (!generated.length) {
+      ElMessage.warning("暂未生成可用推荐问题")
+      return
+    }
+    const existing = recommendQuestionsText.value
+      .split("\n")
+      .map(s => s.trim())
+      .filter(Boolean)
+    const merged = [...existing]
+    const seen = new Set(existing.map(item => item.replace(/\s+/g, "").toLowerCase()))
+    generated.forEach(question => {
+      const key = question.replace(/\s+/g, "").toLowerCase()
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(question)
+      }
+    })
+    recommendQuestionsText.value = merged.join("\n")
+    ElMessage.success("已生成推荐问题，请确认后保存")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "生成推荐问题失败")
+  } finally {
+    generatingRecommendQuestions.value = false
+  }
+}
+
 const fetchAll = async () => {
   loading.value = true
   try {
@@ -904,10 +960,10 @@ const handleSave = async () => {
       await axios.put(`/api/datasources/${editId.value}`, payload)
       ElMessage.success("数据源已更新")
     } else {
-      // For new datasources, set empty metadata_prompt (will be filled via schema modal)
+      // The backend auto-detects schema and generates metadata_prompt during creation.
       payload.metadata_prompt = ""
       await axios.post("/api/datasources", payload)
-      ElMessage.success("数据源已创建，请点击「表结构」按钮配置表结构")
+      ElMessage.success("数据源已创建，已自动检测表结构")
     }
 
     dialogVisible.value = false
@@ -1224,6 +1280,14 @@ onMounted(async () => {
 
 .code-textarea :deep(textarea) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.semantic-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
 
 .connector-type-grid {

@@ -1,5 +1,12 @@
+import json
 import unittest
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.db.base import Base
+from app.models.datasource import DataSource
+from app.models.user import User
 from app.schemas.datasource import ColumnSchema, RelationshipSchema, SchemaMetadata, TableSchema
 
 
@@ -91,6 +98,42 @@ class DrillConfigGenerationTests(unittest.TestCase):
 
         self.assertEqual(paths["mainrecord.line__ngtype.ngtype"]["label"], "看不良类型分布")
         self.assertEqual(paths["mainrecord.line__rtyinfo.op"]["label"], "看工序明细")
+
+    def test_datasource_endpoint_generates_config_without_audit_attribute_error(self):
+        from app.api.datasource import generate_drill_config_from_schema
+
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        try:
+            current_user = User(id=1, username="admin", hashed_password="x", role="super_admin")
+            datasource = DataSource(
+                id=1,
+                name="制造测试源",
+                slug="manufacturing-test",
+                database_url="sqlite:///:memory:",
+                source_type="database",
+                metadata_prompt="制造测试数据",
+                schema_metadata=json.dumps(self._build_schema().model_dump(), ensure_ascii=False),
+            )
+            db.add_all([current_user, datasource])
+            db.commit()
+
+            config = generate_drill_config_from_schema(
+                datasource_id=datasource.id,
+                db=db,
+                current_user=current_user,
+            )
+
+            self.assertIn("dimensions", config)
+            self.assertIn("metrics", config)
+            self.assertIn("paths", config)
+            self.assertGreater(len(config["dimensions"]), 0)
+            self.assertGreater(len(config["metrics"]), 0)
+            self.assertGreater(len(config["paths"]), 0)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
