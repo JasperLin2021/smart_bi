@@ -7,8 +7,8 @@ import httpx
 
 
 class AgenticNl2SqlTests(unittest.TestCase):
-    def test_agentic_nl2sql_asks_clarifying_question_for_ambiguous_request(self):
-        from app.core.agentic_nl2sql import AgenticClarificationRequired, build_agentic_nl2sql
+    def test_agentic_nl2sql_does_not_clarify_ambiguous_request(self):
+        from app.core.agentic_nl2sql import build_agentic_nl2sql
 
         datasource = SimpleNamespace(
             name="Sales DS",
@@ -22,23 +22,20 @@ class AgenticNl2SqlTests(unittest.TestCase):
         with patch(
             "app.core.agentic_nl2sql.chat_completion",
             new=AsyncMock(
-                return_value=(
-                    '{"needs_clarification":true,"reason":"缺少指标、时间范围和分组维度",'
-                    '"questions":["你想分析哪个指标？","是否需要限定时间范围？"]}'
-                )
+                side_effect=[
+                    '{"needs_clarification":true,"reason":"缺少指标、时间范围和分组维度"}',
+                    "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+                ]
             ),
         ) as mocked_chat:
-            with self.assertRaises(AgenticClarificationRequired) as ctx:
-                asyncio.run(build_agentic_nl2sql("看一下情况", datasource))
+            result = asyncio.run(build_agentic_nl2sql("看一下情况", datasource))
 
-        self.assertEqual(mocked_chat.await_count, 1)
-        self.assertIn("需要先澄清", str(ctx.exception))
-        self.assertEqual(ctx.exception.questions, ["你想分析哪个指标？", "是否需要限定时间范围？"])
-        self.assertEqual(ctx.exception.trace[-1]["stage"], "clarify")
-        self.assertEqual(ctx.exception.trace[-1]["status"], "warning")
+        self.assertEqual(mocked_chat.await_count, 2)
+        self.assertEqual(result["sql_query"], "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region")
+        self.assertNotIn("clarify", [item["stage"] for item in result["trace"]])
 
-    def test_agentic_plan_can_request_clarification_before_sql_generation(self):
-        from app.core.agentic_nl2sql import AgenticClarificationRequired, build_agentic_nl2sql
+    def test_agentic_plan_clarification_payload_is_ignored(self):
+        from app.core.agentic_nl2sql import build_agentic_nl2sql
 
         datasource = SimpleNamespace(
             name="Alarm DS",
@@ -52,18 +49,24 @@ class AgenticNl2SqlTests(unittest.TestCase):
         with patch(
             "app.core.agentic_nl2sql.chat_completion",
             new=AsyncMock(
-                return_value=(
+                side_effect=[
                     '{"needs_clarification":true,"reason":"缺少统计指标和时间范围",'
-                    '"questions":["按报警次数还是按影响设备数统计？","需要看哪个时间范围？"]}'
-                )
+                    '"questions":["按报警次数还是按影响设备数统计？","需要看哪个时间范围？"]}',
+                    "SELECT equipment_id, COUNT(*) AS alarm_count FROM alarms GROUP BY equipment_id",
+                ]
             ),
         ) as mocked_chat:
-            with self.assertRaises(AgenticClarificationRequired) as ctx:
-                asyncio.run(build_agentic_nl2sql("按设备看报警", datasource))
+            result = asyncio.run(build_agentic_nl2sql("按设备看报警", datasource))
 
-        self.assertEqual(mocked_chat.await_count, 1)
-        self.assertEqual(ctx.exception.questions, ["按报警次数还是按影响设备数统计？", "需要看哪个时间范围？"])
-        self.assertEqual([item["stage"] for item in ctx.exception.trace], ["context", "clarify"])
+        self.assertEqual(mocked_chat.await_count, 2)
+        self.assertEqual(
+            result["sql_query"],
+            "SELECT equipment_id, COUNT(*) AS alarm_count FROM alarms GROUP BY equipment_id",
+        )
+        self.assertEqual([item["stage"] for item in result["trace"]], ["context", "plan", "assumption", "sql_generate"])
+        self.assertIn("agent_notes", result)
+        self.assertIn("缺少统计指标和时间范围", result["agent_notes"]["assumptions"][0])
+        self.assertGreaterEqual(len(result["agent_notes"]["suggested_refinements"]), 1)
 
     def test_agentic_nl2sql_rejects_non_read_only_sql(self):
         from app.core.agentic_nl2sql import build_agentic_nl2sql
@@ -161,6 +164,43 @@ class AgenticNl2SqlTests(unittest.TestCase):
 
         self.assertEqual(emitted, result["trace"])
         self.assertEqual([item["stage"] for item in emitted], ["context", "plan", "sql_generate"])
+
+    def test_agentic_nl2sql_includes_value_probe_context_in_planning_prompt(self):
+        from app.core.agentic_nl2sql import build_agentic_nl2sql
+
+        datasource = SimpleNamespace(
+            name="Alarm DS",
+            source_type="excel",
+            metadata_prompt="sheet1(STEP, ALARMID, SUMDATETIME)",
+            schema_metadata=None,
+            metrics_prompt="",
+            database_url="/tmp/alarm.xlsx",
+        )
+        probe_context = "值探测结果：SS 在 sheet1.STEP 中存在，匹配 12 条。"
+
+        with patch(
+            "app.core.agentic_nl2sql.detect_excel_join_risk",
+            return_value=None,
+        ), patch(
+            "app.core.agentic_nl2sql.chat_completion",
+            new=AsyncMock(
+                side_effect=[
+                    '{"objective":"trend","steps":["filter STEP"],"expected_output":"chart"}',
+                    "SELECT STEP, ALARMID, COUNT(*) AS cnt FROM sheet1 WHERE STEP = 'SS' GROUP BY STEP, ALARMID",
+                ]
+            ),
+        ) as mocked_chat:
+            result = asyncio.run(
+                build_agentic_nl2sql(
+                    "SS的step中，top10的alarm_id的次数趋势图",
+                    datasource,
+                    extra_context=probe_context,
+                )
+            )
+
+        self.assertIn("WHERE STEP = 'SS'", result["sql_query"])
+        planning_messages = mocked_chat.await_args_list[0].args[0]
+        self.assertIn(probe_context, planning_messages[1]["content"])
 
     def test_agentic_nl2sql_uses_supplied_pi_config_for_llm_calls(self):
         from app.core.agentic_nl2sql import build_agentic_nl2sql
@@ -511,6 +551,25 @@ class AgenticNl2SqlTests(unittest.TestCase):
         self.assertIn('"stage": "context"', encoded)
         self.assertIn('"message": "已读取数据源元数据"', encoded)
         self.assertTrue(encoded.endswith("\n\n"))
+
+    def test_stream_unhandled_error_detail_preserves_partial_trace(self):
+        from app.api.query import _build_agentic_stream_unhandled_error_detail
+
+        trace = [{"stage": "execute", "status": "success", "message": "已执行查询"}]
+
+        detail = _build_agentic_stream_unhandled_error_detail(
+            RuntimeError("history insert failed"),
+            "SELECT * FROM alarms",
+            trace,
+            "pi/pi-mono",
+        )
+
+        self.assertIn("流式问数失败", detail["message"])
+        self.assertEqual(detail["sql_query"], "SELECT * FROM alarms")
+        self.assertEqual(detail["llm_model"], "pi/pi-mono")
+        self.assertEqual(detail["agent_trace"][0], trace[0])
+        self.assertEqual(detail["agent_trace"][-1]["stage"], "stream_finalize")
+        self.assertEqual(detail["agent_trace"][-1]["status"], "error")
 
     def test_non_agentic_execution_error_detail_stays_string(self):
         from app.api.query import _build_query_execution_error_detail

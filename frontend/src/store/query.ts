@@ -54,6 +54,24 @@ export interface AgentTraceStep {
   detail?: Record<string, unknown> | null
 }
 
+export interface AgenticRefinementAction {
+  label: string
+  question: string
+}
+
+export interface AgenticQueryNotes {
+  assumptions: string[]
+  risk_flags: string[]
+  suggested_refinements: AgenticRefinementAction[]
+  confidence?: string | null
+}
+
+export interface EmptyDiagnostics {
+  reason: string
+  checks: string[]
+  suggested_actions: AgenticRefinementAction[]
+}
+
 export interface ChartSpec {
   chart_type: "line" | "bar" | "horizontal_bar" | "area" | "pie" | "scatter" | "table" | "kpi" | string
   title?: string | null
@@ -110,6 +128,8 @@ export interface ChatMessage {
   trustSignals?: MetricTrustSignal[]
   agentTrace?: AgentTraceStep[]
   chartSpec?: ChartSpec | null
+  agentNotes?: AgenticQueryNotes | null
+  emptyDiagnostics?: EmptyDiagnostics | null
   mode?: QueryMode
   error?: string
   sourceQuestion?: string
@@ -124,6 +144,25 @@ export interface QueryHistoryItem {
   parent_history_id?: number | null
 }
 
+export interface QueryHistoryDetail {
+  id: number
+  datasource_id?: number | null
+  question: string
+  created_at: string
+  sql_query?: string | null
+  result?: QueryResult
+  summary?: string
+  llm_model?: string | null
+  mode?: string | null
+  trust_signals?: MetricTrustSignal[]
+  agent_trace?: AgentTraceStep[]
+  chart_spec?: ChartSpec | null
+  agent_notes?: AgenticQueryNotes | null
+  empty_diagnostics?: EmptyDiagnostics | null
+  drill_context?: DrillContext | null
+  parent_history_id?: number | null
+}
+
 export const useQueryStore = defineStore("query", {
   state: () => ({
     loading: false,
@@ -133,10 +172,16 @@ export const useQueryStore = defineStore("query", {
     scopeMode: "dataset" as QueryScopeMode,
     selectedDatasourceId: null as number | null,
     selectedDatasetId: null as number | null,
+    currentConversationRootHistoryId: null as number | null,
+    currentConversationContextKey: null as string | null,
   }),
   actions: {
     generateId() {
       return Date.now().toString(36) + Math.random().toString(36).substr(2)
+    },
+
+    buildConversationContextKey(mode: QueryMode, datasourceId?: number | null) {
+      return `${mode}:${datasourceId || "none"}`
     },
 
     updateMessage(id: string, patch: Partial<ChatMessage>) {
@@ -166,7 +211,8 @@ export const useQueryStore = defineStore("query", {
       requestPayload: Record<string, unknown>,
       assistantMessage: ChatMessage,
       question: string,
-      drillContext?: DrillContext
+      drillContext: DrillContext | undefined,
+      conversationContextKey: string
     ) {
       const token = localStorage.getItem("smart-bi-token")
       const response = await fetch("/api/query/ask-stream", {
@@ -191,6 +237,59 @@ export const useQueryStore = defineStore("query", {
       let buffer = ""
       let completed = false
 
+      const processStreamBlock = (block: string) => {
+        if (!block.trim()) return true
+        const { eventName, payload } = this.parseStreamEvent(block)
+        if (eventName === "trace") {
+          const current = this.messages.find(m => m.id === assistantMessage.id)
+          this.updateMessage(assistantMessage.id, {
+            agentTrace: [...(current?.agentTrace || []), payload as AgentTraceStep],
+          })
+        } else if (eventName === "final") {
+          completed = true
+          if (
+            payload.history_id &&
+            (!this.currentConversationRootHistoryId || this.currentConversationContextKey !== conversationContextKey)
+          ) {
+            this.currentConversationRootHistoryId = Number(payload.history_id)
+            this.currentConversationContextKey = conversationContextKey
+          }
+          this.updateMessage(assistantMessage.id, {
+            content: payload.answer || payload.summary || "查询完成",
+            status: "success",
+            historyId: payload.history_id,
+            sqlQuery: payload.sql_query,
+            result: payload.result,
+            summary: payload.summary,
+            llmModel: payload.llm_model,
+            recommendations: payload.recommendations || [],
+            trustSignals: payload.trust_signals || [],
+            chartSpec: payload.chart_spec || null,
+            agentNotes: payload.agent_notes || null,
+            emptyDiagnostics: payload.empty_diagnostics || null,
+            agentTrace: payload.agent_trace || this.messages.find(m => m.id === assistantMessage.id)?.agentTrace || [],
+            sourceQuestion: question,
+            drillContext,
+          })
+        } else if (eventName === "error") {
+          const current = this.messages.find(m => m.id === assistantMessage.id)
+          const payloadTrace = Array.isArray(payload.agent_trace) ? payload.agent_trace : []
+          this.updateMessage(assistantMessage.id, {
+            content: "查询失败",
+            status: "error",
+            error: payload.message || "请稍后重试",
+            sqlQuery: payload.sql_query,
+            llmModel: payload.llm_model,
+            agentTrace: payloadTrace.length ? payloadTrace : current?.agentTrace || [],
+            sourceQuestion: question,
+            drillContext,
+          })
+          ElMessage.error("查询失败，请查看探索模式执行过程")
+          return false
+        }
+        return true
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -199,47 +298,12 @@ export const useQueryStore = defineStore("query", {
         buffer = blocks.pop() || ""
 
         for (const block of blocks) {
-          if (!block.trim()) continue
-          const { eventName, payload } = this.parseStreamEvent(block)
-          if (eventName === "trace") {
-            const current = this.messages.find(m => m.id === assistantMessage.id)
-            this.updateMessage(assistantMessage.id, {
-              agentTrace: [...(current?.agentTrace || []), payload as AgentTraceStep],
-            })
-          } else if (eventName === "final") {
-            completed = true
-            this.updateMessage(assistantMessage.id, {
-              content: payload.answer || payload.summary || "查询完成",
-              status: "success",
-              historyId: payload.history_id,
-              sqlQuery: payload.sql_query,
-              result: payload.result,
-              summary: payload.summary,
-              llmModel: payload.llm_model,
-              recommendations: payload.recommendations || [],
-              trustSignals: payload.trust_signals || [],
-              chartSpec: payload.chart_spec || null,
-              agentTrace: payload.agent_trace || this.messages.find(m => m.id === assistantMessage.id)?.agentTrace || [],
-              sourceQuestion: question,
-              drillContext,
-            })
-          } else if (eventName === "error") {
-            const current = this.messages.find(m => m.id === assistantMessage.id)
-            const payloadTrace = Array.isArray(payload.agent_trace) ? payload.agent_trace : []
-            this.updateMessage(assistantMessage.id, {
-              content: "查询失败",
-              status: "error",
-              error: payload.message || "请稍后重试",
-              sqlQuery: payload.sql_query,
-              llmModel: payload.llm_model,
-              agentTrace: payloadTrace.length ? payloadTrace : current?.agentTrace || [],
-              sourceQuestion: question,
-              drillContext,
-            })
-            ElMessage.error("查询失败，请查看探索模式执行过程")
-            return false
-          }
+          if (!processStreamBlock(block)) return false
         }
+      }
+
+      if (buffer.trim()) {
+        if (!processStreamBlock(buffer)) return false
       }
 
       if (!completed) {
@@ -284,22 +348,38 @@ export const useQueryStore = defineStore("query", {
         const dsStore = useDatasourceStore()
         const datasourceId = this.selectedDatasourceId || dsStore.currentId
         const datasetId = mode === "business" ? this.selectedDatasetId : null
+        const conversationContextKey = this.buildConversationContextKey(mode, datasourceId)
+        const canContinueConversation = this.currentConversationContextKey === conversationContextKey
+        const effectiveParentHistoryId = parentHistoryId ?? (canContinueConversation ? this.currentConversationRootHistoryId : null)
         const requestPayload = {
           question,
           mode,
           datasource_id: datasourceId,
           dataset_id: datasetId,
           drill_context: drillContext || null,
-          parent_history_id: parentHistoryId || null,
+          parent_history_id: effectiveParentHistoryId || null,
         }
 
         if (mode === "agentic") {
-          const completed = await this.askAgenticStream(requestPayload, assistantMessage, question, drillContext)
+          const completed = await this.askAgenticStream(
+            requestPayload,
+            assistantMessage,
+            question,
+            drillContext,
+            conversationContextKey,
+          )
           if (completed) await this.fetchHistory()
           return
         }
 
         const response = await axios.post("/api/query/ask", requestPayload)
+        if (
+          response.data.history_id &&
+          (!this.currentConversationRootHistoryId || !canContinueConversation)
+        ) {
+          this.currentConversationRootHistoryId = Number(response.data.history_id)
+          this.currentConversationContextKey = conversationContextKey
+        }
         
         // 更新助手消息
         const idx = this.messages.findIndex(m => m.id === assistantMessage.id)
@@ -316,6 +396,8 @@ export const useQueryStore = defineStore("query", {
             recommendations: response.data.recommendations || [],
             trustSignals: response.data.trust_signals || [],
             chartSpec: response.data.chart_spec || null,
+            agentNotes: response.data.agent_notes || null,
+            emptyDiagnostics: response.data.empty_diagnostics || null,
             agentTrace: response.data.agent_trace || [],
             sourceQuestion: question,
             drillContext
@@ -355,6 +437,13 @@ export const useQueryStore = defineStore("query", {
     
     clearMessages() {
       this.messages = []
+      this.currentConversationRootHistoryId = null
+      this.currentConversationContextKey = null
+    },
+
+    resetConversationContext() {
+      this.currentConversationRootHistoryId = null
+      this.currentConversationContextKey = null
     },
     
     async fetchHistory() {
@@ -383,6 +472,9 @@ export const useQueryStore = defineStore("query", {
       try {
         await axios.delete(`/api/query/history/${id}`)
         await this.fetchHistory()
+        if (this.currentConversationRootHistoryId === id) {
+          this.clearMessages()
+        }
         ElMessage.success("已删除")
       } catch (error) {
         ElMessage.error("删除失败")
@@ -398,6 +490,8 @@ export const useQueryStore = defineStore("query", {
         await axios.delete("/api/query/history", { params })
         this.history = []
         this.messages = []
+        this.currentConversationRootHistoryId = null
+        this.currentConversationContextKey = null
         ElMessage.success("历史记录已清空")
       } catch (error) {
         ElMessage.error("清空失败")
@@ -409,44 +503,52 @@ export const useQueryStore = defineStore("query", {
       try {
         const response = await axios.get(`/api/query/history/${id}`)
         const data = response.data
+        const conversation = Array.isArray(data.conversation) && data.conversation.length
+          ? data.conversation as QueryHistoryDetail[]
+          : [data as QueryHistoryDetail]
+        const conversationRootId = data.parent_history_id || data.id
+        const conversationDatasourceId = data.datasource_id || conversation[0]?.datasource_id || this.selectedDatasourceId || useDatasourceStore().currentId
         
         // 清空当前消息
         this.messages = []
+        this.currentConversationRootHistoryId = conversationRootId
         
-        // 添加用户消息
-        const cleanQuestion = data.question.replace(/^\[(SQL|闲聊|业务问数|探索问数|探索模式|Agentic问数)\]\s*/, "")
-        const historyMode = (data.mode === "explore" ? "agentic" : normalizeQueryMode(data.mode)) as QueryMode
-        const userMessage: ChatMessage = {
-          id: this.generateId(),
-          role: "user",
-          content: cleanQuestion,
-          timestamp: new Date(data.created_at),
-          status: "success"
-        }
-        this.messages.push(userMessage)
-        
-        // 添加助手消息
-        const assistantMessage: ChatMessage = {
-          id: this.generateId(),
-          role: "assistant",
-          content: "已加载历史查询结果。",
-          timestamp: new Date(data.created_at),
-          status: "success",
-          historyId: data.id,
-          sqlQuery: data.sql_query,
-          result: data.result,
-          summary: data.summary,
-          llmModel: data.llm_model,
-          mode: historyMode,
-          trustSignals: data.trust_signals || [],
-          agentTrace: data.agent_trace || [],
-          chartSpec: data.chart_spec || null,
-          sourceQuestion: cleanQuestion,
-          drillContext: data.drill_context || undefined,
-        }
-        this.messages.push(assistantMessage)
-        
-        this.mode = historyMode
+        let loadedMode: QueryMode = "business"
+        conversation.forEach((turn) => {
+          const cleanQuestion = turn.question.replace(/^\[(SQL|闲聊|业务问数|探索问数|探索模式|Agentic问数)\]\s*/, "")
+          const historyMode = (turn.mode === "explore" ? "agentic" : normalizeQueryMode(turn.mode)) as QueryMode
+          loadedMode = historyMode
+          this.messages.push({
+            id: this.generateId(),
+            role: "user",
+            content: cleanQuestion,
+            timestamp: new Date(turn.created_at),
+            status: "success",
+          })
+          this.messages.push({
+            id: this.generateId(),
+            role: "assistant",
+            content: "已加载历史查询结果。",
+            timestamp: new Date(turn.created_at),
+            status: "success",
+            historyId: turn.id,
+            sqlQuery: turn.sql_query || undefined,
+            result: turn.result,
+            summary: turn.summary,
+            llmModel: turn.llm_model || undefined,
+            mode: historyMode,
+            trustSignals: turn.trust_signals || [],
+            agentTrace: turn.agent_trace || [],
+            chartSpec: turn.chart_spec || null,
+            agentNotes: turn.agent_notes || null,
+            emptyDiagnostics: turn.empty_diagnostics || null,
+            sourceQuestion: cleanQuestion,
+            drillContext: turn.drill_context || undefined,
+          })
+        })
+
+        this.mode = loadedMode
+        this.currentConversationContextKey = this.buildConversationContextKey(loadedMode, conversationDatasourceId)
       } catch (error) {
         ElMessage.error("加载历史记录失败")
       } finally {

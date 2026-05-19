@@ -16,15 +16,6 @@ CHART_LAYOUTS = {"single", "tabs_by_field"}
 CHART_SORT_ORDERS = {"none", "asc", "desc"}
 
 
-class AgenticClarificationRequired(ValueError):
-    def __init__(self, reason: str, questions: list[str], trace: list[dict[str, Any]]):
-        self.reason = reason
-        self.questions = questions
-        self.trace = trace
-        question_text = "；".join(questions)
-        super().__init__(f"问题描述不够明确，需要先澄清：{question_text}")
-
-
 def _trace(stage: str, status: str, message: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
     item: dict[str, Any] = {"stage": stage, "status": status, "message": message}
     if detail:
@@ -152,122 +143,87 @@ def _build_datasource_context(datasource: Any) -> str:
     return "\n\n".join(parts)
 
 
+def _normalize_text_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in items:
+            items.append(text)
+    return items[:6]
+
+
+def _normalize_refinement_actions(value: Any, question: str) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    actions: list[dict[str, str]] = []
+    for item in value:
+        label = ""
+        refined_question = ""
+        if isinstance(item, dict):
+            label = str(item.get("label") or item.get("title") or "").strip()
+            refined_question = str(item.get("question") or item.get("prompt") or "").strip()
+        else:
+            label = str(item or "").strip()
+        if not label and refined_question:
+            label = refined_question
+        if label and not refined_question:
+            refined_question = f"{question}，并明确：{label.rstrip('？?')}"
+        if not label or not refined_question:
+            continue
+        action = {"label": label[:28], "question": refined_question}
+        if action not in actions:
+            actions.append(action)
+    return actions[:4]
+
+
 def _normalize_plan(raw: str, question: str) -> dict[str, Any]:
     try:
         parsed = _extract_json(raw)
     except Exception:
         parsed = {}
-    raw_questions = parsed.get("questions") if isinstance(parsed.get("questions"), list) else []
     objective = str(parsed.get("objective") or question).strip()
     steps = parsed.get("steps") if isinstance(parsed.get("steps"), list) else []
+    assumptions = _normalize_text_list(parsed.get("assumptions"))
+    risk_flags = _normalize_text_list(parsed.get("risk_flags"))
+    suggested_refinements = _normalize_refinement_actions(parsed.get("suggested_refinements"), question)
+    if parsed.get("needs_clarification"):
+        reason = str(parsed.get("reason") or "问题描述不完整").strip()
+        if reason and not assumptions:
+            assumptions.append(f"{reason}，已基于数据源元数据使用合理默认口径继续查询。")
+        if "question_ambiguous" not in risk_flags:
+            risk_flags.append("question_ambiguous")
+        if not suggested_refinements:
+            suggested_refinements = _normalize_refinement_actions(parsed.get("questions"), question)
+    confidence = str(parsed.get("confidence") or ("medium" if assumptions or risk_flags else "high")).strip().lower()
+    if confidence not in {"high", "medium", "low"}:
+        confidence = "medium"
     return {
         "objective": objective,
         "steps": [str(item) for item in steps],
         "expected_output": str(parsed.get("expected_output") or "table").strip(),
-        "needs_clarification": bool(parsed.get("needs_clarification")),
-        "clarification_reason": str(parsed.get("reason") or "").strip(),
-        "clarification_questions": [str(item).strip() for item in raw_questions if str(item).strip()][:3],
+        "assumptions": assumptions,
+        "risk_flags": risk_flags,
+        "suggested_refinements": suggested_refinements,
+        "confidence": confidence,
     }
 
 
-def _question_looks_ambiguous(question: str) -> bool:
-    text = re.sub(r"\s+", "", question.strip().lower())
-    if not text:
-        return True
-    if len(text) <= 6:
-        return True
-    vague_phrases = (
-        "看一下",
-        "分析一下",
-        "查一下",
-        "看看情况",
-        "什么情况",
-        "数据怎么样",
-        "情况怎么样",
-        "帮我看看",
-    )
-    if any(phrase in text for phrase in vague_phrases):
-        explicit_intent_tokens = (
-            "top",
-            "趋势",
-            "排行",
-            "统计",
-            "按",
-            "最近",
-            "今日",
-            "昨天",
-            "本周",
-            "本月",
-            "同比",
-            "环比",
-            "分布",
-            "对比",
-            "明细",
-            "异常",
-        )
-        return not any(token in text for token in explicit_intent_tokens)
-    return False
-
-
-def _normalize_clarification(raw: str, question: str) -> dict[str, Any] | None:
-    try:
-        parsed = _extract_json(raw)
-    except Exception:
-        parsed = {}
-    if not parsed.get("needs_clarification"):
+def _agent_notes_from_plan(plan: dict[str, Any]) -> dict[str, Any] | None:
+    assumptions = _normalize_text_list(plan.get("assumptions"))
+    risk_flags = _normalize_text_list(plan.get("risk_flags"))
+    suggested_refinements = _normalize_refinement_actions(plan.get("suggested_refinements"), "")
+    confidence = str(plan.get("confidence") or "high").strip().lower()
+    if confidence not in {"high", "medium", "low"}:
+        confidence = "medium"
+    if not assumptions and not risk_flags and not suggested_refinements:
         return None
-    raw_questions = parsed.get("questions") if isinstance(parsed.get("questions"), list) else []
-    questions = [str(item).strip() for item in raw_questions if str(item).strip()]
-    if not questions:
-        questions = [
-            "你想分析哪个业务指标或字段？",
-            "是否需要限定时间范围、维度或筛选条件？",
-        ]
     return {
-        "reason": str(parsed.get("reason") or f"问题「{question}」缺少明确指标或筛选条件").strip(),
-        "questions": questions[:3],
-    }
-
-
-async def _assess_question_clarity(
-    question: str,
-    datasource_context: str,
-    llm_config: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    if not _question_looks_ambiguous(question):
-        return None
-    try:
-        raw = await chat_completion(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是探索模式问数 Agent 的澄清判断器。判断用户问题是否足够生成 SQL。"
-                        "如果缺少指标、对象、时间范围、分组维度或筛选条件，且贸然生成 SQL 容易误导用户，"
-                        "就返回 needs_clarification=true。只输出 JSON，不要 markdown。"
-                        "字段：needs_clarification、reason、questions。questions 最多 3 个。"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"问题：{question}\n\n数据源上下文：\n{datasource_context}",
-                },
-            ],
-            temperature=0,
-            config_override=llm_config,
-        )
-        clarification = _normalize_clarification(raw, question)
-        if clarification:
-            return clarification
-    except Exception:
-        pass
-    return {
-        "reason": "问题描述较泛，缺少生成可靠 SQL 所需的指标、对象或筛选条件。",
-        "questions": [
-            "你想分析哪个指标或字段？",
-            "需要按哪个维度拆分，例如设备、报警码、产线或日期？",
-            "是否需要限定时间范围或其他筛选条件？",
-        ],
+        "assumptions": assumptions,
+        "risk_flags": risk_flags,
+        "suggested_refinements": suggested_refinements,
+        "confidence": confidence,
     }
 
 
@@ -557,9 +513,12 @@ async def _plan(
                 "role": "system",
                 "content": (
                     "你是 Agentic NL2SQL 规划器。根据数据源上下文为用户问题制定简短查询计划。"
-                    "如果问题缺少指标、对象、时间范围、分组维度或筛选条件，且直接生成 SQL 容易误导用户，"
-                    "请返回 needs_clarification=true、reason 和 questions，questions 最多 3 个。"
-                    "否则返回 needs_clarification=false、objective、steps、expected_output。"
+                    "即使问题较宽泛，也要基于可用元数据给出合理的查询目标和步骤，不要反问用户。"
+                    "如果问题缺少时间范围、指标口径或分析维度，不要阻塞执行；"
+                    "请写入 assumptions、risk_flags、suggested_refinements 和 confidence，"
+                    "用于前端展示默认假设和快捷改写建议。"
+                    "返回 objective、steps、expected_output、assumptions、risk_flags、suggested_refinements、confidence。"
+                    "suggested_refinements 每项包含 label 和 question。"
                     "只输出 JSON。"
                 ),
             },
@@ -618,11 +577,14 @@ async def build_agentic_nl2sql(
     datasource: Any,
     llm_model: str | None = None,
     llm_config: dict[str, Any] | None = None,
+    extra_context: str | None = None,
     max_repairs: int = 2,
     on_trace: TraceCallback | None = None,
 ) -> dict[str, Any]:
     trace: list[dict[str, Any]] = []
     datasource_context = _build_datasource_context(datasource)
+    if extra_context:
+        datasource_context = f"{datasource_context}\n\n运行时探测证据：\n{extra_context.strip()}"
     if not llm_model and llm_config:
         llm_model = str(llm_config.get("model") or "").strip() or None
     context_detail = {
@@ -634,43 +596,15 @@ async def build_agentic_nl2sql(
         context_detail["model"] = llm_model
     await _append_trace(trace, _trace("context", "success", "已读取数据源元数据", context_detail), on_trace)
 
-    clarification = await _assess_question_clarity(question, datasource_context, llm_config=llm_config)
-    if clarification:
-        item = _trace(
-            "clarify",
-            "warning",
-            "问题描述不够明确，已向用户发起澄清",
-            clarification,
-        )
-        await _append_trace(trace, item, on_trace)
-        raise AgenticClarificationRequired(
-            clarification["reason"],
-            clarification["questions"],
-            trace,
-        )
-
     plan = await _plan(question, datasource_context, llm_config=llm_config)
-    if plan.get("needs_clarification"):
-        questions = plan.get("clarification_questions") or [
-            "你想分析哪个指标或字段？",
-            "是否需要限定时间范围、维度或筛选条件？",
-        ]
-        item = _trace(
-            "clarify",
-            "warning",
-            "查询规划发现问题描述不够明确，已向用户发起澄清",
-            {
-                "reason": plan.get("clarification_reason") or "问题缺少生成 SQL 所需的明确约束。",
-                "questions": questions,
-            },
-        )
-        await _append_trace(trace, item, on_trace)
-        raise AgenticClarificationRequired(
-            item["detail"]["reason"],
-            questions,
-            trace,
-        )
     await _append_trace(trace, _trace("plan", "success", "已生成查询计划", {"plan": plan}), on_trace)
+    agent_notes = _agent_notes_from_plan(plan)
+    if agent_notes:
+        await _append_trace(
+            trace,
+            _trace("assumption", "warning", "问题信息不完整，已按默认假设继续查询", {"agent_notes": agent_notes}),
+            on_trace,
+        )
 
     last_error = ""
     feedback = ""
@@ -686,7 +620,7 @@ async def build_agentic_nl2sql(
         try:
             safe_sql = _validate_agentic_sql(datasource, sql)
             await _append_trace(trace, _trace(stage, "success", "已生成安全 SQL", {"sql": safe_sql}), on_trace)
-            return {"sql_query": safe_sql, "plan": plan, "trace": trace}
+            return {"sql_query": safe_sql, "plan": plan, "trace": trace, "agent_notes": agent_notes}
         except ValueError as exc:
             last_error = str(exc)
             await _append_trace(trace, _trace(stage, "error", last_error, {"sql": sql}), on_trace)

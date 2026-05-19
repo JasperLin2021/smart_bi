@@ -17,7 +17,8 @@ class MetricFromQueryTests(unittest.TestCase):
         Base.metadata.create_all(bind=engine, tables=tables)
         return sessionmaker(bind=engine)()
 
-    def _seed_agentic_history(self, db):
+    def _seed_agentic_history(self, db, *, with_dataset=True):
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.query import QueryHistory
 
@@ -31,6 +32,19 @@ class MetricFromQueryTests(unittest.TestCase):
         )
         db.add(datasource)
         db.flush()
+        dataset = None
+        if with_dataset:
+            dataset = Dataset(
+                name="alarm_detail 基础数据集",
+                datasource_id=datasource.id,
+                fields_json={"table": "sheet1"},
+                status="published",
+                visibility="org",
+                org_id=2,
+                owner_id=9,
+            )
+            db.add(dataset)
+            db.flush()
 
         result = {
             "columns": ["ALARMID", "EQUIPMENTID", "trend_date", "occurrence_count"],
@@ -63,17 +77,18 @@ class MetricFromQueryTests(unittest.TestCase):
         db.add(history)
         db.commit()
         db.refresh(history)
-        return datasource, history
+        return datasource, history, dataset
 
     def test_metric_draft_from_query_uses_llm_candidate_and_marks_topn_as_analysis_condition(self):
         from app.api.metrics import draft_metric_from_query
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.metric import Metric
         from app.models.query import QueryHistory
         from app.schemas.metric import MetricFromQueryDraftRequest
 
-        db = self._db([DataSource.__table__, QueryHistory.__table__, Metric.__table__])
-        _datasource, history = self._seed_agentic_history(db)
+        db = self._db([DataSource.__table__, Dataset.__table__, QueryHistory.__table__, Metric.__table__])
+        _datasource, history, dataset = self._seed_agentic_history(db)
 
         async def fake_chat_completion(*_args, **_kwargs):
             return json.dumps(
@@ -108,18 +123,21 @@ class MetricFromQueryTests(unittest.TestCase):
         self.assertIn("分析条件", " ".join(response["warnings"]))
         self.assertEqual(response["source"]["source_type"], "agentic_query")
         self.assertEqual(response["source"]["source_query_history_id"], history.id)
+        self.assertEqual(response["source"]["source_dataset_id"], dataset.id)
+        self.assertEqual(response["source"]["source_dataset_name"], dataset.name)
 
     def test_create_metric_from_query_persists_draft_with_agentic_lineage(self):
         from app.api.metrics import create_metric_from_query
         from app.models.audit_log import AuditLog
         from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
         from app.models.datasource import DataSource
         from app.models.metric import Metric
         from app.models.query import QueryHistory
         from app.schemas.metric import MetricFromQueryCreateRequest
 
-        db = self._db([DataSource.__table__, QueryHistory.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
-        datasource, history = self._seed_agentic_history(db)
+        db = self._db([DataSource.__table__, Dataset.__table__, QueryHistory.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource, history, dataset = self._seed_agentic_history(db)
 
         with patch("app.api.metrics.sync_datasource_metrics_prompt"):
             metric = asyncio.run(
@@ -141,15 +159,41 @@ class MetricFromQueryTests(unittest.TestCase):
 
         self.assertIsInstance(metric, Metric)
         self.assertEqual(metric.datasource_id, datasource.id)
-        self.assertIsNone(metric.dataset_id)
+        self.assertEqual(metric.dataset_id, dataset.id)
         self.assertEqual(metric.status, "draft")
         self.assertEqual(metric.certification_status, "pending_review")
         self.assertEqual(metric.quality_status, "unknown")
         self.assertEqual(metric.dimensions, ["ALARMID", "EQUIPMENTID"])
         self.assertEqual(metric.calculation_config["source"]["source_type"], "agentic_query")
         self.assertEqual(metric.calculation_config["source"]["source_query_history_id"], history.id)
+        self.assertEqual(metric.calculation_config["source"]["source_dataset_id"], dataset.id)
         self.assertEqual(metric.calculation_config["source"]["source_metric_column"], "occurrence_count")
         self.assertEqual(metric.calculation_config["time_field"], "trend_date")
+
+    def test_metric_from_query_requires_same_datasource_dataset(self):
+        from fastapi import HTTPException
+
+        from app.api.metrics import draft_metric_from_query
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.models.query import QueryHistory
+        from app.schemas.metric import MetricFromQueryDraftRequest
+
+        db = self._db([DataSource.__table__, Dataset.__table__, QueryHistory.__table__, Metric.__table__])
+        _datasource, history, _dataset = self._seed_agentic_history(db, with_dataset=False)
+
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(
+                draft_metric_from_query(
+                    MetricFromQueryDraftRequest(query_history_id=history.id),
+                    db=db,
+                    current_user=SimpleNamespace(id=9, username="dept", role="dept_admin", org_id=2),
+                )
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("请先创建基础数据集", str(ctx.exception.detail))
 
 
 if __name__ == "__main__":

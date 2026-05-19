@@ -23,27 +23,53 @@
                 <small>{{ traceSummary }}</small>
               </div>
             </template>
-            <div class="trace-list">
-              <div
-                v-for="(item, index) in message.agentTrace"
-                :key="`${item.stage}-${item.message}-${index}`"
-                class="trace-step"
-                :class="`trace-step--${item.status}`"
-              >
-                <el-tag size="small" :type="traceStatusType(item.status)" effect="plain">
-                  {{ traceStageLabel(item.stage) }}
+            <div class="trace-current-card" v-if="latestTraceStep" :class="`trace-current-card--${latestTraceStep.status}`">
+              <div class="trace-current-head">
+                <el-tag size="small" :type="traceStatusType(latestTraceStep.status)" effect="plain">
+                  {{ traceStageLabel(latestTraceStep.stage) }}
                 </el-tag>
-                <div class="trace-step-main">
-                  <span>{{ item.message }}</span>
-                  <small>{{ traceStatusLabel(item.status) }}</small>
+                <div class="trace-step-main trace-current-main">
+                  <span>{{ latestTraceStep.message }}</span>
+                  <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
                 </div>
-                <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="item.detail">
-                  <el-collapse-item :name="traceStepName(item, index)" title="查看详情">
-                    <pre class="trace-detail">{{ formatTraceDetail(item.detail) }}</pre>
-                  </el-collapse-item>
-                </el-collapse>
               </div>
+              <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
+                <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="查看详情">
+                  <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
+                </el-collapse-item>
+              </el-collapse>
             </div>
+            <el-collapse v-if="historicalTraceSteps.length" v-model="traceHistoryOpen" class="trace-history-collapse">
+              <el-collapse-item name="trace-history">
+                <template #title>
+                  <div class="trace-history-title">
+                    <span>历史步骤</span>
+                    <small>{{ historicalTraceSteps.length }} 步已折叠</small>
+                  </div>
+                </template>
+                <div class="trace-list trace-list--history">
+                  <div
+                    v-for="step in historicalTraceSteps"
+                    :key="`${step.item.stage}-${step.item.message}-${step.index}`"
+                    class="trace-step"
+                    :class="`trace-step--${step.item.status}`"
+                  >
+                    <el-tag size="small" :type="traceStatusType(step.item.status)" effect="plain">
+                      {{ traceStageLabel(step.item.stage) }}
+                    </el-tag>
+                    <div class="trace-step-main">
+                      <span>{{ step.item.message }}</span>
+                      <small>{{ traceStatusLabel(step.item.status) }}</small>
+                    </div>
+                    <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="step.item.detail">
+                      <el-collapse-item :name="traceStepName(step.item, step.index)" title="查看详情">
+                        <pre class="trace-detail">{{ formatTraceDetail(step.item.detail) }}</pre>
+                      </el-collapse-item>
+                    </el-collapse>
+                  </div>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
           </el-collapse-item>
         </el-collapse>
       </div>
@@ -62,27 +88,53 @@
                 <small>{{ traceSummary }}</small>
               </div>
             </template>
-            <div class="trace-list">
-              <div
-                v-for="(item, index) in message.agentTrace"
-                :key="`${item.stage}-${item.message}-${index}`"
-                class="trace-step"
-                :class="`trace-step--${item.status}`"
-              >
-                <el-tag size="small" :type="traceStatusType(item.status)" effect="plain">
-                  {{ traceStageLabel(item.stage) }}
+            <div class="trace-current-card" v-if="latestTraceStep" :class="`trace-current-card--${latestTraceStep.status}`">
+              <div class="trace-current-head">
+                <el-tag size="small" :type="traceStatusType(latestTraceStep.status)" effect="plain">
+                  {{ traceStageLabel(latestTraceStep.stage) }}
                 </el-tag>
-                <div class="trace-step-main">
-                  <span>{{ item.message }}</span>
-                  <small>{{ traceStatusLabel(item.status) }}</small>
+                <div class="trace-step-main trace-current-main">
+                  <span>{{ latestTraceStep.message }}</span>
+                  <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
                 </div>
-                <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="item.detail">
-                  <el-collapse-item :name="traceStepName(item, index)" title="查看详情">
-                    <pre class="trace-detail">{{ formatTraceDetail(item.detail) }}</pre>
-                  </el-collapse-item>
-                </el-collapse>
               </div>
+              <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
+                <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="查看详情">
+                  <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
+                </el-collapse-item>
+              </el-collapse>
             </div>
+            <el-collapse v-if="historicalTraceSteps.length" v-model="traceHistoryOpen" class="trace-history-collapse">
+              <el-collapse-item name="trace-history">
+                <template #title>
+                  <div class="trace-history-title">
+                    <span>历史步骤</span>
+                    <small>{{ historicalTraceSteps.length }} 步已折叠</small>
+                  </div>
+                </template>
+                <div class="trace-list trace-list--history">
+                  <div
+                    v-for="step in historicalTraceSteps"
+                    :key="`${step.item.stage}-${step.item.message}-${step.index}`"
+                    class="trace-step"
+                    :class="`trace-step--${step.item.status}`"
+                  >
+                    <el-tag size="small" :type="traceStatusType(step.item.status)" effect="plain">
+                      {{ traceStageLabel(step.item.stage) }}
+                    </el-tag>
+                    <div class="trace-step-main">
+                      <span>{{ step.item.message }}</span>
+                      <small>{{ traceStatusLabel(step.item.status) }}</small>
+                    </div>
+                    <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="step.item.detail">
+                      <el-collapse-item :name="traceStepName(step.item, step.index)" title="查看详情">
+                        <pre class="trace-detail">{{ formatTraceDetail(step.item.detail) }}</pre>
+                      </el-collapse-item>
+                    </el-collapse>
+                  </div>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
           </el-collapse-item>
         </el-collapse>
       </div>
@@ -124,6 +176,38 @@
             <code class="model-chip-value">{{ message.llmModel }}</code>
           </div>
 
+          <div v-if="hasAgentNotes" class="assumption-panel">
+            <div class="assumption-panel-head">
+              <div class="assumption-icon">
+                <el-icon><MagicStick /></el-icon>
+              </div>
+              <div>
+                <strong>已按 {{ agentAssumptionCount }} 个默认假设完成查询</strong>
+                <span>{{ agentConfidenceText }}</span>
+              </div>
+            </div>
+            <el-collapse v-model="agentNotesPanelOpen" class="assumption-collapse">
+              <el-collapse-item name="agent-notes" title="查看假设与可调整项">
+                <div v-if="agentAssumptions.length" class="assumption-list">
+                  <span v-for="item in agentAssumptions" :key="item">{{ item }}</span>
+                </div>
+                <div v-if="agentRiskFlags.length" class="assumption-risk-list">
+                  <span v-for="item in agentRiskFlags" :key="item">{{ riskFlagLabel(item) }}</span>
+                </div>
+                <div v-if="agentRefinementActions.length" class="refinement-actions">
+                  <button
+                    v-for="action in agentRefinementActions"
+                    :key="`${action.label}-${action.question}`"
+                    type="button"
+                    @click="runRefinement(action.question)"
+                  >
+                    {{ action.label }}
+                  </button>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+          </div>
+
           <el-collapse v-model="agentTracePanelOpen" class="agent-trace-collapse" v-if="message.agentTrace?.length" @change="handleTracePanelChange">
             <el-collapse-item name="agent-trace">
               <template #title>
@@ -132,27 +216,53 @@
                   <small>{{ traceSummary }}</small>
                 </div>
               </template>
-              <div class="trace-list">
-                <div
-                  v-for="(item, index) in message.agentTrace"
-                  :key="`${item.stage}-${item.message}-${index}`"
-                  class="trace-step"
-                  :class="`trace-step--${item.status}`"
-                >
-                  <el-tag size="small" :type="traceStatusType(item.status)" effect="plain">
-                    {{ traceStageLabel(item.stage) }}
+              <div class="trace-current-card" v-if="latestTraceStep" :class="`trace-current-card--${latestTraceStep.status}`">
+                <div class="trace-current-head">
+                  <el-tag size="small" :type="traceStatusType(latestTraceStep.status)" effect="plain">
+                    {{ traceStageLabel(latestTraceStep.stage) }}
                   </el-tag>
-                  <div class="trace-step-main">
-                    <span>{{ item.message }}</span>
-                    <small>{{ traceStatusLabel(item.status) }}</small>
+                  <div class="trace-step-main trace-current-main">
+                    <span>{{ latestTraceStep.message }}</span>
+                    <small>最新 · {{ traceStatusLabel(latestTraceStep.status) }}</small>
                   </div>
-                  <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="item.detail">
-                    <el-collapse-item :name="traceStepName(item, index)" title="查看详情">
-                      <pre class="trace-detail">{{ formatTraceDetail(item.detail) }}</pre>
-                    </el-collapse-item>
-                  </el-collapse>
                 </div>
+                <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="latestTraceStep.detail">
+                  <el-collapse-item :name="traceStepName(latestTraceStep, latestTraceIndex)" title="查看详情">
+                    <pre class="trace-detail">{{ formatTraceDetail(latestTraceStep.detail) }}</pre>
+                  </el-collapse-item>
+                </el-collapse>
               </div>
+              <el-collapse v-if="historicalTraceSteps.length" v-model="traceHistoryOpen" class="trace-history-collapse">
+                <el-collapse-item name="trace-history">
+                  <template #title>
+                    <div class="trace-history-title">
+                      <span>历史步骤</span>
+                      <small>{{ historicalTraceSteps.length }} 步已折叠</small>
+                    </div>
+                  </template>
+                  <div class="trace-list trace-list--history">
+                    <div
+                      v-for="step in historicalTraceSteps"
+                      :key="`${step.item.stage}-${step.item.message}-${step.index}`"
+                      class="trace-step"
+                      :class="`trace-step--${step.item.status}`"
+                    >
+                      <el-tag size="small" :type="traceStatusType(step.item.status)" effect="plain">
+                        {{ traceStageLabel(step.item.stage) }}
+                      </el-tag>
+                      <div class="trace-step-main">
+                        <span>{{ step.item.message }}</span>
+                        <small>{{ traceStatusLabel(step.item.status) }}</small>
+                      </div>
+                      <el-collapse v-model="traceDetailOpen" class="trace-detail-collapse" v-if="step.item.detail">
+                        <el-collapse-item :name="traceStepName(step.item, step.index)" title="查看详情">
+                          <pre class="trace-detail">{{ formatTraceDetail(step.item.detail) }}</pre>
+                        </el-collapse-item>
+                      </el-collapse>
+                    </div>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
             </el-collapse-item>
           </el-collapse>
 
@@ -194,6 +304,31 @@
               <span>分析总结</span>
             </div>
             <div class="summary-text markdown-body" v-html="renderedSummary"></div>
+          </div>
+
+          <div v-if="hasEmptyDiagnostics" class="empty-diagnostics-panel">
+            <div class="empty-diagnostics-head">
+              <div class="empty-diagnostics-icon">
+                <el-icon><WarningFilled /></el-icon>
+              </div>
+              <div>
+                <strong>未查到结果</strong>
+                <span>查询已执行成功，下面是自动排查方向。</span>
+              </div>
+            </div>
+            <div class="empty-check-list">
+              <span v-for="check in emptyDiagnosticChecks" :key="check">{{ check }}</span>
+            </div>
+            <div v-if="emptyDiagnosticActions.length" class="refinement-actions empty-actions">
+              <button
+                v-for="action in emptyDiagnosticActions"
+                :key="`${action.label}-${action.question}`"
+                type="button"
+                @click="runRefinement(action.question)"
+              >
+                {{ action.label }}
+              </button>
+            </div>
           </div>
 
           <div v-if="canCreateAction" class="decision-action-bar">
@@ -452,6 +587,7 @@
           <div>
             <span>保存为指标草稿</span>
             <strong>{{ metricDraftForm.name || "待识别指标" }}</strong>
+            <small class="metric-draft-dataset">绑定数据集：{{ metricDraftDatasetLabel }}</small>
             <p>保存后会进入指标草稿 / 待认证状态，TOP N、时间窗口等临时分析条件保留在来源证据中。</p>
           </div>
           <el-tag size="small" type="warning" effect="plain">草稿 / 待认证</el-tag>
@@ -490,6 +626,9 @@
           </el-form-item>
           <el-form-item label="业务定义" required>
             <el-input v-model="metricDraftForm.definition" type="textarea" :rows="3" />
+          </el-form-item>
+          <el-form-item label="绑定数据集" required>
+            <el-input :model-value="metricDraftDatasetLabel" disabled />
           </el-form-item>
           <el-row :gutter="12">
             <el-col :xs="24" :sm="12">
@@ -531,6 +670,8 @@
             <strong>{{ metricDraftResponse.source.source_question || props.message.sourceQuestion || props.message.content }}</strong>
             <span>查询历史</span>
             <strong>#{{ metricDraftResponse.source.source_query_history_id }}</strong>
+            <span>绑定数据集</span>
+            <strong>{{ metricDraftDatasetLabel }}</strong>
             <span>结果行数</span>
             <strong>{{ metricDraftResponse.validation.row_count || 0 }}</strong>
             <span>校验状态</span>
@@ -572,7 +713,13 @@ import {
   WarningFilled,
 } from "@element-plus/icons-vue"
 import { marked } from "marked"
-import { useQueryStore, type AgentTraceStep, type ChatMessage, type DrillContext } from "@/store/query"
+import {
+  useQueryStore,
+  type AgenticRefinementAction,
+  type AgentTraceStep,
+  type ChatMessage,
+  type DrillContext,
+} from "@/store/query"
 import { useAuthStore } from "@/store/auth"
 import MessageChart from "./MessageChart.vue"
 import MessageTable from "./MessageTable.vue"
@@ -595,6 +742,7 @@ const metricDraftSaving = ref(false)
 const metricDraftResponse = ref<MetricDraftResponse | null>(null)
 const metricDraftWarnings = ref<string[]>([])
 const metricDraftForm = reactive({
+  dataset_id: null as number | null,
   name: "",
   definition: "",
   formula: "",
@@ -686,9 +834,17 @@ interface MetricDraftResponse {
   }
   source: {
     source_query_history_id: number
+    source_dataset_id?: number | null
+    source_dataset_name?: string | null
     source_sql?: string
     source_question?: string
     source_metric_column?: string | null
+    dataset_binding?: {
+      dataset_id: number
+      dataset_name: string
+      datasource_id: number
+      auto_recommended: boolean
+    }
   }
   validation: {
     row_count?: number
@@ -705,6 +861,32 @@ const hasResult = computed(() => {
          props.message.result.rows && 
          props.message.result.rows.length > 0
 })
+
+const agentNotesPanelOpen = ref<string[]>([])
+const agentAssumptions = computed(() => props.message.agentNotes?.assumptions || [])
+const agentRiskFlags = computed(() => props.message.agentNotes?.risk_flags || [])
+const agentRefinementActions = computed<AgenticRefinementAction[]>(() => props.message.agentNotes?.suggested_refinements || [])
+const hasAgentNotes = computed(() =>
+  Boolean(agentAssumptions.value.length || agentRiskFlags.value.length || agentRefinementActions.value.length)
+)
+const agentAssumptionCount = computed(() => Math.max(agentAssumptions.value.length, 1))
+const agentConfidenceText = computed(() => {
+  const confidence = props.message.agentNotes?.confidence || "medium"
+  const labels: Record<string, string> = {
+    high: "口径较明确，可直接查看结果",
+    medium: "口径存在轻微不确定，可按需调整",
+    low: "口径不确定性较高，建议查看假设",
+  }
+  return labels[confidence] || "可查看假设并继续调整"
+})
+
+const emptyDiagnosticChecks = computed(() => props.message.emptyDiagnostics?.checks || [])
+const emptyDiagnosticActions = computed<AgenticRefinementAction[]>(() => props.message.emptyDiagnostics?.suggested_actions || [])
+const hasEmptyDiagnostics = computed(() =>
+  props.message.status === "success" &&
+  !hasResult.value &&
+  Boolean(emptyDiagnosticChecks.value.length || emptyDiagnosticActions.value.length)
+)
 
 const resultRowCount = computed(() => props.message.result?.rows?.length || 0)
 const resultColumnCount = computed(() => props.message.result?.columns?.length || 0)
@@ -726,6 +908,7 @@ const metricDraftDimensionColumns = computed(() =>
 )
 
 const metricDraftCompletionItems = computed(() => [
+  { label: "数据集", done: Boolean(metricDraftForm.dataset_id) },
   { label: "名称", done: Boolean(metricDraftForm.name.trim()) },
   { label: "定义", done: Boolean(metricDraftForm.definition.trim()) },
   { label: "公式", done: Boolean(metricDraftForm.formula.trim()) },
@@ -737,6 +920,11 @@ const metricDraftCompletionItems = computed(() => [
 const metricDraftCompletedCount = computed(() =>
   metricDraftCompletionItems.value.filter(item => item.done).length
 )
+
+const metricDraftDatasetLabel = computed(() => {
+  const source = metricDraftResponse.value?.source
+  return source?.source_dataset_name || source?.dataset_binding?.dataset_name || "未绑定数据集"
+})
 
 const defaultInsightTitle = computed(() => {
   const source = props.message.sourceQuestion || props.message.content || "查询洞察"
@@ -806,8 +994,16 @@ const attributionConfidenceType = computed(() => {
 
 const agentTracePanelOpen = ref<string[]>(props.message.status === "sending" || props.message.status === "error" ? ["agent-trace"] : [])
 const traceDetailOpen = ref<string[]>([])
+const traceHistoryOpen = ref<string[]>([])
 const agentTracePanelTouched = ref(false)
 const agentTraceSteps = computed(() => props.message.agentTrace || [])
+const latestTraceIndex = computed(() => agentTraceSteps.value.length - 1)
+const latestTraceStep = computed((): AgentTraceStep | null => (
+  latestTraceIndex.value >= 0 ? agentTraceSteps.value[latestTraceIndex.value] : null
+))
+const historicalTraceSteps = computed(() => (
+  agentTraceSteps.value.slice(0, -1).map((item, index) => ({ item, index }))
+))
 const failedTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "error").length)
 const pendingTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "pending").length)
 const warningTraceCount = computed(() => agentTraceSteps.value.filter(item => item.status === "warning").length)
@@ -839,15 +1035,39 @@ const goBackOneLevel = async () => {
   await queryStore.ask(drillContext.parentQuestion, "business", drillContext.parentContext)
 }
 
+const riskFlagLabel = (flag: string) => {
+  const labels: Record<string, string> = {
+    question_ambiguous: "问题描述存在歧义",
+    missing_time_range: "未指定时间范围",
+    missing_metric: "未指定指标口径",
+    missing_dimension: "未指定分析维度",
+  }
+  return labels[flag] || flag
+}
+
+const runRefinement = async (question: string) => {
+  const refinedQuestion = question.trim()
+  if (!refinedQuestion || queryStore.loading) return
+  await queryStore.ask(
+    refinedQuestion,
+    "agentic",
+    undefined,
+    props.message.historyId || null,
+  )
+}
+
 const traceStageLabel = (stage: string) => {
   const labels: Record<string, string> = {
     context: "上下文",
+    value_probe: "值探测",
     plan: "规划",
+    assumption: "假设",
     sql_generate: "生成",
     sql_fix: "修复",
     sql_execute_fix: "执行修复",
     sql_execute_fix_retry: "执行修复",
     execute: "执行",
+    empty_diagnostics: "空结果诊断",
     chart_plan: "图表",
   }
   return labels[stage] || stage
@@ -1013,6 +1233,7 @@ const runAttribution = async () => {
 
 const fillMetricDraftForm = (draft: MetricDraftResponse) => {
   const candidate = draft.candidate || {}
+  metricDraftForm.dataset_id = draft.source.source_dataset_id || draft.source.dataset_binding?.dataset_id || null
   metricDraftForm.name = candidate.name || props.message.sourceQuestion?.slice(0, 64) || "探索沉淀指标"
   metricDraftForm.definition = candidate.definition || props.message.summary || "从探索模式问数结果沉淀的指标"
   metricDraftForm.formula = candidate.formula || ""
@@ -1040,6 +1261,7 @@ const openMetricDraftDrawer = async () => {
     fillMetricDraftForm(res.data)
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || "指标草稿生成失败")
+    metricDraftDrawerVisible.value = false
   } finally {
     metricDraftLoading.value = false
   }
@@ -1047,6 +1269,10 @@ const openMetricDraftDrawer = async () => {
 
 const saveMetricDraft = async () => {
   if (!props.message.historyId) return
+  if (!metricDraftForm.dataset_id) {
+    ElMessage.warning("当前结果未绑定数据集，请先创建基础数据集")
+    return
+  }
   if (!metricDraftForm.name.trim() || !metricDraftForm.definition.trim() || !metricDraftForm.formula.trim()) {
     ElMessage.warning("请完善指标名称、定义和公式")
     return
@@ -1055,6 +1281,7 @@ const saveMetricDraft = async () => {
   try {
     await axios.post("/api/metrics/from-query", {
       query_history_id: props.message.historyId,
+      dataset_id: metricDraftForm.dataset_id,
       name: metricDraftForm.name.trim(),
       definition: metricDraftForm.definition.trim(),
       formula: metricDraftForm.formula.trim(),
@@ -1356,11 +1583,182 @@ const formatTime = (date: Date) => {
   color: #0f172a;
 }
 
+.assumption-panel,
+.empty-diagnostics-panel {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #b7e4d8;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.assumption-panel-head,
+.empty-diagnostics-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.assumption-icon,
+.empty-diagnostics-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.assumption-panel-head strong,
+.empty-diagnostics-head strong {
+  display: block;
+  color: #134e4a;
+  font-size: 13px;
+}
+
+.assumption-panel-head span,
+.empty-diagnostics-head span {
+  display: block;
+  margin-top: 3px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.assumption-collapse {
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+}
+
+.assumption-collapse :deep(.el-collapse-item__header) {
+  min-height: 34px;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assumption-collapse :deep(.el-collapse-item__wrap) {
+  border: 0;
+  background: transparent;
+}
+
+.assumption-collapse :deep(.el-collapse-item__content) {
+  padding: 4px 0 0;
+}
+
+.assumption-list,
+.assumption-risk-list,
+.empty-check-list {
+  display: grid;
+  gap: 6px;
+}
+
+.assumption-list span,
+.assumption-risk-list span,
+.empty-check-list span {
+  position: relative;
+  padding-left: 14px;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.assumption-list span::before,
+.empty-check-list span::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #0f766e;
+}
+
+.assumption-risk-list {
+  margin-top: 8px;
+}
+
+.assumption-risk-list span {
+  color: #92400e;
+}
+
+.assumption-risk-list span::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: #f59e0b;
+}
+
+.refinement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.refinement-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  color: #0f766e;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.refinement-actions button:hover {
+  transform: translateY(-1px);
+  background: #ccfbf1;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+}
+
+.empty-diagnostics-panel {
+  display: grid;
+  gap: 10px;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.empty-diagnostics-icon {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.empty-diagnostics-head strong {
+  color: #78350f;
+}
+
+.empty-actions button {
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.empty-actions button:hover {
+  background: #fef3c7;
+  box-shadow: 0 8px 18px rgba(146, 64, 14, 0.12);
+}
+
 .agent-trace-collapse {
   width: 100%;
-  border: 1px solid #bfdbfe;
+  border: 1px solid #99f6e4;
   border-radius: 12px;
-  background: #eff6ff;
+  background: #f0fdfa;
   overflow: hidden;
 }
 
@@ -1368,12 +1766,12 @@ const formatTime = (date: Date) => {
   min-height: 46px;
   height: auto;
   padding: 0 12px;
-  background: #eff6ff;
+  background: #f0fdfa;
   border-bottom: 0;
 }
 
 .agent-trace-collapse :deep(.el-collapse-item__wrap) {
-  background: #eff6ff;
+  background: #f0fdfa;
   border-bottom: 0;
 }
 
@@ -1391,12 +1789,105 @@ const formatTime = (date: Date) => {
 }
 
 .agent-trace-title span {
-  color: #1d4ed8;
+  color: #0f766e;
   font-weight: 700;
 }
 
 .agent-trace-title small {
   color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.trace-current-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #99f6e4;
+  border-left: 3px solid #0f766e;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.08);
+}
+
+.trace-current-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 10px;
+}
+
+.trace-step-main.trace-current-main span {
+  color: #0f172a;
+  font-weight: 600;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.trace-step-main.trace-current-main small {
+  color: #0f766e;
+}
+
+.trace-current-card--error {
+  border-color: #fecaca;
+  border-left-color: #dc2626;
+  box-shadow: 0 8px 20px rgba(220, 38, 38, 0.08);
+}
+
+.trace-current-card--warning {
+  border-color: #fde68a;
+  border-left-color: #d97706;
+  box-shadow: 0 8px 20px rgba(217, 119, 6, 0.08);
+}
+
+.trace-current-card--pending {
+  border-color: #99f6e4;
+  border-left-color: #0891b2;
+}
+
+.trace-history-collapse {
+  margin-top: 8px;
+  border: 1px solid #ccfbf1;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+}
+
+.trace-history-collapse :deep(.el-collapse-item__header) {
+  min-height: 38px;
+  height: auto;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 0;
+}
+
+.trace-history-collapse :deep(.el-collapse-item__wrap) {
+  border-bottom: 0;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.trace-history-collapse :deep(.el-collapse-item__content) {
+  padding: 0 10px 10px;
+}
+
+.trace-history-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.trace-history-title span {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trace-history-title small {
+  color: #64748b;
+  font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -2009,6 +2500,14 @@ const formatTime = (date: Date) => {
   color: #0f172a;
   font-size: 16px;
   word-break: break-word;
+}
+
+.metric-draft-hero .metric-draft-dataset {
+  display: block;
+  margin-top: 5px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .metric-draft-hero p {

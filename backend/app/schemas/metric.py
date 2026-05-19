@@ -99,6 +99,7 @@ class MetricFromQueryDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query_history_id: int
+    dataset_id: Optional[int] = None
     selected_metric_column: Optional[str] = None
     selected_dimensions: list[str] = []
     time_column: Optional[str] = None

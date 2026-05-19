@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,7 +17,6 @@ from app.core.llm import (
     normalize_llm_config,
 )
 from app.core.agentic_nl2sql import (
-    AgenticClarificationRequired,
     build_agentic_chart_spec,
     build_agentic_nl2sql,
     repair_agentic_sql_after_execution_error,
@@ -77,6 +77,75 @@ def _normalize_history_mode(mode: str | None) -> str:
     if mode in {"agentic", "explore"}:
         return "agentic"
     return "business"
+
+
+def _root_history_id(item: QueryHistory) -> int:
+    return item.parent_history_id or item.id
+
+
+def _resolve_parent_history_id(
+    db: Session,
+    parent_history_id: int | None,
+    datasource_id: int,
+    mode: str,
+    current_user: User,
+) -> int | None:
+    if not parent_history_id:
+        return None
+    parent = (
+        db.query(QueryHistory)
+        .filter(QueryHistory.user_id == current_user.id, QueryHistory.id == parent_history_id)
+        .first()
+    )
+    if not parent:
+        return None
+    if parent.datasource_id != datasource_id:
+        return None
+    if _normalize_history_mode(parent.mode) != _normalize_history_mode(mode):
+        return None
+    return _root_history_id(parent)
+
+
+def _history_result_parts(item: QueryHistory) -> tuple[dict, list, list, dict | None, dict | None, dict | None]:
+    result = {"columns": [], "rows": []}
+    trust_signals = []
+    agent_trace = []
+    chart_spec = None
+    agent_notes = None
+    empty_diagnostics = None
+    if item.result_json:
+        try:
+            result = json.loads(item.result_json)
+            trust_signals = result.pop("_trust_signals", []) or []
+            agent_trace = result.pop("_agent_trace", []) or []
+            chart_spec = result.pop("_chart_spec", None)
+            agent_notes = result.pop("_agent_notes", None)
+            empty_diagnostics = result.pop("_empty_diagnostics", None)
+        except Exception:
+            pass
+    return result, trust_signals, agent_trace, chart_spec, agent_notes, empty_diagnostics
+
+
+def _history_detail_payload(item: QueryHistory, db: Session) -> dict:
+    result, trust_signals, agent_trace, chart_spec, agent_notes, empty_diagnostics = _history_result_parts(item)
+    return {
+        "id": item.id,
+        "datasource_id": item.datasource_id,
+        "question": item.question,
+        "sql_query": item.sql_query,
+        "result": result,
+        "summary": item.summary or "",
+        "llm_model": item.llm_model or _get_persisted_llm_model(db),
+        "mode": _normalize_history_mode(item.mode),
+        "agent_trace": agent_trace,
+        "chart_spec": chart_spec,
+        "agent_notes": agent_notes,
+        "empty_diagnostics": empty_diagnostics,
+        "drill_context": json.loads(item.drill_context) if item.drill_context else None,
+        "parent_history_id": item.parent_history_id,
+        "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),
+        "trust_signals": trust_signals,
+    }
 
 
 @router.post("/semantic", response_model=SemanticQueryResponse)
@@ -185,6 +254,201 @@ def _get_recommendations(datasource: DataSource | None) -> list[str]:
     return recommendations if isinstance(recommendations, list) else []
 
 
+def _extract_agentic_value_probe_terms(question: str) -> list[str]:
+    candidates = re.findall(r"(?<![A-Za-z0-9_-])([A-Za-z][A-Za-z0-9_-]{1,31})(?![A-Za-z0-9_-])", question or "")
+    ignored = {
+        "top",
+        "step",
+        "alarm",
+        "alarmid",
+        "alarm_id",
+        "error",
+        "error_code",
+        "equipment",
+        "equipmentid",
+        "count",
+        "trend",
+        "date",
+        "time",
+        "sumdatetime",
+    }
+    terms: list[str] = []
+    for candidate in candidates:
+        lowered = candidate.lower()
+        if lowered in ignored or re.fullmatch(r"top\d+", lowered):
+            continue
+        if "_" in candidate and lowered.endswith(("id", "code", "time", "date")):
+            continue
+        if candidate.islower() and not any(char.isdigit() for char in candidate):
+            continue
+        if candidate not in terms:
+            terms.append(candidate)
+    return terms[:3]
+
+
+def _safe_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _safe_sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _schema_tables_for_value_probe(datasource: DataSource) -> list[dict[str, list[str]]]:
+    raw_schema = getattr(datasource, "schema_metadata", None)
+    parsed: dict | None = None
+    if isinstance(raw_schema, str) and raw_schema.strip():
+        try:
+            parsed = json.loads(raw_schema)
+        except Exception:
+            parsed = None
+    elif isinstance(raw_schema, dict):
+        parsed = raw_schema
+    tables: list[dict[str, list[str]]] = []
+    for table in (parsed or {}).get("tables", []) if isinstance(parsed, dict) else []:
+        if not isinstance(table, dict):
+            continue
+        name = str(table.get("name") or "").strip()
+        columns = []
+        for column in table.get("columns") or []:
+            if isinstance(column, dict):
+                column_name = str(column.get("name") or "").strip()
+            else:
+                column_name = str(column or "").strip()
+            if column_name:
+                columns.append(column_name)
+        if name and columns:
+            tables.append({"name": name, "columns": columns[:24]})
+    if tables:
+        return tables[:6]
+
+    metadata = getattr(datasource, "metadata_prompt", "") or ""
+    for match in re.finditer(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]{1,800})\)", metadata):
+        name = match.group(1).strip()
+        columns = [
+            item.strip().strip("`\"")
+            for item in re.split(r"[,，]", match.group(2))
+            if item.strip()
+        ]
+        if name and columns:
+            tables.append({"name": name, "columns": columns[:24]})
+    return tables[:6]
+
+
+def _value_probe_sql(table: str, column: str, term: str) -> str:
+    table_ref = _safe_identifier(table)
+    column_ref = _safe_identifier(column)
+    literal = _safe_sql_literal(term)
+    return (
+        f"SELECT {literal} AS probe_term, {_safe_sql_literal(table)} AS table_name, "
+        f"{_safe_sql_literal(column)} AS column_name, CAST({column_ref} AS VARCHAR) AS matched_value, "
+        f"COUNT(*) AS match_count FROM {table_ref} "
+        f"WHERE LOWER(CAST({column_ref} AS VARCHAR)) = LOWER({literal}) "
+        f"GROUP BY {column_ref} ORDER BY match_count DESC LIMIT 3"
+    )
+
+
+def _sample_probe_sql(table: str, column: str, term: str) -> str:
+    table_ref = _safe_identifier(table)
+    column_ref = _safe_identifier(column)
+    literal = _safe_sql_literal(term)
+    return (
+        f"SELECT * FROM {table_ref} "
+        f"WHERE LOWER(CAST({column_ref} AS VARCHAR)) = LOWER({literal}) "
+        "LIMIT 3"
+    )
+
+
+def _format_agentic_value_probe_context(probe: dict | None) -> str:
+    if not probe or not probe.get("terms"):
+        return ""
+    terms = [str(item) for item in probe.get("terms") or []]
+    matches = [item for item in probe.get("matches") or [] if isinstance(item, dict)]
+    if not matches:
+        return f"值探测结果：用户问题中的疑似字段值 {', '.join(terms)} 未在抽样扫描范围内命中。"
+    lines = [
+        f"值探测结果：用户问题中的疑似字段值包括 {', '.join(terms)}。",
+        "生成 SQL 时优先把这些片段理解为字段值过滤条件，不要直接当作字段名。",
+    ]
+    for match in matches[:8]:
+        table = match.get("table")
+        column = match.get("column")
+        value = match.get("matched_value")
+        count = match.get("match_count")
+        lines.append(f"- {match.get('term')} 命中 {table}.{column} = {value}，匹配 {count} 条。")
+        sample_rows = match.get("sample_rows") if isinstance(match.get("sample_rows"), list) else []
+        if sample_rows:
+            lines.append(f"  样例记录：{json.dumps(sample_rows[:2], ensure_ascii=False, default=str)}")
+    return "\n".join(lines)
+
+
+async def _append_agentic_value_probe(
+    datasource: DataSource,
+    question: str,
+    agent_trace: list[dict],
+    on_trace=None,
+) -> tuple[dict | None, str]:
+    terms = _extract_agentic_value_probe_terms(question)
+    if not terms:
+        return None, ""
+    tables = _schema_tables_for_value_probe(datasource)
+    matches: list[dict] = []
+    checked = 0
+    for term in terms:
+        term_found = False
+        for table in tables:
+            for column in table["columns"]:
+                if checked >= 80:
+                    break
+                checked += 1
+                try:
+                    result, rows = _execute_datasource_sql(datasource, _value_probe_sql(table["name"], column, term))
+                except Exception:
+                    continue
+                for row in rows[:3]:
+                    match_count = row.get("match_count", 0)
+                    if not match_count:
+                        continue
+                    sample_rows: list[dict] = []
+                    try:
+                        sample_result, sample_rows = _execute_datasource_sql(
+                            datasource,
+                            _sample_probe_sql(table["name"], column, term),
+                        )
+                    except Exception:
+                        sample_rows = []
+                    matches.append(
+                        {
+                            "term": term,
+                            "table": table["name"],
+                            "column": column,
+                            "matched_value": row.get("matched_value"),
+                            "match_count": match_count,
+                            "sample_rows": sample_rows[:3],
+                        }
+                    )
+                    term_found = True
+                if term_found:
+                    break
+            if term_found or checked >= 80:
+                break
+    probe = {"terms": terms, "checked_columns": checked, "matches": matches}
+    context = _format_agentic_value_probe_context(probe)
+    status = "success" if matches else "warning"
+    message = "已根据疑似字段值探测到候选字段" if matches else "未在抽样扫描范围内命中疑似字段值"
+    await _append_agent_trace(
+        agent_trace,
+        {
+            "stage": "value_probe",
+            "status": status,
+            "message": message,
+            "detail": probe,
+        },
+        on_trace,
+    )
+    return probe, context
+
+
 def _normalize_summary(question: str, result: dict, summary: str) -> str:
     rows = result.get("rows", []) if isinstance(result, dict) else []
     if not rows:
@@ -199,70 +463,6 @@ def _normalize_summary(question: str, result: dict, summary: str) -> str:
     if any(pattern in summary for pattern in no_data_patterns):
         return f"查询返回 {len(rows)} 条记录，请直接查看下方结果表。"
     return summary
-
-
-def _format_clarification_message(questions: list[str]) -> str:
-    if not questions:
-        questions = [
-            "你想分析哪个指标或字段？",
-            "是否需要限定时间范围、维度或筛选条件？",
-        ]
-    question_lines = "\n".join(f"{index}. {question}" for index, question in enumerate(questions, start=1))
-    return f"这个问题还不够明确，我需要先确认一下再查询：\n{question_lines}"
-
-
-def _build_agentic_clarification_payload(
-    exc: AgenticClarificationRequired,
-    runtime_llm_model: str | None,
-    datasource: DataSource | None = None,
-) -> dict:
-    message = _format_clarification_message(exc.questions)
-    return {
-        "answer": message,
-        "result": {"columns": [], "rows": []},
-        "summary": message,
-        "sql_query": None,
-        "llm_model": runtime_llm_model,
-        "history_id": None,
-        "recommendations": _get_recommendations(datasource),
-        "mode": "agentic",
-        "trust_signals": [],
-        "agent_trace": exc.trace,
-        "chart_spec": None,
-    }
-
-
-def _agentic_empty_result_confirmation(question: str, result: dict, sql_query: str) -> str:
-    columns = result.get("columns", []) if isinstance(result, dict) else []
-    column_text = f"返回字段：{', '.join(str(column) for column in columns)}。" if columns else ""
-    return (
-        "查询已执行，但没有返回数据。"
-        "这可能是正常的，也可能是时间范围、筛选条件、字段口径或数据源选择过窄导致的。"
-        f"{column_text}"
-        "请确认：时间范围是否正确、筛选条件是否过严、是否使用了正确的数据源和字段口径。"
-        "如果这些条件无误，可以告诉我新的时间范围或筛选条件，我再继续查询。"
-    )
-
-
-def _agentic_empty_result_trace(sql_query: str, result: dict) -> dict | None:
-    rows = result.get("rows", []) if isinstance(result, dict) else []
-    if rows:
-        return None
-    return {
-        "stage": "result_check",
-        "status": "warning",
-        "message": "查询结果为空，建议向用户确认筛选条件",
-        "detail": {
-            "row_count": 0,
-            "columns": result.get("columns", []) if isinstance(result, dict) else [],
-            "sql": sql_query,
-            "suggestions": [
-                "确认时间范围是否过窄",
-                "确认筛选条件是否过严",
-                "确认数据源和字段口径是否匹配问题",
-            ],
-        },
-    }
 
 
 def _get_drill_config(datasource: DataSource | None) -> dict | None:
@@ -606,6 +806,85 @@ def _build_query_execution_error_detail(
     }
 
 
+def _build_agentic_stream_unhandled_error_detail(
+    exc: Exception,
+    sql_query: str,
+    agent_trace: list[dict],
+    llm_model: str | None,
+) -> dict:
+    message = f"流式问数失败: {_format_exception(exc)}"
+    finalize_trace = {
+        "stage": "stream_finalize",
+        "status": "error",
+        "message": message,
+        "detail": {
+            "error": _format_exception(exc),
+            "error_type": exc.__class__.__name__,
+            "sql": sql_query,
+        },
+    }
+    return {
+        "message": message,
+        "sql_query": sql_query,
+        "agent_trace": [*agent_trace, finalize_trace],
+        "llm_model": llm_model,
+    }
+
+
+def _refinement_action(label: str, question: str) -> dict:
+    return {"label": label, "question": question.strip()}
+
+
+def _build_agentic_empty_diagnostics(question: str, sql_query: str, result: dict) -> dict:
+    columns = result.get("columns", []) if isinstance(result, dict) else []
+    checks = ["SQL 执行成功但返回 0 行"]
+    if columns:
+        checks.append(f"结果列已返回：{', '.join(str(column) for column in columns[:6])}")
+    lower_question = question.lower()
+    lower_sql = sql_query.lower()
+    has_time_condition = any(token in lower_question or token in lower_sql for token in ("最近", "近", "天", "周", "月", "date", "time", "interval", "between"))
+    has_filter_condition = " where " in f" {lower_sql} "
+    if has_time_condition:
+        checks.append("查询包含时间范围，空结果可能由时间窗口过窄导致")
+    if has_filter_condition:
+        checks.append("查询包含筛选条件，空结果可能由字段值或条件组合过窄导致")
+    if not has_time_condition and not has_filter_condition:
+        checks.append("查询未命中数据，建议先查看主表数据量和可用字段值")
+
+    suggested_actions = [
+        _refinement_action("放宽时间范围", f"{question}，放宽时间范围后重新查询，优先查看最近90天或全量可用时间"),
+        _refinement_action("移除部分筛选", f"{question}，先移除非必要筛选条件，查看是否存在匹配数据"),
+        _refinement_action("查看可用字段值", f"基于当前数据源，先查看和这个问题相关字段的可用取值与数据分布：{question}"),
+        _refinement_action("重新分析条件", f"重新分析这个问题的查询条件，先判断哪些条件可能导致空结果，再生成更稳妥的查询：{question}"),
+    ]
+    return {
+        "reason": "no_matching_rows",
+        "checks": checks,
+        "suggested_actions": suggested_actions,
+    }
+
+
+async def _append_agentic_empty_diagnostics(
+    question: str,
+    sql_query: str,
+    result: dict,
+    agent_trace: list[dict],
+    on_trace=None,
+) -> dict:
+    diagnostics = _build_agentic_empty_diagnostics(question, sql_query, result)
+    await _append_agent_trace(
+        agent_trace,
+        {
+            "stage": "empty_diagnostics",
+            "status": "warning",
+            "message": "查询结果为空，已生成排查建议",
+            "detail": diagnostics,
+        },
+        on_trace,
+    )
+    return diagnostics
+
+
 def _sse_event(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
@@ -622,7 +901,6 @@ async def ask(
     datasource_id = getattr(payload, "datasource_id", None)
     dataset_id = getattr(payload, "dataset_id", None)
     drill_context = payload.drill_context
-    parent_history_id = payload.parent_history_id
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
 
@@ -646,20 +924,30 @@ async def ask(
     # 问数模式
     if not datasource:
         raise HTTPException(status_code=400, detail="请先选择或配置数据源")
+    parent_history_id = _resolve_parent_history_id(db, payload.parent_history_id, datasource.id, mode, current_user)
 
     agent_trace: list[dict] = []
+    agent_notes = None
+    value_probe_context = ""
     try:
         if mode == "agentic":
+            _, value_probe_context = await _append_agentic_value_probe(
+                datasource,
+                question,
+                agent_trace,
+            )
             agentic_result = await build_agentic_nl2sql(
                 question,
                 datasource,
                 llm_model=runtime_llm_model,
                 llm_config=agentic_llm_config,
+                extra_context=value_probe_context,
             )
             query_plan = agentic_result.get("plan") or {}
             metric_match = match_metric_from_question(question, datasource)
             sql_query = agentic_result["sql_query"]
-            agent_trace = agentic_result.get("trace") or []
+            agent_trace.extend(agentic_result.get("trace") or [])
+            agent_notes = agentic_result.get("agent_notes")
         else:
             query_plan = await plan_query(question, datasource)
             metric_match = match_metric_from_question(question, datasource)
@@ -670,25 +958,6 @@ async def ask(
                 metric_match=metric_match,
                 context=dataset_context,
             )
-    except AgenticClarificationRequired as exc:
-        agent_trace = exc.trace
-        try_record_audit_log(
-            db,
-            actor=current_user,
-            action="query.ask",
-            resource_type="query",
-            resource_name=datasource.name,
-            org_id=datasource.org_id,
-            message="探索模式需要澄清",
-            detail={
-                "stage": "clarify",
-                "question": question,
-                "datasource_id": datasource.id,
-                "llm_model": runtime_llm_model,
-                "questions": exc.questions,
-            },
-        )
-        return _build_agentic_clarification_payload(exc, runtime_llm_model, datasource)
     except Exception as exc:
         generation_error = (
             _format_agentic_generation_error(exc, agentic_llm_config)
@@ -724,6 +993,7 @@ async def ask(
     result = {"columns": [], "rows": []}
     rows = []
     chart_spec = None
+    empty_diagnostics = None
     try:
         if mode == "agentic":
             sql_query, result, rows = await _execute_agentic_sql_with_repair(
@@ -768,33 +1038,39 @@ async def ask(
             ),
         )
 
-    if mode == "agentic":
-        empty_trace = _agentic_empty_result_trace(sql_query, result)
-        if empty_trace:
-            agent_trace.append(empty_trace)
-        elif rows:
-            chart_spec = await _build_agentic_chart_spec_with_trace(
-                question,
-                result,
-                agent_trace,
-                llm_model=runtime_llm_model,
-                llm_config=agentic_llm_config,
-            )
+    if mode == "agentic" and rows:
+        chart_spec = await _build_agentic_chart_spec_with_trace(
+            question,
+            result,
+            agent_trace,
+            llm_model=runtime_llm_model,
+            llm_config=agentic_llm_config,
+        )
+    elif mode == "agentic":
+        empty_diagnostics = await _append_agentic_empty_diagnostics(
+            question,
+            sql_query,
+            result,
+            agent_trace,
+        )
 
     # 生成摘要
-    empty_result_message = _agentic_empty_result_confirmation(question, result, sql_query) if mode == "agentic" and not rows else ""
-    if empty_result_message:
-        summary = empty_result_message
-    else:
-        try:
-            summary = await generate_summary(question, result)
-        except Exception:
-            summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
-        summary = _normalize_summary(question, result, summary)
+    try:
+        summary = await generate_summary(question, result)
+    except Exception:
+        summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
+    summary = _normalize_summary(question, result, summary)
 
     recommendations = _get_recommendations(datasource)
     trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
-    stored_result = {**result, "_trust_signals": trust_signals, "_agent_trace": agent_trace, "_chart_spec": chart_spec}
+    stored_result = {
+        **result,
+        "_trust_signals": trust_signals,
+        "_agent_trace": agent_trace,
+        "_chart_spec": chart_spec,
+        "_agent_notes": agent_notes,
+        "_empty_diagnostics": empty_diagnostics,
+    }
 
     history = QueryHistory(
         user_id=current_user.id,
@@ -831,7 +1107,7 @@ async def ask(
     )
 
     return {
-        "answer": empty_result_message or "已生成并执行查询。",
+        "answer": "已生成并执行查询。",
         "result": result,
         "summary": summary,
         "sql_query": sql_query,
@@ -842,6 +1118,8 @@ async def ask(
         "trust_signals": trust_signals,
         "agent_trace": agent_trace,
         "chart_spec": chart_spec,
+        "agent_notes": agent_notes,
+        "empty_diagnostics": empty_diagnostics,
     }
 
 
@@ -863,6 +1141,7 @@ async def ask_stream(
     datasource = _get_datasource(db, payload.datasource_id, current_user)
     if not datasource:
         raise HTTPException(status_code=400, detail="请先选择或配置数据源")
+    parent_history_id = _resolve_parent_history_id(db, payload.parent_history_id, datasource.id, mode, current_user)
 
     runtime_llm_config = normalize_llm_config(await get_llm_config())
     agentic_llm_config, runtime_llm_model = _resolve_agentic_llm_config(runtime_llm_config)
@@ -876,45 +1155,35 @@ async def ask_stream(
         result = {"columns": [], "rows": []}
         rows: list[dict] = []
         chart_spec = None
+        agent_notes = None
+        empty_diagnostics = None
+        value_probe_context = ""
 
         async def emit_trace(item: dict):
             await queue.put(("trace", item))
 
         async def run_query():
-            nonlocal sql_query, query_plan, metric_match, result, rows, chart_spec
+            nonlocal sql_query, query_plan, metric_match, result, rows, chart_spec, agent_notes, empty_diagnostics, value_probe_context
             try:
+                _, value_probe_context = await _append_agentic_value_probe(
+                    datasource,
+                    question,
+                    agent_trace,
+                    on_trace=emit_trace,
+                )
                 agentic_result = await build_agentic_nl2sql(
                     question,
                     datasource,
                     llm_model=runtime_llm_model,
                     llm_config=agentic_llm_config,
+                    extra_context=value_probe_context,
                     on_trace=emit_trace,
                 )
                 query_plan = agentic_result.get("plan") or {}
                 metric_match = match_metric_from_question(question, datasource)
                 sql_query = agentic_result["sql_query"]
-                agent_trace[:] = agentic_result.get("trace") or []
-            except AgenticClarificationRequired as exc:
-                agent_trace[:] = exc.trace
-                try_record_audit_log(
-                    db,
-                    actor=current_user,
-                    action="query.ask",
-                    resource_type="query",
-                    resource_name=datasource.name,
-                    org_id=datasource.org_id,
-                    message="探索模式需要澄清",
-                    detail={
-                        "stage": "clarify",
-                        "question": question,
-                        "datasource_id": datasource.id,
-                        "dataset_id": None,
-                        "llm_model": runtime_llm_model,
-                        "questions": exc.questions,
-                    },
-                )
-                await queue.put(("final", _build_agentic_clarification_payload(exc, runtime_llm_model, datasource)))
-                return
+                agent_trace.extend(agentic_result.get("trace") or [])
+                agent_notes = agentic_result.get("agent_notes")
             except Exception as exc:
                 message = f"SQL生成失败: {_format_agentic_generation_error(exc, agentic_llm_config)}"
                 try_record_audit_log(
@@ -983,37 +1252,44 @@ async def ask_stream(
                 )
                 return
 
-            empty_trace = _agentic_empty_result_trace(sql_query, result)
-            if empty_trace:
-                agent_trace.append(empty_trace)
-                await emit_trace(empty_trace)
-
-            chart_spec = await _build_agentic_chart_spec_with_trace(
-                question,
-                result,
-                agent_trace,
-                llm_model=runtime_llm_model,
-                llm_config=agentic_llm_config,
-                on_trace=emit_trace,
-            ) if rows else None
-
-            empty_result_message = _agentic_empty_result_confirmation(question, result, sql_query) if not rows else ""
-            if empty_result_message:
-                summary = empty_result_message
+            if rows:
+                chart_spec = await _build_agentic_chart_spec_with_trace(
+                    question,
+                    result,
+                    agent_trace,
+                    llm_model=runtime_llm_model,
+                    llm_config=agentic_llm_config,
+                    on_trace=emit_trace,
+                )
             else:
-                try:
-                    summary = await generate_summary(question, result)
-                except Exception:
-                    summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
-                summary = _normalize_summary(question, result, summary)
+                empty_diagnostics = await _append_agentic_empty_diagnostics(
+                    question,
+                    sql_query,
+                    result,
+                    agent_trace,
+                    on_trace=emit_trace,
+                )
+
+            try:
+                summary = await generate_summary(question, result)
+            except Exception:
+                summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
+            summary = _normalize_summary(question, result, summary)
 
             recommendations = _get_recommendations(datasource)
             trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
-            stored_result = {**result, "_trust_signals": trust_signals, "_agent_trace": agent_trace, "_chart_spec": chart_spec}
+            stored_result = {
+                **result,
+                "_trust_signals": trust_signals,
+                "_agent_trace": agent_trace,
+                "_chart_spec": chart_spec,
+                "_agent_notes": agent_notes,
+                "_empty_diagnostics": empty_diagnostics,
+            }
             history = QueryHistory(
                 user_id=current_user.id,
                 datasource_id=datasource.id,
-                parent_history_id=payload.parent_history_id,
+                parent_history_id=parent_history_id,
                 question=f"[{_query_mode_label(mode)}] {question}",
                 sql_query=sql_query,
                 result_json=json.dumps(stored_result, ensure_ascii=False, default=str),
@@ -1047,7 +1323,7 @@ async def ask_stream(
                 (
                     "final",
                     {
-                        "answer": empty_result_message or "已生成并执行查询。",
+                        "answer": "已生成并执行查询。",
                         "result": result,
                         "summary": summary,
                         "sql_query": sql_query,
@@ -1058,6 +1334,8 @@ async def ask_stream(
                         "trust_signals": trust_signals,
                         "agent_trace": agent_trace,
                         "chart_spec": chart_spec,
+                        "agent_notes": agent_notes,
+                        "empty_diagnostics": empty_diagnostics,
                     },
                 )
             )
@@ -1065,6 +1343,33 @@ async def ask_stream(
         async def producer():
             try:
                 await run_query()
+            except Exception as exc:
+                db.rollback()
+                detail = _build_agentic_stream_unhandled_error_detail(
+                    exc,
+                    sql_query,
+                    agent_trace,
+                    runtime_llm_model,
+                )
+                try_record_audit_log(
+                    db,
+                    actor=current_user,
+                    action="query.ask",
+                    resource_type="query",
+                    resource_name=datasource.name,
+                    org_id=datasource.org_id,
+                    status="error",
+                    message=detail["message"],
+                    detail={
+                        "stage": "stream_finalize",
+                        "question": question,
+                        "datasource_id": datasource.id,
+                        "dataset_id": None,
+                        "llm_model": runtime_llm_model,
+                        "sql_query": sql_query,
+                    },
+                )
+                await queue.put(("error", detail))
             finally:
                 await queue.put(None)
 
@@ -1099,17 +1404,47 @@ def history(
     query = db.query(QueryHistory).filter(QueryHistory.user_id == current_user.id)
     if datasource_id:
         query = query.filter(QueryHistory.datasource_id == datasource_id)
-    items = query.order_by(QueryHistory.created_at.desc()).limit(50).all()
+    rows = query.order_by(QueryHistory.created_at.desc()).limit(200).all()
+
+    grouped: dict[int, list[QueryHistory]] = {}
+    missing_root_ids: set[int] = set()
+    row_ids = {row.id for row in rows}
+    for row in rows:
+        root_id = _root_history_id(row)
+        grouped.setdefault(root_id, []).append(row)
+        if root_id != row.id and root_id not in row_ids:
+            missing_root_ids.add(root_id)
+
+    if missing_root_ids:
+        root_query = db.query(QueryHistory).filter(
+            QueryHistory.user_id == current_user.id,
+            QueryHistory.id.in_(missing_root_ids),
+        )
+        if datasource_id:
+            root_query = root_query.filter(QueryHistory.datasource_id == datasource_id)
+        for root in root_query.all():
+            grouped.setdefault(root.id, []).append(root)
+
+    conversation_items: list[tuple[QueryHistory, QueryHistory]] = []
+    for root_id, group in grouped.items():
+        root = next((item for item in group if item.id == root_id), None)
+        if not root:
+            continue
+        latest = max(group, key=lambda item: (item.created_at, item.id))
+        conversation_items.append((root, latest))
+
+    conversation_items.sort(key=lambda pair: (pair[1].created_at, pair[1].id), reverse=True)
+    items = conversation_items[:50]
     return {
         "items": [
             {
-                "id": item.id,
-                "question": item.question,
-                "created_at": item.created_at.strftime("%Y-%m-%d"),
-                "favorite": item.favorite,
-                "parent_history_id": item.parent_history_id,
+                "id": root.id,
+                "question": root.question,
+                "created_at": latest.created_at.strftime("%Y-%m-%d %H:%M"),
+                "favorite": root.favorite,
+                "parent_history_id": root.parent_history_id,
             }
-            for item in items
+            for root, latest in items
         ]
     }
 
@@ -1145,7 +1480,15 @@ def delete_history(
     )
     if not item:
         raise HTTPException(status_code=404, detail="记录不存在")
-    db.delete(item)
+    delete_items = [item]
+    if item.parent_history_id is None:
+        delete_items.extend(
+            db.query(QueryHistory)
+            .filter(QueryHistory.user_id == current_user.id, QueryHistory.parent_history_id == item.id)
+            .all()
+        )
+    for delete_item in delete_items:
+        db.delete(delete_item)
     db.commit()
     return {"status": "ok"}
 
@@ -1178,34 +1521,19 @@ def get_history_detail(
     if not item:
         raise HTTPException(status_code=404, detail="记录不存在")
 
-    result = {"columns": [], "rows": []}
-    trust_signals = []
-    agent_trace = []
-    chart_spec = None
-    if item.result_json:
-        try:
-            result = json.loads(item.result_json)
-            trust_signals = result.pop("_trust_signals", []) or []
-            agent_trace = result.pop("_agent_trace", []) or []
-            chart_spec = result.pop("_chart_spec", None)
-        except Exception:
-            pass
-
-    return {
-        "id": item.id,
-        "question": item.question,
-        "sql_query": item.sql_query,
-        "result": result,
-        "summary": item.summary or "",
-        "llm_model": item.llm_model or _get_persisted_llm_model(db),
-        "mode": _normalize_history_mode(item.mode),
-        "agent_trace": agent_trace,
-        "chart_spec": chart_spec,
-        "drill_context": json.loads(item.drill_context) if item.drill_context else None,
-        "parent_history_id": item.parent_history_id,
-        "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),
-        "trust_signals": trust_signals,
-    }
+    root_id = _root_history_id(item)
+    conversation = (
+        db.query(QueryHistory)
+        .filter(
+            QueryHistory.user_id == current_user.id,
+            or_(QueryHistory.id == root_id, QueryHistory.parent_history_id == root_id),
+        )
+        .order_by(QueryHistory.created_at.asc(), QueryHistory.id.asc())
+        .all()
+    )
+    detail = _history_detail_payload(item, db)
+    detail["conversation"] = [_history_detail_payload(turn, db) for turn in conversation]
+    return detail
 
 
 @router.post("/drill-preview", response_model=DrillPreviewResponse)

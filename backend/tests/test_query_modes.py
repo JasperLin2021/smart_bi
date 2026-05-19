@@ -1,5 +1,7 @@
 import unittest
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -89,19 +91,93 @@ class QueryModePermissionTests(unittest.TestCase):
                 current_user=SimpleNamespace(role=role),
             )
 
-    def test_agentic_empty_result_summary_asks_user_to_confirm_filters(self):
-        from app.api.query import _agentic_empty_result_confirmation
+    def test_agentic_empty_result_confirmation_helper_is_removed(self):
+        import app.api.query as query_api
 
-        summary = _agentic_empty_result_confirmation(
-            "最近30天报警趋势",
-            {"columns": ["trend_date", "alarm_count"], "rows": []},
-            "SELECT trend_date, COUNT(*) AS alarm_count FROM alarms WHERE trend_date >= CURRENT_DATE - 30",
+        self.assertFalse(hasattr(query_api, "_agentic_empty_result_confirmation"))
+        self.assertFalse(hasattr(query_api, "_agentic_empty_result_trace"))
+
+    def test_agentic_empty_result_builds_non_blocking_diagnostics(self):
+        from app.api.query import _build_agentic_empty_diagnostics
+
+        diagnostics = _build_agentic_empty_diagnostics(
+            "查看最近30天报警趋势",
+            "SELECT day, COUNT(*) AS cnt FROM alarms WHERE day >= CURRENT_DATE - INTERVAL '30 days' GROUP BY day",
+            {"columns": ["day", "cnt"], "rows": []},
         )
 
-        self.assertIn("没有返回数据", summary)
-        self.assertIn("请确认", summary)
-        self.assertIn("时间范围", summary)
-        self.assertIn("筛选条件", summary)
+        self.assertEqual(diagnostics["reason"], "no_matching_rows")
+        self.assertIn("SQL 执行成功但返回 0 行", diagnostics["checks"])
+        self.assertGreaterEqual(len(diagnostics["suggested_actions"]), 3)
+        self.assertTrue(all("question" in item for item in diagnostics["suggested_actions"]))
+
+    def test_agentic_value_probe_extracts_short_code_without_field_words(self):
+        from app.api.query import _extract_agentic_value_probe_terms
+
+        terms = _extract_agentic_value_probe_terms("SS的step中，top10的alarm_id的次数趋势图")
+
+        self.assertEqual(terms, ["SS"])
+
+    def test_agentic_value_probe_context_prefers_matched_column(self):
+        from app.api.query import _format_agentic_value_probe_context
+
+        context = _format_agentic_value_probe_context(
+            {
+                "terms": ["SS"],
+                "matches": [
+                    {
+                        "term": "SS",
+                        "table": "sheet1",
+                        "column": "STEP",
+                        "matched_value": "SS",
+                        "match_count": 12,
+                        "sample_rows": [{"STEP": "SS", "ALARMID": "A01"}],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("sheet1.STEP", context)
+        self.assertIn("SS", context)
+        self.assertIn("优先把这些片段理解为字段值过滤条件", context)
+
+    def test_agentic_value_probe_executes_lightweight_scan_and_emits_trace(self):
+        from app.api.query import _append_agentic_value_probe
+
+        datasource = SimpleNamespace(
+            source_type="excel",
+            metadata_prompt="sheet1(STEP, ALARMID, SUMDATETIME)",
+            schema_metadata=None,
+            database_url="/tmp/alarm.xlsx",
+        )
+        trace = []
+
+        def fake_execute(_datasource, sql):
+            if '"STEP"' in sql and "COUNT(*)" in sql:
+                return (
+                    {"columns": ["matched_value", "match_count"]},
+                    [{"matched_value": "SS", "match_count": 12}],
+                )
+            if '"STEP"' in sql and "SELECT *" in sql:
+                return (
+                    {"columns": ["STEP", "ALARMID"]},
+                    [{"STEP": "SS", "ALARMID": "A01"}],
+                )
+            return ({"columns": [], "rows": []}, [])
+
+        with patch("app.api.query._execute_datasource_sql", side_effect=fake_execute):
+            probe, context = asyncio.run(
+                _append_agentic_value_probe(
+                    datasource,
+                    "SS的step中，top10的alarm_id的次数趋势图",
+                    trace,
+                )
+            )
+
+        self.assertEqual(probe["matches"][0]["column"], "STEP")
+        self.assertIn("sheet1.STEP", context)
+        self.assertEqual(trace[0]["stage"], "value_probe")
+        self.assertEqual(trace[0]["status"], "success")
 
 
 if __name__ == "__main__":

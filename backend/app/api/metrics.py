@@ -654,6 +654,48 @@ def _query_history_for_metric_draft(db: Session, history_id: int, current_user: 
     return history, datasource
 
 
+def _dataset_visible_for_metric_source(dataset: Dataset, current_user: User) -> bool:
+    role = getattr(current_user, "role", None)
+    if role == "super_admin":
+        return True
+    if dataset.org_id != getattr(current_user, "org_id", None):
+        return False
+    if role == "org_admin":
+        return True
+    if role == "dept_admin":
+        return dataset.status in {"published", "pending_review"} or dataset.owner_id == getattr(current_user, "id", None)
+    return dataset.status == "published" or dataset.owner_id == getattr(current_user, "id", None)
+
+
+def _dataset_recommendation_rank(dataset: Dataset) -> tuple[int, int, int, int]:
+    status_rank = {"published": 0, "pending_review": 1, "draft": 2}.get(dataset.status or "", 3)
+    visibility_rank = {"org": 0, "private": 1}.get(dataset.visibility or "", 2)
+    materialized_rank = 0 if dataset.materialized_table_name or dataset.materialization_status == "success" else 1
+    return (status_rank, visibility_rank, materialized_rank, -(dataset.id or 0))
+
+
+def _resolve_metric_query_dataset(
+    db: Session,
+    datasource: DataSource,
+    current_user: User,
+    requested_dataset_id: int | None = None,
+) -> Dataset:
+    query = db.query(Dataset).filter(Dataset.datasource_id == datasource.id)
+    if getattr(current_user, "role", None) != "super_admin":
+        query = query.filter(Dataset.org_id == getattr(current_user, "org_id", None))
+    candidates = [dataset for dataset in query.all() if _dataset_visible_for_metric_source(dataset, current_user)]
+
+    if requested_dataset_id:
+        dataset = next((item for item in candidates if item.id == requested_dataset_id), None)
+        if not dataset:
+            raise HTTPException(status_code=400, detail="请选择当前数据源下可访问的同源数据集")
+        return dataset
+
+    if not candidates:
+        raise HTTPException(status_code=400, detail="当前数据源下没有可绑定的同源数据集，请先创建基础数据集")
+    return sorted(candidates, key=_dataset_recommendation_rank)[0]
+
+
 def _history_result_payload(history: QueryHistory) -> dict[str, Any]:
     try:
         payload = json.loads(history.result_json or "{}")
@@ -885,6 +927,7 @@ async def _build_metric_from_query_draft(
     columns, rows, chart_spec, agent_trace = _history_columns_and_rows(history)
     if not columns or not rows:
         raise HTTPException(status_code=400, detail="查询历史没有可沉淀的结果数据")
+    dataset = _resolve_metric_query_dataset(db, datasource, current_user, payload.dataset_id)
 
     question = _clean_query_history_question(history.question)
     metric_column = _preferred_metric_column(columns, rows, payload.selected_metric_column, chart_spec)
@@ -961,12 +1004,21 @@ async def _build_metric_from_query_draft(
     source = {
         "source_type": "agentic_query",
         "source_query_history_id": history.id,
+        "source_dataset_id": dataset.id,
+        "source_dataset_name": dataset.name,
+        "source_datasource_id": datasource.id,
         "source_question": question,
         "source_sql": history.sql_query,
         "source_chart_spec": chart_spec,
         "source_agent_trace": agent_trace,
         "source_columns": columns,
         "source_metric_column": candidate.get("metric_column"),
+        "dataset_binding": {
+            "dataset_id": dataset.id,
+            "dataset_name": dataset.name,
+            "datasource_id": datasource.id,
+            "auto_recommended": payload.dataset_id is None,
+        },
     }
     validation = {
         "status": "draft",
@@ -1102,6 +1154,7 @@ async def create_metric_from_query(
     selected_dimensions = payload.dimensions if payload.dimensions is not None else payload.selected_dimensions
     draft_payload = MetricFromQueryDraftRequest(
         query_history_id=payload.query_history_id,
+        dataset_id=payload.dataset_id,
         selected_metric_column=payload.selected_metric_column,
         selected_dimensions=selected_dimensions or [],
         time_column=payload.time_column,
@@ -1112,6 +1165,7 @@ async def create_metric_from_query(
     source = draft["source"]
     warnings = draft["warnings"]
     history, datasource = _query_history_for_metric_draft(db, payload.query_history_id, current_user)
+    dataset = _resolve_metric_query_dataset(db, datasource, current_user, payload.dataset_id or source.get("source_dataset_id"))
 
     name = str(payload.name or candidate.get("name") or "").strip()[:128]
     definition = str(payload.definition or candidate.get("definition") or "").strip()
@@ -1130,8 +1184,8 @@ async def create_metric_from_query(
     _ensure_metric_values(status, certification_status, "unknown")
     dimensions = selected_dimensions or candidate.get("dimensions") or []
     metric = Metric(
-        dataset_id=None,
-        datasource_id=datasource.id,
+        dataset_id=dataset.id,
+        datasource_id=dataset.datasource_id,
         name=name,
         description=f"由探索模式问数沉淀：{_clean_query_history_question(history.question)[:120]}",
         definition=definition,
@@ -1166,7 +1220,8 @@ async def create_metric_from_query(
         message="已从探索结果创建指标草稿",
         detail={
             "query_history_id": history.id,
-            "datasource_id": datasource.id,
+            "dataset_id": dataset.id,
+            "datasource_id": dataset.datasource_id,
             "status": metric.status,
             "certification_status": metric.certification_status,
         },

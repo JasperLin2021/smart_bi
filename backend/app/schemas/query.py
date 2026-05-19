@@ -67,6 +67,24 @@ class ChartSpec(BaseModel):
     reason: Optional[str] = None
 
 
+class AgenticRefinementAction(BaseModel):
+    label: str
+    question: str
+
+
+class AgenticQueryNotes(BaseModel):
+    assumptions: List[str] = []
+    risk_flags: List[str] = []
+    suggested_refinements: List[AgenticRefinementAction] = []
+    confidence: Optional[str] = None
+
+
+class EmptyDiagnostics(BaseModel):
+    reason: str
+    checks: List[str] = []
+    suggested_actions: List[AgenticRefinementAction] = []
+
+
 class QueryAskResponse(BaseModel):
     answer: str
     result: QueryResult
@@ -80,6 +98,8 @@ class QueryAskResponse(BaseModel):
     trust_signals: List[MetricTrustSignal] = []
     agent_trace: List[AgentTraceStep] = []
     chart_spec: Optional[ChartSpec] = None
+    agent_notes: Optional[AgenticQueryNotes] = None
+    empty_diagnostics: Optional[EmptyDiagnostics] = None
 
 
 class DrillAction(BaseModel):
