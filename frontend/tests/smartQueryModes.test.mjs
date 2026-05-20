@@ -363,6 +363,34 @@ test("inline chat result preview keeps a stable chart width", () => {
   assert.match(bubble, /\.result-inline-panel\s*{[\s\S]*min-width: 0/)
 })
 
+test("business query result adjusts semantic metrics and dimensions inline above the chart", () => {
+  const bubble = read("src/components/ChatBubble.vue")
+  const store = read("src/store/query.ts")
+
+  assert.match(store, /export interface BusinessSemanticContext/)
+  assert.match(store, /semanticContext\?: BusinessSemanticContext/)
+  assert.match(store, /semanticContext: payload\.semantic_context/)
+  assert.match(store, /semanticContext: response\.data\.semantic_context/)
+  assert.match(store, /semanticContext: turn\.semantic_context/)
+  assert.match(bubble, /business-semantic-bar/)
+  assert.match(bubble, /business-semantic-control-panel/)
+  assert.match(bubble, /semanticMetricChips/)
+  assert.match(bubble, /semanticDimensionChips/)
+  assert.match(bubble, /semanticFilterChips/)
+  assert.match(bubble, /semanticSelectedMetricId/)
+  assert.match(bubble, /semanticSelectedDimensionIds/)
+  assert.match(bubble, /toggleSemanticDimension/)
+  assert.match(bubble, /applySemanticContextQuery/)
+  assert.match(bubble, /queryStore\.runSemanticQuery/)
+  assert.match(bubble, /业务口径/)
+  assert.match(bubble, /指标/)
+  assert.match(bubble, /维度/)
+  assert.match(bubble, /调整维度/)
+  assert.doesNotMatch(bubble, /semantic-context-dialog/)
+  assert.doesNotMatch(bubble, /semanticContextDialogVisible/)
+  assert.doesNotMatch(bubble, /openSemanticContextDialog/)
+})
+
 test("query result operations include generated result entry without row field summary", () => {
   const bubble = read("src/components/ChatBubble.vue")
 

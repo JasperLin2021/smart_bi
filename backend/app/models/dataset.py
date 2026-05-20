@@ -17,6 +17,7 @@ class Dataset(Base):
     aggregations_json = Column(JSON, nullable=True)
     pipeline_json = Column(JSON, nullable=True)
     semantic_model_json = Column(JSON, nullable=True)
+    drill_config_json = Column(JSON, nullable=True)
     status = Column(String(32), default="draft", nullable=False, index=True)
     visibility = Column(String(32), default="private", nullable=False)
     last_refresh_status = Column(String(32), nullable=True)

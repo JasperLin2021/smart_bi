@@ -122,7 +122,8 @@ const handleRowClick = async (row: Record<string, any>) => {
       props.message.sqlQuery,
       props.columns[0],
       props.columns,
-      row
+      row,
+      props.message.semanticContext?.dataset?.id
     )
     if (requestId !== drillRequestId) return
     drillActions.value = preview.actions

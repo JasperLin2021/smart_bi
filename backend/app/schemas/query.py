@@ -96,6 +96,7 @@ class QueryAskResponse(BaseModel):
     recommendations: List[str]
     mode: str
     trust_signals: List[MetricTrustSignal] = []
+    semantic_context: Optional[Dict[str, Any]] = None
     agent_trace: List[AgentTraceStep] = []
     chart_spec: Optional[ChartSpec] = None
     agent_notes: Optional[AgenticQueryNotes] = None
@@ -118,6 +119,7 @@ class DrillAction(BaseModel):
 
 class DrillPreviewRequest(BaseModel):
     datasource_id: int
+    dataset_id: Optional[int] = None
     question: str
     sql_query: str
     selected_column: str

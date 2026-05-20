@@ -386,11 +386,16 @@ def build_semantic_query_plan(dataset: Any, payload: Any) -> SemanticSqlPlan:
         columns.append(alias)
         labels[alias] = dimension["label"]
 
+    metric_aliases: list[str] = []
     for metric in metric_defs:
         alias = _assert_identifier(metric["id"], "指标ID")
         select_parts.append(_render_metric(metric, table))
         columns.append(alias)
         labels[alias] = metric["label"]
+        metric_aliases.append(alias)
+
+    if metric_aliases:
+        order_by_parts = [f"{metric_aliases[0]} DESC", *order_by_parts]
 
     params: dict[str, Any] = {}
     dataset_filters = []

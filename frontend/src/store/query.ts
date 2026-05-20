@@ -47,6 +47,53 @@ export interface MetricTrustSignal {
   quality_message?: string | null
 }
 
+export interface BusinessSemanticMetric {
+  id?: number | string | null
+  name?: string | null
+  label?: string | null
+  field?: string | null
+  aggregation?: string | null
+  formula?: string | null
+  definition?: string | null
+  unit?: string | null
+  certification_status?: string | null
+  quality_status?: string | null
+  owner_name?: string | null
+  source?: string | null
+}
+
+export interface BusinessSemanticDimension {
+  id?: string | null
+  field?: string | null
+  label?: string | null
+  kind?: "dimension" | "time" | string | null
+  source?: string | null
+  granularity?: string | null
+  description?: string | null
+}
+
+export interface BusinessSemanticFilter {
+  label: string
+  field?: string | null
+  operator?: string | null
+  value?: unknown
+  source?: string | null
+}
+
+export interface BusinessSemanticContext {
+  dataset?: {
+    id?: number | null
+    name?: string | null
+    description?: string | null
+  } | null
+  metrics: BusinessSemanticMetric[]
+  dimensions: BusinessSemanticDimension[]
+  filters: BusinessSemanticFilter[]
+  time_grain?: string | null
+  available_metrics?: BusinessSemanticMetric[]
+  available_dimensions?: BusinessSemanticDimension[]
+}
+
 export interface AgentTraceStep {
   stage: string
   status: string
@@ -126,6 +173,7 @@ export interface ChatMessage {
   llmModel?: string
   recommendations?: string[]
   trustSignals?: MetricTrustSignal[]
+  semanticContext?: BusinessSemanticContext | null
   agentTrace?: AgentTraceStep[]
   chartSpec?: ChartSpec | null
   agentNotes?: AgenticQueryNotes | null
@@ -158,6 +206,7 @@ export interface QueryHistoryDetail {
   llm_model?: string | null
   mode?: string | null
   trust_signals?: MetricTrustSignal[]
+  semantic_context?: BusinessSemanticContext | null
   agent_trace?: AgentTraceStep[]
   chart_spec?: ChartSpec | null
   agent_notes?: AgenticQueryNotes | null
@@ -267,6 +316,7 @@ export const useQueryStore = defineStore("query", {
             llmModel: payload.llm_model,
             recommendations: payload.recommendations || [],
             trustSignals: payload.trust_signals || [],
+            semanticContext: payload.semantic_context || null,
             chartSpec: payload.chart_spec || null,
             agentNotes: payload.agent_notes || null,
             emptyDiagnostics: payload.empty_diagnostics || null,
@@ -402,6 +452,7 @@ export const useQueryStore = defineStore("query", {
             llmModel: response.data.llm_model,
             recommendations: response.data.recommendations || [],
             trustSignals: response.data.trust_signals || [],
+            semanticContext: response.data.semantic_context || null,
             chartSpec: response.data.chart_spec || null,
             agentNotes: response.data.agent_notes || null,
             emptyDiagnostics: response.data.empty_diagnostics || null,
@@ -549,6 +600,7 @@ export const useQueryStore = defineStore("query", {
             llmModel: turn.llm_model || undefined,
             mode: historyMode,
             trustSignals: turn.trust_signals || [],
+            semanticContext: turn.semantic_context || null,
             agentTrace: turn.agent_trace || [],
             chartSpec: turn.chart_spec || null,
             agentNotes: turn.agent_notes || null,
@@ -574,13 +626,15 @@ export const useQueryStore = defineStore("query", {
       sqlQuery: string,
       selectedColumn: string,
       columns: string[],
-      row: Record<string, any>
+      row: Record<string, any>,
+      datasetId?: number | null
     ): Promise<DrillPreviewResult> {
       const dsStore = useDatasourceStore()
       const datasourceId = this.selectedDatasourceId || dsStore.currentId
       if (!datasourceId) return { actions: [], detail_action: null }
       const response = await axios.post("/api/query/drill-preview", {
         datasource_id: datasourceId,
+        dataset_id: datasetId || null,
         question,
         sql_query: sqlQuery,
         selected_column: selectedColumn,

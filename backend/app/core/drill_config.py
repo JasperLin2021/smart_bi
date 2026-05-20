@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from app.schemas.datasource import DrillConfig, DrillDimension, DrillMetric, DrillPath, SchemaMetadata
 
@@ -187,3 +187,9 @@ def generate_drill_config(schema: SchemaMetadata) -> Dict[str, List[Dict[str, st
         paths=paths,
     )
     return config.model_dump()
+
+
+def normalize_drill_config(config: Any) -> Dict[str, List[Dict[str, Any]]]:
+    if not isinstance(config, dict):
+        raise ValueError("下钻配置必须是 JSON 对象")
+    return DrillConfig.model_validate(config).model_dump()

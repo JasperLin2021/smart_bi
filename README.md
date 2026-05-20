@@ -216,6 +216,43 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=120 backend frontend migrate
 curl -f "http://localhost:${FRONTEND_PORT:-16006}/"
+
+# 可选但推荐：发布后跑一次业务问数 smoke test，确认数据集、语义层、LLM 和查询历史链路正常。
+export SMART_BI_BASE_URL="http://localhost:${FRONTEND_PORT:-16006}"
+export SMART_BI_SMOKE_USERNAME="nexteer_admin"       # 替换为具备该数据集访问权限的账号
+export SMART_BI_SMOKE_PASSWORD="nexteer123"          # 替换为实际密码
+export SMART_BI_SMOKE_DATASOURCE_ID="1"              # 替换为目标数据源 ID
+export SMART_BI_SMOKE_DATASET_ID="1"                 # 替换为已发布数据集 ID
+export SMART_BI_SMOKE_QUESTION="按 LINE 统计总产出，取前 5"
+
+TOKEN=$(curl -fsS -X POST "$SMART_BI_BASE_URL/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$SMART_BI_SMOKE_USERNAME\",\"password\":\"$SMART_BI_SMOKE_PASSWORD\"}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+
+SMOKE_PAYLOAD=$(python3 - <<'PY'
+import json, os
+print(json.dumps({
+    "question": os.environ["SMART_BI_SMOKE_QUESTION"],
+    "mode": "business",
+    "datasource_id": int(os.environ["SMART_BI_SMOKE_DATASOURCE_ID"]),
+    "dataset_id": int(os.environ["SMART_BI_SMOKE_DATASET_ID"]),
+}, ensure_ascii=False))
+PY
+)
+curl -fsS -X POST "$SMART_BI_BASE_URL/api/query/ask" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "$SMOKE_PAYLOAD" > /tmp/smart-bi-business-smoke.json
+python3 - <<'PY' < /tmp/smart-bi-business-smoke.json
+import json, sys
+data = json.load(sys.stdin)
+rows = (data.get("result") or {}).get("rows") or []
+assert data.get("history_id"), "missing query history"
+assert rows, "business query returned empty rows"
+assert ((data.get("semantic_context") or {}).get("dataset") or {}).get("id"), "missing semantic dataset context"
+print(f"Business query smoke test passed: history_id={data['history_id']}, rows={len(rows)}")
+PY
 ```
 
 `postgres_prod_data` 和 `backend_prod_uploads` 是生产持久化卷。升级或迁移前请先备份 PostgreSQL 和上传文件。若升级后健康检查失败，先保留容器日志，再回退到上一稳定 Git 提交并使用备份恢复数据。
@@ -634,6 +671,44 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=120 backend frontend migrate
 curl -f "http://localhost:${FRONTEND_PORT:-16006}/"
+
+# Optional but recommended: run a post-deploy business-query smoke test to verify datasets,
+# semantic context, LLM query generation, and query history.
+export SMART_BI_BASE_URL="http://localhost:${FRONTEND_PORT:-16006}"
+export SMART_BI_SMOKE_USERNAME="nexteer_admin"       # Replace with a user that can access the dataset.
+export SMART_BI_SMOKE_PASSWORD="nexteer123"          # Replace with the real password.
+export SMART_BI_SMOKE_DATASOURCE_ID="1"              # Replace with the target datasource ID.
+export SMART_BI_SMOKE_DATASET_ID="1"                 # Replace with a published dataset ID.
+export SMART_BI_SMOKE_QUESTION="按 LINE 统计总产出，取前 5"
+
+TOKEN=$(curl -fsS -X POST "$SMART_BI_BASE_URL/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$SMART_BI_SMOKE_USERNAME\",\"password\":\"$SMART_BI_SMOKE_PASSWORD\"}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+
+SMOKE_PAYLOAD=$(python3 - <<'PY'
+import json, os
+print(json.dumps({
+    "question": os.environ["SMART_BI_SMOKE_QUESTION"],
+    "mode": "business",
+    "datasource_id": int(os.environ["SMART_BI_SMOKE_DATASOURCE_ID"]),
+    "dataset_id": int(os.environ["SMART_BI_SMOKE_DATASET_ID"]),
+}, ensure_ascii=False))
+PY
+)
+curl -fsS -X POST "$SMART_BI_BASE_URL/api/query/ask" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "$SMOKE_PAYLOAD" > /tmp/smart-bi-business-smoke.json
+python3 - <<'PY' < /tmp/smart-bi-business-smoke.json
+import json, sys
+data = json.load(sys.stdin)
+rows = (data.get("result") or {}).get("rows") or []
+assert data.get("history_id"), "missing query history"
+assert rows, "business query returned empty rows"
+assert ((data.get("semantic_context") or {}).get("dataset") or {}).get("id"), "missing semantic dataset context"
+print(f"Business query smoke test passed: history_id={data['history_id']}, rows={len(rows)}")
+PY
 ```
 
 `postgres_prod_data` and `backend_prod_uploads` are production persistence volumes. Back up PostgreSQL and uploaded files before upgrades or migrations. If the post-upgrade health check fails, keep the container logs, return to the previous stable Git commit, and restore from the backup.

@@ -26,7 +26,7 @@ from app.core.metric_binding import match_metric_from_question, sql_uses_metric_
 from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
 from app.core.sql_guard import detect_excel_join_risk
-from app.core.semantic_layer import build_semantic_query_plan, execute_semantic_sql
+from app.core.semantic_layer import build_semantic_query_plan, execute_semantic_sql, infer_semantic_model
 from app.db.session import get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.dataset import Dataset
@@ -138,13 +138,14 @@ def _resolve_parent_history_id(
     return _root_history_id(parent)
 
 
-def _history_result_parts(item: QueryHistory) -> tuple[dict, list, list, dict | None, dict | None, dict | None]:
+def _history_result_parts(item: QueryHistory) -> tuple[dict, list, list, dict | None, dict | None, dict | None, dict | None]:
     result = {"columns": [], "rows": []}
     trust_signals = []
     agent_trace = []
     chart_spec = None
     agent_notes = None
     empty_diagnostics = None
+    semantic_context = None
     if item.result_json:
         try:
             result = json.loads(item.result_json)
@@ -153,13 +154,14 @@ def _history_result_parts(item: QueryHistory) -> tuple[dict, list, list, dict | 
             chart_spec = result.pop("_chart_spec", None)
             agent_notes = result.pop("_agent_notes", None)
             empty_diagnostics = result.pop("_empty_diagnostics", None)
+            semantic_context = result.pop("_semantic_context", None)
         except Exception:
             pass
-    return result, trust_signals, agent_trace, chart_spec, agent_notes, empty_diagnostics
+    return result, trust_signals, agent_trace, chart_spec, agent_notes, empty_diagnostics, semantic_context
 
 
 def _history_detail_payload(item: QueryHistory, db: Session) -> dict:
-    result, trust_signals, agent_trace, chart_spec, agent_notes, empty_diagnostics = _history_result_parts(item)
+    result, trust_signals, agent_trace, chart_spec, agent_notes, empty_diagnostics, semantic_context = _history_result_parts(item)
     return {
         "id": item.id,
         "datasource_id": item.datasource_id,
@@ -173,6 +175,7 @@ def _history_detail_payload(item: QueryHistory, db: Session) -> dict:
         "chart_spec": chart_spec,
         "agent_notes": agent_notes,
         "empty_diagnostics": empty_diagnostics,
+        "semantic_context": semantic_context,
         "drill_context": json.loads(item.drill_context) if item.drill_context else None,
         "parent_history_id": item.parent_history_id,
         "created_at": item.created_at.strftime("%Y-%m-%d %H:%M"),
@@ -506,6 +509,11 @@ def _get_drill_config(datasource: DataSource | None) -> dict | None:
         return None
 
 
+def _get_dataset_drill_config(dataset: Dataset | None) -> dict | None:
+    config = getattr(dataset, "drill_config_json", None)
+    return config if isinstance(config, dict) else None
+
+
 def _get_dataset_for_user(db: Session, dataset_id: int, user: User) -> Dataset:
     query = db.query(Dataset).filter(Dataset.id == dataset_id)
     if user.role != "super_admin":
@@ -608,6 +616,196 @@ def _query_metric_trust_signals(
         seen.add(metric.id)
         signals.append(_metric_trust_signal(metric))
     return signals
+
+
+def _business_context_field_column(field: str | None) -> str:
+    clean = str(field or "").strip()
+    if not clean:
+        return ""
+    return clean.split(".", 1)[1] if "." in clean else clean
+
+
+def _business_context_mentions_field(sql_query: str, result: dict, field: str | None, item_id: str | None = None) -> bool:
+    columns = {str(column).lower() for column in result.get("columns", []) if column is not None}
+    lowered_sql = (sql_query or "").lower()
+    candidates = {
+        str(field or "").lower(),
+        _business_context_field_column(field).lower(),
+        str(item_id or "").lower(),
+    }
+    candidates.discard("")
+    for candidate in candidates:
+        if candidate in columns:
+            return True
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(candidate)}(?![A-Za-z0-9_])", lowered_sql):
+            return True
+    return False
+
+
+def _business_context_metric_formula(metric: dict) -> str:
+    aggregation = str(metric.get("aggregation") or "sum").upper()
+    field = str(metric.get("field") or "*")
+    if aggregation == "COUNT_DISTINCT":
+        return f"COUNT(DISTINCT {field})"
+    return f"{aggregation}({field})"
+
+
+def _business_context_metric_from_model(metric: dict, source: str = "dataset") -> dict:
+    label = str(metric.get("label") or metric.get("id") or "未命名指标")
+    return {
+        "id": metric.get("id"),
+        "name": label,
+        "label": label,
+        "field": metric.get("field"),
+        "aggregation": metric.get("aggregation"),
+        "formula": _business_context_metric_formula(metric),
+        "definition": metric.get("description"),
+        "certification_status": None,
+        "quality_status": None,
+        "source": source,
+    }
+
+
+def _business_context_dimension_from_model(dimension: dict, kind: str = "dimension") -> dict:
+    return {
+        "id": dimension.get("id"),
+        "field": dimension.get("field"),
+        "label": dimension.get("label") or dimension.get("id") or dimension.get("field"),
+        "kind": kind,
+        "source": "dataset",
+        "granularity": dimension.get("granularity"),
+        "description": dimension.get("description"),
+    }
+
+
+def _business_context_filter_label(item: object) -> dict | None:
+    if isinstance(item, dict):
+        label = str(item.get("label") or item.get("name") or "").strip()
+        field = item.get("field") or item.get("column") or item.get("id")
+        operator = item.get("operator") or item.get("op") or "="
+        value = item.get("value")
+        if not label:
+            if field and value is not None:
+                label = f"{field} {operator} {value}"
+            elif field:
+                label = str(field)
+        if not label:
+            return None
+        return {
+            "label": label,
+            "field": field,
+            "operator": operator,
+            "value": value,
+            "source": "dataset",
+        }
+    label = str(item or "").strip()
+    if not label:
+        return None
+    return {"label": label, "field": None, "operator": None, "value": None, "source": "dataset"}
+
+
+def _dedupe_business_items(items: list[dict], keys: tuple[str, ...]) -> list[dict]:
+    deduped = []
+    seen: set[tuple] = set()
+    for item in items:
+        key = tuple(str(item.get(name) or "").lower() for name in keys)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _build_business_semantic_context(
+    dataset: Dataset | None,
+    trust_signals: list[dict],
+    metric_match: dict | None,
+    sql_query: str,
+    result: dict,
+) -> dict | None:
+    if not dataset:
+        return None
+    try:
+        model = infer_semantic_model(dataset)
+    except Exception:
+        model = {"dimensions": [], "metrics": [], "time_dimensions": [], "synonyms": []}
+
+    model_metrics = [_business_context_metric_from_model(metric) for metric in model.get("metrics", [])]
+    model_dimensions = [
+        *[_business_context_dimension_from_model(item, "dimension") for item in model.get("dimensions", [])],
+        *[_business_context_dimension_from_model(item, "time") for item in model.get("time_dimensions", [])],
+    ]
+
+    metrics: list[dict] = []
+    for signal in trust_signals:
+        metrics.append(
+            {
+                "id": signal.get("metric_id"),
+                "name": signal.get("metric_name"),
+                "label": signal.get("metric_name"),
+                "field": None,
+                "aggregation": None,
+                "formula": signal.get("formula"),
+                "definition": signal.get("definition"),
+                "unit": signal.get("unit"),
+                "certification_status": signal.get("certification_status"),
+                "quality_status": signal.get("quality_status"),
+                "owner_name": signal.get("owner_name"),
+                "source": "trusted_metric",
+            }
+        )
+
+    if metric_match and metric_match.get("name"):
+        metrics.append(
+            {
+                "id": metric_match.get("id"),
+                "name": metric_match.get("name"),
+                "label": metric_match.get("name"),
+                "field": metric_match.get("field"),
+                "aggregation": metric_match.get("aggregation"),
+                "formula": metric_match.get("formula"),
+                "definition": metric_match.get("definition"),
+                "certification_status": metric_match.get("certification_status"),
+                "quality_status": metric_match.get("quality_status"),
+                "source": "metric_match",
+            }
+        )
+
+    for metric in model.get("metrics", []):
+        if _business_context_mentions_field(sql_query, result, metric.get("field"), metric.get("id")):
+            metrics.append(_business_context_metric_from_model(metric))
+
+    if not metrics and len(model_metrics) == 1:
+        metrics.append(model_metrics[0])
+
+    dimensions = [
+        item
+        for item in model_dimensions
+        if _business_context_mentions_field(sql_query, result, item.get("field"), item.get("id"))
+    ]
+    if not dimensions:
+        dimensions = model_dimensions[:4]
+
+    filters_json = dataset.filters_json if isinstance(dataset.filters_json, dict) else {}
+    filters = [
+        item
+        for item in (_business_context_filter_label(raw) for raw in filters_json.get("filters", []) or [])
+        if item
+    ]
+
+    return {
+        "dataset": {
+            "id": dataset.id,
+            "name": dataset.name,
+            "description": dataset.description,
+        },
+        "metrics": _dedupe_business_items(metrics, ("name", "formula")),
+        "dimensions": _dedupe_business_items(dimensions, ("field", "label")),
+        "filters": _dedupe_business_items(filters, ("label",)),
+        "time_grain": None,
+        "available_metrics": _dedupe_business_items(model_metrics, ("name", "formula")),
+        "available_dimensions": _dedupe_business_items(model_dimensions, ("field", "label")),
+    }
 
 
 async def _generate_safe_sql(
@@ -1095,9 +1293,17 @@ async def ask(
 
     recommendations = _get_recommendations(datasource)
     trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
+    semantic_context = _build_business_semantic_context(
+        dataset,
+        trust_signals,
+        metric_match,
+        sql_query,
+        result,
+    )
     stored_result = {
         **result,
         "_trust_signals": trust_signals,
+        "_semantic_context": semantic_context,
         "_agent_trace": agent_trace,
         "_chart_spec": chart_spec,
         "_agent_notes": agent_notes,
@@ -1148,6 +1354,7 @@ async def ask(
         "recommendations": recommendations,
         "mode": mode,
         "trust_signals": trust_signals,
+        "semantic_context": semantic_context,
         "agent_trace": agent_trace,
         "chart_spec": chart_spec,
         "agent_notes": agent_notes,
@@ -1313,6 +1520,7 @@ async def ask_stream(
             stored_result = {
                 **result,
                 "_trust_signals": trust_signals,
+                "_semantic_context": None,
                 "_agent_trace": agent_trace,
                 "_chart_spec": chart_spec,
                 "_agent_notes": agent_notes,
@@ -1364,6 +1572,7 @@ async def ask_stream(
                         "recommendations": recommendations,
                         "mode": mode,
                         "trust_signals": trust_signals,
+                        "semantic_context": None,
                         "agent_trace": agent_trace,
                         "chart_spec": chart_spec,
                         "agent_notes": agent_notes,
@@ -1584,7 +1793,18 @@ async def drill_preview(
     if not datasource:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    del db, current_user, datasource
+    dataset = None
+    if payload.dataset_id:
+        dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
+        if dataset.datasource_id != datasource.id:
+            raise HTTPException(status_code=400, detail="数据集与数据源不匹配")
+
+    config = _get_dataset_drill_config(dataset) or _get_drill_config(datasource)
+    config_actions = build_drill_actions(config, payload.columns, payload.row) if config else []
+    if config_actions:
+        return {"actions": config_actions, "detail_action": None}
+
+    del db, current_user, datasource, dataset
     preview = {"actions": [], "detail_action": None}
     try:
         preview = await suggest_drill_actions(

@@ -13,6 +13,8 @@ from app.core.config import settings
 from app.core.excel_executor import execute_excel_query, get_excel_tables
 from app.core.olap import execute_materialized_dataset_preview, write_dataset_to_olap
 from app.core.safe_delete import assert_dataset_can_delete, delete_catalog_asset
+from app.core.dataset_ai_config import suggest_dataset_ai_config as build_dataset_ai_config
+from app.core.drill_config import normalize_drill_config
 from app.core.semantic_layer import infer_semantic_model, normalize_semantic_model
 from app.db.session import get_db
 from app.db.session import get_datasource_engine
@@ -22,6 +24,8 @@ from app.models.datasource import DataSource
 from app.models.user import User
 from app.schemas.dataset import (
     DatasetCreate,
+    DatasetAIConfigSuggestRequest,
+    DatasetAIConfigSuggestResponse,
     DatasetDraftPreviewRequest,
     DatasetListResponse,
     DatasetMaterializeRequest,
@@ -95,6 +99,19 @@ def _ensure_values(status: str | None = None, visibility: str | None = None) -> 
         raise HTTPException(status_code=400, detail="无效数据集状态")
     if visibility is not None and visibility not in VALID_VISIBILITIES:
         raise HTTPException(status_code=400, detail="无效可见范围")
+
+
+def _normalize_model_values(values: dict[str, Any], dataset: Dataset | None = None) -> None:
+    if "semantic_model_json" in values and values["semantic_model_json"] is not None:
+        try:
+            values["semantic_model_json"] = normalize_semantic_model(values["semantic_model_json"], dataset)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    if "drill_config_json" in values and values["drill_config_json"] is not None:
+        try:
+            values["drill_config_json"] = normalize_drill_config(values["drill_config_json"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _get_datasource_for_user(db: Session, datasource_id: int, user: User) -> DataSource:
@@ -799,6 +816,7 @@ def create_dataset(
     org_id = payload.org_id if current_user.role == "super_admin" and payload.org_id else datasource.org_id
     values = payload.model_dump(exclude={"org_id", "owner_id"})
     values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
+    _normalize_model_values(values)
     approval_required = _apply_dataset_publication_workflow(values, current_user)
     dataset = Dataset(
         **values,
@@ -905,6 +923,49 @@ def update_dataset_semantic_model(
         },
     )
     return {"dataset_id": dataset.id, "semantic_model": semantic_model}
+
+
+@router.post("/ai-config/suggest", response_model=DatasetAIConfigSuggestResponse)
+async def suggest_dataset_ai_config(
+    payload: DatasetAIConfigSuggestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = None
+    if payload.dataset_id:
+        dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
+        datasource = _get_datasource_for_user(db, dataset.datasource_id, current_user)
+    else:
+        if not payload.datasource_id:
+            raise HTTPException(status_code=400, detail="请选择数据源或数据集")
+        datasource = _get_datasource_for_user(db, payload.datasource_id, current_user)
+
+    response = await build_dataset_ai_config(
+        datasource=datasource,
+        dataset=dataset,
+        table=payload.table,
+        fields_json=payload.fields_json,
+        aggregations_json=payload.aggregations_json,
+        semantic_model_json=payload.semantic_model_json,
+        drill_config_json=payload.drill_config_json,
+    )
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dataset.ai_config.suggest",
+        resource_type="dataset" if dataset else "datasource",
+        resource_id=dataset.id if dataset else datasource.id,
+        resource_name=dataset.name if dataset else datasource.name,
+        org_id=dataset.org_id if dataset else datasource.org_id,
+        message="数据集 AI 建模草稿已生成",
+        detail={
+            "source": response.get("source"),
+            "dimensions": len(response.get("semantic_model", {}).get("dimensions", [])),
+            "metrics": len(response.get("semantic_model", {}).get("metrics", [])),
+            "paths": len(response.get("drill_config", {}).get("paths", [])),
+        },
+    )
+    return response
 
 
 @router.post("/{dataset_id}/preview", response_model=DatasetPreviewResponse)
@@ -1171,6 +1232,7 @@ def update_dataset(
     _ensure_values(values.get("status"), values.get("visibility"))
     if "fields_json" in values:
         values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
+    _normalize_model_values(values, dataset)
     if "datasource_id" in values:
         datasource = _get_datasource_for_user(db, values["datasource_id"], current_user)
         if current_user.role != "super_admin":

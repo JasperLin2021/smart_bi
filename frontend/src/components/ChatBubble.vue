@@ -131,6 +131,67 @@
                 </el-button>
               </div>
             </div>
+            <div v-if="hasBusinessSemanticContext" class="business-semantic-bar business-semantic-control-panel">
+              <div class="business-semantic-head">
+                <span class="business-semantic-icon"><el-icon><Tickets /></el-icon></span>
+                <div>
+                  <strong>业务口径</strong>
+                  <small>{{ semanticDatasetName }}</small>
+                </div>
+              </div>
+              <div class="business-semantic-controls">
+                <label class="semantic-inline-field">
+                  <span>指标</span>
+                  <el-select
+                    v-model="semanticSelectedMetricId"
+                    class="semantic-metric-select"
+                    size="small"
+                    :disabled="semanticApplying"
+                  >
+                    <el-option
+                      v-for="metric in semanticAvailableMetrics"
+                      :key="semanticMetricId(metric)"
+                      :label="semanticMetricName(metric)"
+                      :value="semanticMetricId(metric)"
+                    />
+                  </el-select>
+                </label>
+                <div class="semantic-dimension-picker">
+                  <div class="semantic-dimension-head">
+                    <span>调整维度</span>
+                    <small>{{ semanticDimensionHelpText }}</small>
+                  </div>
+                  <div class="semantic-dimension-toggle-row" aria-label="调整维度">
+                    <button
+                      v-for="dimension in semanticAvailableDimensions"
+                      :key="semanticDimensionId(dimension)"
+                      type="button"
+                      class="semantic-dimension-toggle"
+                      :class="{ 'is-active': isSemanticDimensionSelected(dimension) }"
+                      :aria-pressed="isSemanticDimensionSelected(dimension)"
+                      :disabled="semanticApplying"
+                      @click="toggleSemanticDimension(dimension)"
+                    >
+                      {{ semanticDimensionName(dimension) }}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="semantic-apply-button"
+                  :disabled="!semanticCanApply || semanticApplying"
+                  @click="applySemanticContextQuery"
+                >
+                  <el-icon v-if="semanticApplying" class="is-loading"><Loading /></el-icon>
+                  <span>{{ semanticApplyLabel }}</span>
+                </button>
+              </div>
+              <div class="semantic-active-summary">
+                <span>当前</span>
+                <strong>{{ semanticCurrentSummary }}</strong>
+                <small v-if="semanticFilterChips.length">筛选：{{ semanticFilterChipsLabel }}</small>
+              </div>
+            </div>
             <MessageChart
               :message="message"
               :columns="message.result!.columns"
@@ -566,6 +627,67 @@
       <el-tabs v-model="resultDetailTab" class="result-detail-tabs">
         <el-tab-pane label="图表" name="chart" lazy>
           <div class="result-detail-pane result-detail-pane--chart">
+            <div v-if="hasBusinessSemanticContext" class="business-semantic-bar business-semantic-bar--detail business-semantic-control-panel">
+              <div class="business-semantic-head">
+                <span class="business-semantic-icon"><el-icon><Tickets /></el-icon></span>
+                <div>
+                  <strong>业务口径</strong>
+                  <small>{{ semanticDatasetName }}</small>
+                </div>
+              </div>
+              <div class="business-semantic-controls">
+                <label class="semantic-inline-field">
+                  <span>指标</span>
+                  <el-select
+                    v-model="semanticSelectedMetricId"
+                    class="semantic-metric-select"
+                    size="small"
+                    :disabled="semanticApplying"
+                  >
+                    <el-option
+                      v-for="metric in semanticAvailableMetrics"
+                      :key="semanticMetricId(metric)"
+                      :label="semanticMetricName(metric)"
+                      :value="semanticMetricId(metric)"
+                    />
+                  </el-select>
+                </label>
+                <div class="semantic-dimension-picker">
+                  <div class="semantic-dimension-head">
+                    <span>调整维度</span>
+                    <small>{{ semanticDimensionHelpText }}</small>
+                  </div>
+                  <div class="semantic-dimension-toggle-row" aria-label="调整维度">
+                    <button
+                      v-for="dimension in semanticAvailableDimensions"
+                      :key="semanticDimensionId(dimension)"
+                      type="button"
+                      class="semantic-dimension-toggle"
+                      :class="{ 'is-active': isSemanticDimensionSelected(dimension) }"
+                      :aria-pressed="isSemanticDimensionSelected(dimension)"
+                      :disabled="semanticApplying"
+                      @click="toggleSemanticDimension(dimension)"
+                    >
+                      {{ semanticDimensionName(dimension) }}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="semantic-apply-button"
+                  :disabled="!semanticCanApply || semanticApplying"
+                  @click="applySemanticContextQuery"
+                >
+                  <el-icon v-if="semanticApplying" class="is-loading"><Loading /></el-icon>
+                  <span>{{ semanticApplyLabel }}</span>
+                </button>
+              </div>
+              <div class="semantic-active-summary">
+                <span>当前</span>
+                <strong>{{ semanticCurrentSummary }}</strong>
+                <small v-if="semanticFilterChips.length">筛选：{{ semanticFilterChipsLabel }}</small>
+              </div>
+            </div>
             <MessageChart
               v-if="hasResult"
               :message="message"
@@ -765,6 +887,9 @@ import {
   useQueryStore,
   type AgenticRefinementAction,
   type AgentTraceStep,
+  type BusinessSemanticDimension,
+  type BusinessSemanticFilter,
+  type BusinessSemanticMetric,
   type ChatMessage,
   type DrillContext,
 } from "@/store/query"
@@ -981,6 +1106,9 @@ const resultColumnCount = computed(() => props.message.result?.columns?.length |
 type ResultDetailTab = "chart" | "table" | "sql" | "summary"
 const resultDetailVisible = ref(false)
 const resultDetailTab = ref<ResultDetailTab>("chart")
+const semanticSelectedMetricId = ref("")
+const semanticSelectedDimensionIds = ref<string[]>([])
+const semanticApplying = ref(false)
 const resultQuestionText = computed(() => props.message.sourceQuestion || props.message.content || "本次问数结果")
 const showAssistantContent = computed(() =>
   Boolean(props.message.content && !(props.compactResult && props.message.summary))
@@ -991,6 +1119,164 @@ const showResultQuickActions = computed(() =>
   props.message.status !== "sending" &&
   Boolean(hasResult.value || hasAgentNotes.value || agentTraceSteps.value.length || canCreateAction.value || props.message.historyId)
 )
+const semanticContext = computed(() => props.message.semanticContext || null)
+const semanticMetricChips = computed<BusinessSemanticMetric[]>(() => semanticContext.value?.metrics || [])
+const semanticDimensionChips = computed<BusinessSemanticDimension[]>(() => semanticContext.value?.dimensions || [])
+const semanticFilterChips = computed<BusinessSemanticFilter[]>(() => semanticContext.value?.filters || [])
+const semanticMetricId = (metric: BusinessSemanticMetric) =>
+  String(metric.id || metric.name || metric.label || metric.formula || "")
+const semanticDimensionId = (dimension: BusinessSemanticDimension) =>
+  String(dimension.id || dimension.field || dimension.label || "")
+const hasBusinessSemanticContext = computed(() =>
+  props.message.mode === "business" &&
+  Boolean(
+    semanticContext.value &&
+    (semanticMetricChips.value.length || semanticDimensionChips.value.length || semanticFilterChips.value.length)
+  )
+)
+const semanticDatasetName = computed(() => semanticContext.value?.dataset?.name || "当前数据集")
+const semanticMetricName = (metric: BusinessSemanticMetric) =>
+  metric.name || metric.label || metric.formula || "未命名指标"
+const semanticDimensionName = (dimension: BusinessSemanticDimension) =>
+  dimension.label || dimension.field || dimension.id || "未命名维度"
+const semanticFilterLabel = (filter: BusinessSemanticFilter) => filter.label || String(filter.field || "筛选条件")
+const semanticAvailableMetrics = computed<BusinessSemanticMetric[]>(() => {
+  const items = semanticContext.value?.available_metrics?.length
+    ? semanticContext.value.available_metrics
+    : semanticMetricChips.value
+  return items.filter(item => semanticMetricId(item))
+})
+const semanticAvailableDimensions = computed<BusinessSemanticDimension[]>(() => {
+  const items = semanticContext.value?.available_dimensions?.length
+    ? semanticContext.value.available_dimensions
+    : semanticDimensionChips.value
+  return items.filter(item => semanticDimensionId(item))
+})
+const semanticSelectedMetric = computed(() =>
+  semanticAvailableMetrics.value.find(metric => semanticMetricId(metric) === semanticSelectedMetricId.value) || null
+)
+const semanticSelectedDimensions = computed(() => {
+  const selected = new Set(semanticSelectedDimensionIds.value)
+  return semanticAvailableDimensions.value.filter(dimension => selected.has(semanticDimensionId(dimension)))
+})
+const summarizeSemanticItems = (items: string[], emptyText: string) => {
+  if (!items.length) return emptyText
+  const visible = items.slice(0, 2).join("、")
+  return items.length > 2 ? `${visible} +${items.length - 2}` : visible
+}
+const semanticMetricChipsLabel = computed(() =>
+  summarizeSemanticItems(semanticMetricChips.value.map(semanticMetricName), "自动识别")
+)
+const semanticDimensionChipsLabel = computed(() =>
+  summarizeSemanticItems(semanticDimensionChips.value.map(semanticDimensionName), "未命中")
+)
+const semanticFilterChipsLabel = computed(() =>
+  summarizeSemanticItems(semanticFilterChips.value.map(semanticFilterLabel), "无固定筛选")
+)
+const semanticDimensionHelpText = computed(() => {
+  const examples = semanticAvailableDimensions.value
+    .filter(item => !semanticSelectedDimensionIds.value.includes(semanticDimensionId(item)))
+    .slice(0, 2)
+    .map(semanticDimensionName)
+  return examples.length ? `例如切换到 ${examples.join("、")}` : "点击维度即时重组结果"
+})
+const semanticCurrentSummary = computed(() => {
+  const metric = semanticSelectedMetric.value ? semanticMetricName(semanticSelectedMetric.value) : "未选择指标"
+  const dimensions = semanticSelectedDimensions.value.map(semanticDimensionName)
+  return `${metric} / ${dimensions.length ? dimensions.join("、") : "无分组维度"}`
+})
+const semanticApplyLabel = computed(() => semanticApplying.value ? "应用中" : "应用")
+const semanticCanApply = computed(() =>
+  Boolean(semanticContext.value?.dataset?.id && semanticSelectedMetricId.value)
+)
+const semanticSelectionSeed = computed(() => JSON.stringify({
+  dataset: semanticContext.value?.dataset?.id || null,
+  availableMetrics: semanticAvailableMetrics.value.map(semanticMetricId),
+  activeMetrics: semanticMetricChips.value.map(semanticMetricId),
+  availableDimensions: semanticAvailableDimensions.value.map(semanticDimensionId),
+  activeDimensions: semanticDimensionChips.value.map(semanticDimensionId),
+}))
+
+const syncSemanticSelection = () => {
+  const availableMetricIds = semanticAvailableMetrics.value.map(semanticMetricId)
+  const activeMetricIds = semanticMetricChips.value.map(semanticMetricId).filter(id => availableMetricIds.includes(id))
+  if (!availableMetricIds.includes(semanticSelectedMetricId.value)) {
+    semanticSelectedMetricId.value = activeMetricIds[0] || availableMetricIds[0] || ""
+  }
+
+  const availableDimensionIds = semanticAvailableDimensions.value.map(semanticDimensionId)
+  const activeDimensionIds = semanticDimensionChips.value
+    .map(semanticDimensionId)
+    .filter(id => availableDimensionIds.includes(id))
+  const validSelection = semanticSelectedDimensionIds.value.filter(id => availableDimensionIds.includes(id))
+  semanticSelectedDimensionIds.value = validSelection.length
+    ? validSelection
+    : activeDimensionIds
+}
+
+watch(semanticSelectionSeed, syncSemanticSelection, { immediate: true })
+
+const isSemanticDimensionSelected = (dimension: BusinessSemanticDimension) =>
+  semanticSelectedDimensionIds.value.includes(semanticDimensionId(dimension))
+
+const toggleSemanticDimension = (dimension: BusinessSemanticDimension) => {
+  const id = semanticDimensionId(dimension)
+  if (!id || semanticApplying.value) return
+  if (semanticSelectedDimensionIds.value.includes(id)) {
+    semanticSelectedDimensionIds.value = semanticSelectedDimensionIds.value.filter(item => item !== id)
+    return
+  }
+  semanticSelectedDimensionIds.value = [...semanticSelectedDimensionIds.value, id]
+}
+
+const applySemanticContextQuery = async () => {
+  const datasetId = semanticContext.value?.dataset?.id
+  if (!datasetId || !semanticSelectedMetricId.value) return
+  semanticApplying.value = true
+  try {
+    const response = await queryStore.runSemanticQuery({
+      dataset_id: Number(datasetId),
+      dimensions: [...semanticSelectedDimensionIds.value],
+      metrics: [semanticSelectedMetricId.value],
+      limit: 100,
+    })
+    const labels = response.labels || {}
+    const columns = response.columns.map(column => labels[column] || column)
+    const rows = response.rows.map(row => {
+      const source = row as Record<string, unknown>
+      return response.columns.reduce((acc, column) => {
+        const label = labels[column] || column
+        const value = source[column]
+        acc[label] = typeof value === "number" || typeof value === "string"
+          ? value
+          : value === null || value === undefined
+            ? ""
+            : String(value)
+        return acc
+      }, {} as Record<string, string | number>)
+    })
+    const nextSemanticContext = semanticContext.value
+      ? {
+          ...semanticContext.value,
+          metrics: semanticSelectedMetric.value ? [semanticSelectedMetric.value] : [],
+          dimensions: semanticSelectedDimensions.value,
+        }
+      : null
+    const dimensionText = semanticSelectedDimensions.value.map(semanticDimensionName).join("、") || "无分组维度"
+    const metricText = semanticSelectedMetric.value ? semanticMetricName(semanticSelectedMetric.value) : "当前指标"
+    queryStore.updateMessage(props.message.id, {
+      result: { columns, rows },
+      sqlQuery: response.sql_query,
+      summary: `已按 ${dimensionText} 调整维度，查看 ${metricText}。`,
+      chartSpec: null,
+      semanticContext: nextSemanticContext,
+    })
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "维度调整查询失败")
+  } finally {
+    semanticApplying.value = false
+  }
+}
 
 const openResultDetail = (tab: ResultDetailTab = "chart") => {
   if (props.compactResult) {
@@ -3438,6 +3724,207 @@ const formatTime = (date: Date) => {
   background: #ccfbf1;
 }
 
+.business-semantic-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: start;
+  padding: 12px;
+  border-bottom: 1px solid #d7efe8;
+  background: linear-gradient(180deg, #f8fffc 0%, #f0fdfa 100%);
+}
+
+.business-semantic-bar--detail {
+  margin-bottom: 12px;
+  border: 1px solid #d7efe8;
+  border-radius: 12px;
+}
+
+.business-semantic-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.business-semantic-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.business-semantic-head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.business-semantic-head strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.business-semantic-head small {
+  max-width: 180px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.business-semantic-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+}
+
+.semantic-inline-field,
+.semantic-dimension-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.semantic-inline-field > span,
+.semantic-dimension-head span,
+.semantic-active-summary > span {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.semantic-metric-select {
+  width: 100%;
+}
+
+.semantic-metric-select :deep(.el-select__wrapper) {
+  min-height: 34px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #b7e4d8 inset;
+}
+
+.semantic-dimension-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.semantic-dimension-head small {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-dimension-toggle-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 76px;
+  overflow: auto;
+}
+
+.semantic-dimension-toggle {
+  min-height: 32px;
+  max-width: 132px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid #d7efe8;
+  border-radius: 999px;
+  color: #334155;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.semantic-dimension-toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #5eead4;
+  color: #0f766e;
+  background: #ecfdf5;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.1);
+}
+
+.semantic-dimension-toggle.is-active {
+  border-color: #0f766e;
+  color: #ffffff;
+  background: #0f766e;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.16);
+}
+
+.semantic-apply-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 78px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #0f766e;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.semantic-apply-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #0d9488;
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.16);
+}
+
+.semantic-apply-button:disabled,
+.semantic-dimension-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.semantic-active-summary {
+  display: flex;
+  grid-column: 2 / -1;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+}
+
+.semantic-active-summary strong {
+  min-width: 0;
+  color: #0f172a;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.semantic-active-summary small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 :global(.result-detail-dialog.el-dialog),
 :global(.result-detail-dialog .el-dialog) {
   border-radius: 14px;
@@ -3607,6 +4094,20 @@ const formatTime = (date: Date) => {
 
   .result-detail-metrics {
     justify-content: flex-start;
+  }
+
+  .business-semantic-bar,
+  .business-semantic-controls,
+  .semantic-active-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .semantic-active-summary {
+    grid-column: auto;
+  }
+
+  .semantic-dimension-toggle {
+    max-width: 100%;
   }
 
   .attribution-overview,

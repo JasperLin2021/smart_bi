@@ -879,7 +879,8 @@ const handleChartClick = async (params: any) => {
       props.sqlQuery,
       selectedXField.value,
       props.columns,
-      row
+      row,
+      props.message.semanticContext?.dataset?.id
     )
     if (requestId !== drillRequestId) return
     drillActions.value = preview.actions

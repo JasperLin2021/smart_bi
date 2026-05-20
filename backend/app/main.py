@@ -227,6 +227,7 @@ def _startup():
     for column_definition in [
         "pipeline_json JSON",
         "semantic_model_json JSON",
+        "drill_config_json JSON",
         "last_refresh_status VARCHAR(32)",
         "last_refresh_at TIMESTAMP",
         "last_refresh_row_count INTEGER DEFAULT 0",
