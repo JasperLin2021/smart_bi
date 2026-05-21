@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import shutil
@@ -83,6 +84,23 @@ def _fetch_excel_preview(file_path: str, table: str, limit: int) -> dict:
     return execute_excel_query(file_path, f"SELECT * FROM {table} LIMIT {limit}")
 
 
+def _clean_recommend_questions(questions: list[str] | None, limit: int | None = None) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in questions or []:
+        question = str(item or "").strip()
+        if not question:
+            continue
+        key = re.sub(r"\s+", "", question).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(question[:120])
+        if limit is not None and len(cleaned) >= limit:
+            break
+    return cleaned
+
+
 @router.get("", response_model=List[DataSourceListItem])
 def list_datasources(
     db: Session = Depends(get_db),
@@ -130,6 +148,27 @@ def create_datasource(
     elif payload.org_id:
         org_id = payload.org_id
 
+    recommend_questions = _clean_recommend_questions(payload.recommend_questions)
+    recommend_generation_error = None
+    if not recommend_questions:
+        try:
+            recommend_questions = _clean_recommend_questions(
+                asyncio.run(
+                    generate_recommend_questions(
+                        datasource_name=payload.name,
+                        source_type=source_type,
+                        metadata_prompt=metadata_prompt,
+                        metrics_prompt=payload.metrics_prompt,
+                        schema=schema_metadata,
+                        limit=3,
+                    )
+                ),
+                limit=3,
+            )
+        except Exception as exc:
+            recommend_generation_error = str(exc)
+            recommend_questions = []
+
     ds = DataSource(
         name=payload.name,
         slug=payload.slug,
@@ -144,8 +183,8 @@ def create_datasource(
         else None,
         metrics_prompt=payload.metrics_prompt,
         text2sql_prompt=payload.text2sql_prompt,
-        recommend_questions=json.dumps(payload.recommend_questions, ensure_ascii=False)
-        if payload.recommend_questions
+        recommend_questions=json.dumps(recommend_questions, ensure_ascii=False)
+        if recommend_questions
         else None,
         org_id=org_id,
     )
@@ -166,6 +205,9 @@ def create_datasource(
             "source_type": ds.source_type,
             "schema_detected": schema_metadata is not None,
             "table_count": len(schema_metadata.tables) if schema_metadata else 0,
+            "recommend_question_count": len(recommend_questions),
+            "recommend_questions_auto_generated": not _clean_recommend_questions(payload.recommend_questions),
+            "recommend_generation_error": recommend_generation_error,
         },
     )
     return _to_out(ds)

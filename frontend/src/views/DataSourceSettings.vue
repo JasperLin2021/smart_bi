@@ -962,8 +962,15 @@ const handleSave = async () => {
     } else {
       // The backend auto-detects schema and generates metadata_prompt during creation.
       payload.metadata_prompt = ""
-      await axios.post("/api/datasources", payload)
-      ElMessage.success("数据源已创建，已自动检测表结构")
+      const response = await axios.post("/api/datasources", payload)
+      const generatedQuestionCount = Array.isArray(response.data?.recommend_questions)
+        ? response.data.recommend_questions.length
+        : 0
+      ElMessage.success(
+        generatedQuestionCount > 0
+          ? `数据源已创建，已自动检测表结构并生成 ${generatedQuestionCount} 个推荐问题`
+          : "数据源已创建，已自动检测表结构"
+      )
     }
 
     dialogVisible.value = false
