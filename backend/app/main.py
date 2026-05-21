@@ -271,6 +271,7 @@ def _startup():
             pass
 
     for column_definition in [
+        "dataset_id INTEGER",
         "certification_status VARCHAR(32) DEFAULT 'draft'",
         "certified_by VARCHAR(128)",
         "certified_at TIMESTAMP",

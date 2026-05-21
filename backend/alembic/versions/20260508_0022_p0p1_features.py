@@ -27,10 +27,11 @@ def _has_col(table: str, col: str) -> bool:
 
 def upgrade() -> None:
     # alerts: auto action-item columns
-    if not _has_col("alerts", "auto_create_action_item"):
-        op.add_column("alerts", sa.Column("auto_create_action_item", sa.Boolean(), nullable=False, server_default=sa.false()))
-    if not _has_col("alerts", "action_item_assignee_id"):
-        op.add_column("alerts", sa.Column("action_item_assignee_id", sa.Integer(), nullable=True))
+    if _has_table("alerts"):
+        if not _has_col("alerts", "auto_create_action_item"):
+            op.add_column("alerts", sa.Column("auto_create_action_item", sa.Boolean(), nullable=False, server_default=sa.false()))
+        if not _has_col("alerts", "action_item_assignee_id"):
+            op.add_column("alerts", sa.Column("action_item_assignee_id", sa.Integer(), nullable=True))
 
     # metrics: computed value columns
     if not _has_col("metrics", "last_value"):
@@ -39,12 +40,13 @@ def upgrade() -> None:
         op.add_column("metrics", sa.Column("last_computed_at", sa.DateTime(), nullable=True))
 
     # query_history: insight columns
-    if not _has_col("query_history", "is_insight"):
-        op.add_column("query_history", sa.Column("is_insight", sa.Boolean(), nullable=False, server_default=sa.false()))
-    if not _has_col("query_history", "insight_title"):
-        op.add_column("query_history", sa.Column("insight_title", sa.String(200), nullable=True))
-    if not _has_col("query_history", "org_id"):
-        op.add_column("query_history", sa.Column("org_id", sa.Integer(), nullable=True))
+    if _has_table("query_history"):
+        if not _has_col("query_history", "is_insight"):
+            op.add_column("query_history", sa.Column("is_insight", sa.Boolean(), nullable=False, server_default=sa.false()))
+        if not _has_col("query_history", "insight_title"):
+            op.add_column("query_history", sa.Column("insight_title", sa.String(200), nullable=True))
+        if not _has_col("query_history", "org_id"):
+            op.add_column("query_history", sa.Column("org_id", sa.Integer(), nullable=True))
 
     # access_requests table
     if not _has_table("access_requests"):

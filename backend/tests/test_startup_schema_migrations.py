@@ -97,6 +97,52 @@ class StartupSchemaMigrationTests(unittest.TestCase):
             if os.path.exists(path):
                 os.remove(path)
 
+    def test_startup_adds_metric_dataset_id_for_existing_metrics(self):
+        import app.main as main_module
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            engine = create_engine(f"sqlite:///{path}")
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE metrics (
+                          id INTEGER PRIMARY KEY,
+                          datasource_id INTEGER,
+                          name VARCHAR(128) NOT NULL,
+                          definition TEXT NOT NULL
+                        )
+                        """
+                    )
+                )
+
+            original_engine = main_module.engine
+            original_session_local = main_module.SessionLocal
+            original_init_cache = main_module.init_cache
+            try:
+                main_module.engine = engine
+                main_module.SessionLocal = sessionmaker(bind=engine)
+                main_module.init_cache = lambda: None
+
+                main_module.startup()
+            finally:
+                main_module.engine = original_engine
+                main_module.SessionLocal = original_session_local
+                main_module.init_cache = original_init_cache
+
+            with engine.connect() as conn:
+                columns = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(metrics)")).fetchall()
+                }
+
+            self.assertIn("dataset_id", columns)
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -217,6 +217,19 @@ docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=120 backend frontend migrate
 curl -f "http://localhost:${FRONTEND_PORT:-16006}/"
 
+# 验证数据库迁移状态和关键 schema。`alembic current` 应输出最新 head，
+# schema smoke test 应确认 metrics.dataset_id 已存在。
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm migrate alembic current
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T backend python - <<'PY'
+from sqlalchemy import create_engine, inspect
+from app.core.config import settings
+
+engine = create_engine(settings.database_url)
+columns = {column["name"] for column in inspect(engine).get_columns("metrics")}
+assert "dataset_id" in columns, "metrics.dataset_id missing; run alembic upgrade head before restarting backend"
+print("Schema smoke test passed: metrics.dataset_id exists")
+PY
+
 # 可选但推荐：发布后跑一次业务问数 smoke test，确认数据集、语义层、LLM 和查询历史链路正常。
 export SMART_BI_BASE_URL="http://localhost:${FRONTEND_PORT:-16006}"
 export SMART_BI_SMOKE_USERNAME="nexteer_admin"       # 替换为具备该数据集访问权限的账号
@@ -671,6 +684,19 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=120 backend frontend migrate
 curl -f "http://localhost:${FRONTEND_PORT:-16006}/"
+
+# Verify migration state and critical database schema. `alembic current` should print
+# the latest head, and the schema smoke test should confirm metrics.dataset_id exists.
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm migrate alembic current
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T backend python - <<'PY'
+from sqlalchemy import create_engine, inspect
+from app.core.config import settings
+
+engine = create_engine(settings.database_url)
+columns = {column["name"] for column in inspect(engine).get_columns("metrics")}
+assert "dataset_id" in columns, "metrics.dataset_id missing; run alembic upgrade head before restarting backend"
+print("Schema smoke test passed: metrics.dataset_id exists")
+PY
 
 # Optional but recommended: run a post-deploy business-query smoke test to verify datasets,
 # semantic context, LLM query generation, and query history.
