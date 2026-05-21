@@ -84,6 +84,81 @@ class MetricTrustCenterTests(unittest.TestCase):
         self.assertEqual(asset.metadata_json["quality_status"], "normal")
         self.assertEqual(asset.metadata_json["caliber_version"], "v2026.04")
 
+    def test_enterprise_calculation_config_syncs_to_metric_and_catalog(self):
+        from app.api.metrics import create_metric, get_metric_lineage
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricCreate
+
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource = DataSource(
+            name="Sales",
+            slug="sales-enterprise-caliber",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add(datasource)
+        db.flush()
+        dataset = Dataset(
+            name="Sales Dataset",
+            datasource_id=datasource.id,
+            fields_json={"table": "orders", "fields": ["orders.received_amount", "orders.receivable_amount"]},
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        calculation_config = {
+            "calculation_mode": "ratio",
+            "numerator_expression": "SUM(received_amount)",
+            "denominator_expression": "SUM(receivable_amount)",
+            "statistical_window": "自然月",
+            "time_field": "order_date",
+            "time_grain": "month",
+            "filters": [
+                {"logic": "AND", "field": "order_status", "operator": "=", "value": "已完成"}
+            ],
+            "null_handling": "金额为空按 0 处理",
+            "dedup_key": "order_id",
+            "denominator_zero_policy": "返回空值并标记风险",
+            "decimal_precision": 4,
+            "exception_handling": "排除退款与测试订单",
+            "validation_rule": "与财务月结报表差异 <= 0.5%",
+        }
+
+        metric = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="企业级回款率",
+                definition="已完成订单的回款金额 / 应回款金额",
+                formula="SUM(received_amount) / NULLIF(SUM(receivable_amount), 0)",
+                aggregation="ratio",
+                calculation_config=calculation_config,
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        self.assertEqual(metric.calculation_config["calculation_mode"], "ratio")
+        self.assertEqual(metric.calculation_config["filters"][0]["field"], "order_status")
+        asset = db.query(DataAsset).filter(DataAsset.asset_type == "metric", DataAsset.asset_id == metric.id).one()
+        self.assertEqual(asset.metadata_json["calculation_config"]["time_grain"], "month")
+        self.assertEqual(asset.metadata_json["calculation_config"]["denominator_zero_policy"], "返回空值并标记风险")
+
+        lineage = get_metric_lineage(
+            metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=2, username="analyst", role="org_admin", org_id=2),
+        )
+        self.assertEqual(lineage["metric"]["calculation_config"]["statistical_window"], "自然月")
+        self.assertEqual(lineage["metric"]["calculation_config"]["filters"][0]["value"], "已完成")
+
     def test_metric_lineage_returns_source_and_usage_nodes(self):
         from app.api.metrics import create_metric, get_metric_lineage
         from app.models.audit_log import AuditLog
@@ -141,6 +216,177 @@ class MetricTrustCenterTests(unittest.TestCase):
         self.assertEqual(lineage["source"]["column_name"], "net_amount")
         self.assertEqual(lineage["trust"]["certification_status"], "pending_review")
         self.assertEqual(lineage["trust"]["quality_status"], "stale")
+
+    def test_metric_lineage_uses_dataset_joins_json(self):
+        from app.api.metrics import create_metric, get_metric_lineage
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricCreate
+
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource = DataSource(
+            name="Sales",
+            slug="sales-joins",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add(datasource)
+        db.flush()
+        dataset = Dataset(
+            name="Sales Join Dataset",
+            datasource_id=datasource.id,
+            fields_json={"table": "orders", "metrics": ["orders.total_amount"]},
+            joins_json=[
+                {
+                    "right": "customers",
+                    "type": "LEFT JOIN",
+                    "on": "orders.customer_id = customers.customer_id",
+                }
+            ],
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        metric = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="关联销售额",
+                definition="已完成订单销售额",
+                formula="SUM(orders.total_amount)",
+                column_name="orders.total_amount",
+                aggregation="sum",
+                calculation_config={
+                    "calculation_mode": "aggregate",
+                    "metric_field": "orders.total_amount",
+                    "statistical_window": "自然月",
+                    "time_field": "orders.order_date",
+                    "time_grain": "month",
+                    "refresh_sla": "T+1 08:00 前完成刷新",
+                },
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        lineage = get_metric_lineage(
+            metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=2, username="analyst", role="org_admin", org_id=2),
+        )
+
+        self.assertEqual(lineage["dataset"]["joins"][0]["table"], "customers")
+        self.assertEqual(lineage["dataset"]["joins"][0]["join_type"], "LEFT JOIN")
+        self.assertEqual(lineage["dataset"]["joins"][0]["join_on"], "orders.customer_id = customers.customer_id")
+
+    def test_metric_lineage_exposes_statistical_scope_and_dependencies(self):
+        from app.api.metrics import create_metric, get_metric_lineage
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricCreate
+
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource = DataSource(
+            name="Sales",
+            slug="sales-derived",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add(datasource)
+        db.flush()
+        dataset = Dataset(
+            name="Sales Dataset",
+            datasource_id=datasource.id,
+            fields_json={
+                "table": "orders",
+                "metrics": ["orders.total_amount", "orders.order_id"],
+                "dimensions": ["orders.region", "orders.order_date"],
+            },
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        revenue = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="完成订单销售额",
+                definition="已完成订单金额合计",
+                formula="SUM(orders.total_amount)",
+                column_name="orders.total_amount",
+                aggregation="sum",
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+        orders = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="完成订单数",
+                definition="已完成订单去重数量",
+                formula="COUNT(DISTINCT orders.order_id)",
+                column_name="orders.order_id",
+                aggregation="count_distinct",
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+        metric = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="平均成交客单价",
+                definition="完成订单销售额 / 完成订单数",
+                formula="SUM(orders.total_amount) / NULLIF(COUNT(DISTINCT orders.order_id), 0)",
+                column_name="avg_deal_amount",
+                aggregation="custom",
+                calculation_config={
+                    "calculation_mode": "derived",
+                    "derived_left_field": f"metric:{revenue.id}",
+                    "derived_operator": "/",
+                    "derived_right_field": f"metric:{orders.id}",
+                    "dependency_metrics": "完成订单销售额, 完成订单数",
+                    "statistical_window": "自然月",
+                    "time_field": "orders.order_date",
+                    "time_grain": "month",
+                    "refresh_sla": "T+1 08:00 前完成刷新",
+                    "filters": [
+                        {"logic": "AND", "field": "orders.status", "operator": "=", "value": "已完成"}
+                    ],
+                    "statistical_scope": {
+                        "included_subjects": ["已完成订单"],
+                        "excluded_subjects": ["退款订单", "测试订单"],
+                        "organization_scope": "蓝途科技销售组织",
+                    },
+                },
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        lineage = get_metric_lineage(
+            metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=2, username="analyst", role="org_admin", org_id=2),
+        )
+
+        self.assertEqual(lineage["scope"]["statistical_window"], "自然月")
+        self.assertEqual(lineage["scope"]["time_field"], "orders.order_date")
+        self.assertEqual(lineage["scope"]["filters"][0]["field"], "orders.status")
+        self.assertEqual(lineage["scope"]["included_subjects"], ["已完成订单"])
+        self.assertEqual(lineage["calculation"]["mode"], "derived")
+        self.assertEqual([item["name"] for item in lineage["dependencies"]], ["完成订单销售额", "完成订单数"])
 
     def test_metric_certifiers_are_permission_controlled_system_users(self):
         from app.api.metrics import list_metric_certifiers

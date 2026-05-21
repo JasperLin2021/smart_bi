@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.llm_setting import LlmSetting
 from app.models.datasource import DataSource
 from app.models.organization import Department, Organization
+from app.models.role import Role  # noqa: F401
 from app.models.pinned_chart import PinnedChart  # noqa: F401
 from app.models.agent_run import AgentRun  # noqa: F401
 from app.models.alert import Alert  # noqa: F401
@@ -39,7 +40,7 @@ from app.models.report_template import (  # noqa: F401
     ReportTemplate,
     ReportTemplateVersion,
 )
-from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule  # noqa: F401
+from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataPipelineVersion, DataQualityRule  # noqa: F401
 from app.models.analysis_view import AnalysisView  # noqa: F401
 
 
@@ -226,6 +227,7 @@ def _startup():
     for column_definition in [
         "pipeline_json JSON",
         "semantic_model_json JSON",
+        "drill_config_json JSON",
         "last_refresh_status VARCHAR(32)",
         "last_refresh_at TIMESTAMP",
         "last_refresh_row_count INTEGER DEFAULT 0",
@@ -243,10 +245,37 @@ def _startup():
             pass
 
     for column_definition in [
+        "environment VARCHAR(32) DEFAULT 'prod'",
+        "priority VARCHAR(16) DEFAULT 'medium'",
+        "sla_minutes INTEGER DEFAULT 120",
+        "retry_count INTEGER DEFAULT 2",
+        "timeout_minutes INTEGER DEFAULT 60",
+        "alert_policy_json JSON",
+        "state_json JSON",
+        "current_version INTEGER DEFAULT 0",
+        "published_version INTEGER DEFAULT 0",
+    ]:
+        try:
+            _ensure_column(engine, "data_pipelines", column_definition)
+        except Exception:
+            pass
+
+    for column_definition in [
+        "notify_result_json JSON",
+        "scheduled_job_id VARCHAR(128)",
+        "duration_ms INTEGER",
+    ]:
+        try:
+            _ensure_column(engine, "data_pipeline_runs", column_definition)
+        except Exception:
+            pass
+
+    for column_definition in [
         "certification_status VARCHAR(32) DEFAULT 'draft'",
         "certified_by VARCHAR(128)",
         "certified_at TIMESTAMP",
         "caliber_version VARCHAR(64) DEFAULT 'v1'",
+        "calculation_config JSON",
         "data_updated_at TIMESTAMP",
         "quality_status VARCHAR(32) DEFAULT 'unknown'",
         "quality_message TEXT",

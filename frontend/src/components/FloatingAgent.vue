@@ -1,29 +1,63 @@
 <template>
   <div class="agent-shell">
-    <button class="agent-fab" @click="agentStore.toggle()">
+    <button
+      class="agent-fab"
+      type="button"
+      aria-label="打开页面 Agent"
+      title="页面 Agent"
+      @click="agentStore.toggle()"
+    >
       <el-icon><ChatDotRound /></el-icon>
     </button>
 
     <transition name="agent-panel">
       <div v-if="agentStore.open" class="agent-panel">
         <div class="agent-header">
-          <div>
+          <div class="agent-heading">
             <div class="agent-title">页面 Agent</div>
             <div class="agent-subtitle">受控执行，按当前账号权限运行</div>
           </div>
           <div class="agent-header-actions">
-            <el-button size="small" text @click="skillsVisible = true">Skills</el-button>
-            <el-button size="small" text @click="agentStore.reset()">清空</el-button>
-            <el-button size="small" text @click="agentStore.toggle()">关闭</el-button>
+            <el-tooltip content="Skills" placement="bottom">
+              <el-button
+                :icon="Collection"
+                circle
+                text
+                aria-label="打开 Agent Skills"
+                @click="skillsVisible = true"
+              />
+            </el-tooltip>
+            <el-tooltip content="清空对话" placement="bottom">
+              <el-button
+                :icon="Delete"
+                circle
+                text
+                aria-label="清空 Agent 对话"
+                @click="agentStore.reset()"
+              />
+            </el-tooltip>
+            <el-tooltip content="关闭" placement="bottom">
+              <el-button
+                :icon="Close"
+                circle
+                text
+                aria-label="关闭页面 Agent"
+                @click="agentStore.toggle()"
+              />
+            </el-tooltip>
           </div>
         </div>
 
         <div class="agent-context">
-          <span>页面：{{ route.path }}</span>
+          <span>当前页面：{{ route.fullPath }}</span>
           <span v-if="datasourceStore.current">数据源：{{ datasourceStore.current.name }}</span>
         </div>
 
         <div class="agent-messages">
+          <div v-if="!agentStore.messages.length" class="agent-empty">
+            <div class="agent-empty-title">我可以帮你操作当前系统</div>
+            <div class="agent-empty-text">例如打开数据集开发、进入自助分析、切换数据源、发起问数或创建行动项。</div>
+          </div>
           <div v-for="message in agentStore.messages" :key="message.id" :class="['agent-message', `agent-message--${message.role}`]">
             <div class="agent-bubble">
               <div class="agent-text">{{ message.content }}</div>
@@ -86,10 +120,20 @@
             :rows="3"
             resize="none"
             placeholder="例如：打开数据源管理；切换到生产数据Excel；查询今天各产线产量"
+            @keydown.ctrl.enter.prevent="agentStore.send()"
+            @keydown.meta.enter.prevent="agentStore.send()"
           />
           <div class="agent-input-actions">
             <span class="agent-tip">低风险动作自动执行，修改删除类动作需要确认。</span>
-            <el-button type="primary" :loading="agentStore.planning" @click="agentStore.send()">发送</el-button>
+            <el-button
+              type="primary"
+              :icon="Promotion"
+              :loading="agentStore.planning"
+              :disabled="!agentStore.input.trim() || agentStore.executing"
+              @click="agentStore.send()"
+            >
+              发送
+            </el-button>
           </div>
         </div>
       </div>
@@ -101,7 +145,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue"
-import { ChatDotRound } from "@element-plus/icons-vue"
+import { ChatDotRound, Close, Collection, Delete, Promotion } from "@element-plus/icons-vue"
 import { useRoute } from "vue-router"
 
 import AgentSkillsDrawer from "@/components/AgentSkillsDrawer.vue"
@@ -135,8 +179,9 @@ const riskTagType = (risk: string) => {
 }
 
 .agent-fab {
-  width: 58px;
-  height: 58px;
+  width: 56px;
+  min-width: 56px;
+  height: 56px;
   border: none;
   border-radius: 50%;
   background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
@@ -147,17 +192,29 @@ const riskTagType = (risk: string) => {
   align-items: center;
   justify-content: center;
   font-size: 24px;
+  touch-action: manipulation;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.agent-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 44px rgba(15, 118, 110, 0.38);
+}
+
+.agent-fab:focus-visible {
+  outline: 3px solid rgba(20, 184, 166, 0.35);
+  outline-offset: 4px;
 }
 
 .agent-panel {
   position: absolute;
   right: 0;
   bottom: 72px;
-  width: 400px;
-  height: 640px;
+  width: min(420px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 112px));
   background: #fff;
   border: 1px solid var(--app-border-light);
-  border-radius: 20px;
+  border-radius: 16px;
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
   display: flex;
   flex-direction: column;
@@ -185,6 +242,10 @@ const riskTagType = (risk: string) => {
   background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%);
 }
 
+.agent-heading {
+  min-width: 0;
+}
+
 .agent-title {
   font-size: 16px;
   font-weight: 700;
@@ -199,7 +260,13 @@ const riskTagType = (risk: string) => {
 
 .agent-header-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.agent-header-actions :deep(.el-button) {
+  width: 36px;
+  height: 36px;
 }
 
 .agent-context {
@@ -223,6 +290,26 @@ const riskTagType = (risk: string) => {
   background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
 }
 
+.agent-empty {
+  border: 1px dashed var(--app-border);
+  border-radius: 14px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.agent-empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.agent-empty-text {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-muted);
+}
+
 .agent-message--user {
   display: flex;
   justify-content: flex-end;
@@ -235,10 +322,11 @@ const riskTagType = (risk: string) => {
 
 .agent-bubble {
   max-width: 92%;
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 12px 14px;
   border: 1px solid var(--app-border-light);
   background: white;
+  overflow-wrap: anywhere;
 }
 
 .agent-message--user .agent-bubble {
@@ -331,5 +419,31 @@ const riskTagType = (risk: string) => {
   font-size: 11px;
   color: var(--app-text-light);
   line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .agent-shell {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .agent-panel {
+    right: -8px;
+    bottom: 68px;
+    height: min(620px, calc(100vh - 96px));
+  }
+
+  .agent-header {
+    padding: 14px 14px;
+  }
+
+  .agent-input-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-tip {
+    order: 2;
+  }
 }
 </style>

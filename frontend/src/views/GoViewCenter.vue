@@ -8,6 +8,7 @@
       <div class="goview-actions">
         <el-segmented
           v-if="modeOptions.length > 1"
+          class="page-segmented-tabs"
           v-model="activeMode"
           :options="modeOptions"
           @change="loadLaunch"

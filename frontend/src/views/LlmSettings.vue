@@ -15,6 +15,8 @@
               <el-option label="OpenAI" value="openai" />
               <el-option label="Moonshot" value="moonshot" />
               <el-option label="Deepseek" value="deepseek" />
+              <el-option label="阿里云百炼（DashScope）" value="dashscope" />
+              <el-option label="Pi / pi-mono" value="pi" />
               <el-option label="Gemini" value="gemini" />
               <el-option label="自定义" value="custom" />
             </el-select>
@@ -97,6 +99,8 @@ const presets: Record<string, { base_url: string; model: string }> = {
   openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
   moonshot: { base_url: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k" },
   deepseek: { base_url: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  dashscope: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen3.6-35b-a3b" },
+  pi: { base_url: "http://localhost:8001/v1", model: "pi/pi-mono" },
   gemini: {
     base_url: "https://generativelanguage.googleapis.com/v1beta",
     model: "gemini-2.5-flash-lite"

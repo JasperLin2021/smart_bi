@@ -10,6 +10,7 @@ class OrganizationDepartmentTests(unittest.TestCase):
         from app.db.base_class import Base
         from app.models.audit_log import AuditLog
         from app.models.organization import Department, Organization
+        from app.models.role import Role
         from app.models.user import User
 
         engine = create_engine("sqlite:///:memory:")
@@ -18,6 +19,7 @@ class OrganizationDepartmentTests(unittest.TestCase):
             tables=[
                 Organization.__table__,
                 Department.__table__,
+                Role.__table__,
                 User.__table__,
                 AuditLog.__table__,
             ],
@@ -165,6 +167,87 @@ class OrganizationDepartmentTests(unittest.TestCase):
             current_user=data["lantu_admin"],
         )
         self.assertIn("部门不属于所选企业", cross_org.detail)
+
+    def test_dept_admin_tree_and_user_management_are_department_scoped(self):
+        from app.api.organization import create_department, get_organization_tree, list_departments
+        from app.api.users import create_user, list_users
+        from app.models.organization import Department
+        from app.models.user import User
+        from app.schemas.organization import DepartmentCreate
+        from app.schemas.user import UserCreate
+
+        db = self._db()
+        data = self._seed(db)
+        finance = Department(id=12, name="财务部", org_id=1, parent_id=None, sort_order=2)
+        dept_admin = User(
+            id=6,
+            username="lantu.sales.admin",
+            hashed_password="x",
+            role="dept_admin",
+            org_id=1,
+            department_id=10,
+            department="销售中心",
+        )
+        child_user = User(
+            id=7,
+            username="lantu.east.user",
+            hashed_password="x",
+            role="user",
+            org_id=1,
+            department_id=11,
+            department="华东销售组",
+        )
+        sibling_user = User(
+            id=8,
+            username="lantu.finance.user",
+            hashed_password="x",
+            role="user",
+            org_id=1,
+            department_id=12,
+            department="财务部",
+        )
+        db.add_all([finance, dept_admin, child_user, sibling_user])
+        db.commit()
+
+        users = list_users(db=db, current_user=dept_admin)
+        self.assertEqual(
+            {item["username"] for item in users},
+            {"lantu.sales", "lantu.sales.admin", "lantu.east.user"},
+        )
+
+        tree = get_organization_tree(db=db, current_user=dept_admin)
+        self.assertEqual([node["slug"] for node in tree], ["lantu"])
+        self.assertEqual([node["name"] for node in tree[0]["children"]], ["销售中心"])
+        self.assertEqual(tree[0]["children"][0]["children"][0]["name"], "华东销售组")
+        self.assertEqual(tree[0]["user_count"], 3)
+
+        visible_departments = list_departments(1, db=db, current_user=dept_admin)
+        self.assertEqual({department.id for department in visible_departments}, {10, 11})
+
+        created = create_user(
+            UserCreate(username="lantu.east.new", password="x", role="user", org_id=1, department_id=11),
+            db=db,
+            current_user=dept_admin,
+        )
+        self.assertEqual(created["department_id"], 11)
+
+        sibling_denied = self._assert_http(
+            403,
+            create_user,
+            UserCreate(username="lantu.finance.new", password="x", role="user", org_id=1, department_id=12),
+            db=db,
+            current_user=dept_admin,
+        )
+        self.assertIn("本部门", sibling_denied.detail)
+
+        self._assert_http(
+            403,
+            create_department,
+            1,
+            DepartmentCreate(name="越权下级", parent_id=10),
+            db=db,
+            current_user=dept_admin,
+        )
 
 
 if __name__ == "__main__":

@@ -8,10 +8,9 @@ const router = createRouter({
     { path: "/login", component: () => import("@/views/Login.vue") },
     { path: "/dashboard", component: () => import("@/views/Dashboard.vue") },
     { path: "/dashboard-center", component: () => import("@/views/DashboardCenter.vue") },
-    { path: "/big-screen-center", component: () => import("@/views/GoViewCenter.vue") },
-    { path: "/goview", redirect: "/big-screen-center" },
-    { path: "/internal-big-screen-center", component: () => import("@/views/BigScreenCenter.vue") },
-    { path: "/data-access", component: () => import("@/views/DataAccessCenter.vue") },
+    { path: "/big-screen-center", component: () => import("@/views/BigScreenCenter.vue") },
+    { path: "/goview", component: () => import("@/views/GoViewCenter.vue") },
+    { path: "/data-access", redirect: "/data-development" },
     { path: "/data-link", component: () => import("@/views/DataLink.vue") },
     { path: "/data-pipelines", component: () => import("@/views/DataPipelines.vue") },
     { path: "/data-development", component: () => import("@/views/DataSourceDatasetCenter.vue") },
@@ -28,7 +27,7 @@ const router = createRouter({
     {
       path: "/access-control",
       component: () => import("@/views/AccessControl.vue"),
-      meta: { requiredRole: ['org_admin', 'super_admin'] }
+      meta: { requiredRole: ['dept_admin', 'org_admin', 'super_admin'] }
     },
     { path: "/user-management", redirect: "/access-control" },
     { path: "/role-management", redirect: "/access-control" },

@@ -334,7 +334,7 @@ const sourceOptions = [
   { label: "手动", value: "manual" },
   { label: "问数结果", value: "query" },
   { label: "预警异常", value: "alert" },
-  { label: "自动洞察", value: "insight" },
+  { label: "分析结果", value: "insight" },
   { label: "看板", value: "dashboard" },
   { label: "数据集", value: "dataset" },
   { label: "指标", value: "metric" },

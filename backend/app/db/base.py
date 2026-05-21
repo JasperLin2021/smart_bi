@@ -4,6 +4,7 @@ from app.models.query import QueryHistory
 from app.models.llm_setting import LlmSetting
 from app.models.metric import Metric
 from app.models.organization import Department, Organization  # noqa: F401
+from app.models.role import Role  # noqa: F401
 from app.models.alert import Alert  # noqa: F401
 from app.models.notification_setting import NotificationSetting  # noqa: F401
 from app.models.alert_history import AlertHistory  # noqa: F401
@@ -30,15 +31,15 @@ from app.models.report_template import (  # noqa: F401
     ReportTemplate,
     ReportTemplateVersion,
 )
-from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataQualityRule  # noqa: F401
+from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataPipelineVersion, DataQualityRule  # noqa: F401
 from app.models.analysis_view import AnalysisView  # noqa: F401
 
 __all__ = [
-    "Base", "User", "QueryHistory", "LlmSetting", "Metric", "Organization", "Department",
+    "Base", "User", "QueryHistory", "LlmSetting", "Metric", "Organization", "Department", "Role",
     "Alert", "NotificationSetting", "AlertHistory", "ScheduledReport",
     "DataAsset", "Dashboard", "AuditLog", "Dataset", "DatasetRefreshLog", "BigScreen", "ActionItem",
     "IntegrationConfig", "ExternalOrgBinding", "ExternalIdentity", "ExternalPermissionMapping",
     "MessageDelivery", "AccessRequest", "ReportExecutionLog", "ReportTemplate",
     "ReportTemplateVersion", "ReportRun", "ReportFillRecord", "DataPipeline",
-    "DataPipelineRun", "DataQualityRule", "AnalysisView",
+    "DataPipelineRun", "DataPipelineVersion", "DataQualityRule", "AnalysisView",
 ]

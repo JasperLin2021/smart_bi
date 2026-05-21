@@ -21,14 +21,19 @@ test("P1 enterprise capability routes are registered", () => {
 
 test("P1 enterprise capabilities are visible in the expected sidebar groups", () => {
   const layout = read("src/layouts/MainLayout.vue")
-  const workspaceBlock = layout.match(/key:\s*"workspace"[\s\S]*?path:\s*"\/big-screen-center"/)?.[0] || ""
+  const workspaceBlock = layout.match(/key:\s*"workspace"[\s\S]*?key:\s*"data-access"/)?.[0] || ""
   const dataAccessBlock = layout.match(/key:\s*"data-access"[\s\S]*?key:\s*"bi-assets"/)?.[0] || ""
   const biAnalysisBlock = layout.match(/key:\s*"bi-assets"[\s\S]*?key:\s*"system-admin"/)?.[0] || ""
 
+  assert.match(workspaceBlock, /items:\s*\[\s*\{\s*path:\s*"\/smart-query",\s*label:\s*"智能问数"/)
+  assert.match(workspaceBlock, /path:\s*"\/smart-query",\s*label:\s*"智能问数"[\s\S]*path:\s*"\/dashboard",\s*label:\s*"仪表盘"/)
+  assert.match(workspaceBlock, /path:\s*"\/dashboard",\s*label:\s*"仪表盘"/)
   assert.match(workspaceBlock, /path:\s*"\/analysis-workbench",\s*label:\s*"自助分析"/)
-  assert.match(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"数据加工管道"/)
+  assert.match(workspaceBlock, /path:\s*"\/report-center",\s*label:\s*"复杂报表"/)
+  assert.doesNotMatch(layout, /path:\s*"\/big-screen-center",\s*label:\s*"大屏中心"/)
+  assert.match(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"可视化ETL"/)
   assert.doesNotMatch(dataAccessBlock, /path:\s*"\/data-pipelines",\s*label:\s*"数据集成管道"/)
-  assert.match(biAnalysisBlock, /path:\s*"\/report-center",\s*label:\s*"复杂报表"/)
+  assert.doesNotMatch(biAnalysisBlock, /path:\s*"\/report-center",\s*label:\s*"复杂报表"/)
   assert.doesNotMatch(biAnalysisBlock, /path:\s*"\/analysis-workbench",\s*label:\s*"自助分析"/)
 })
 
@@ -57,7 +62,7 @@ test("P1 pages expose production-like API backed workflows", () => {
   const pipelines = read("src/views/DataPipelines.vue")
   assert.match(pipelines, /\/api\/pipelines/)
   assert.match(pipelines, /\/api\/quality-rules/)
-  assert.match(pipelines, /数据加工管道/)
+  assert.match(pipelines, /可视化ETL/)
   assert.match(pipelines, /VueFlow/)
   assert.match(pipelines, /补数/)
 

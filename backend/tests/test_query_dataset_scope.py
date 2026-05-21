@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -38,12 +39,13 @@ class QueryDatasetScopeTests(unittest.TestCase):
         from app.models.audit_log import AuditLog
         from app.models.dataset import Dataset
         from app.models.datasource import DataSource
+        from app.models.metric import Metric
         from app.models.query import QueryHistory
         from app.schemas.query import QueryAskRequest
 
         source_path = self._source_database()
         try:
-            db = self._db([DataSource.__table__, Dataset.__table__, QueryHistory.__table__, AuditLog.__table__])
+            db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, QueryHistory.__table__, AuditLog.__table__])
             datasource = DataSource(
                 name="Sales DB",
                 slug="sales-db",
@@ -57,7 +59,11 @@ class QueryDatasetScopeTests(unittest.TestCase):
             dataset = Dataset(
                 name="Paid Sales Dataset",
                 datasource_id=datasource.id,
-                fields_json={"table": "sales", "fields": ["sales.region", "sales.amount"]},
+                fields_json={
+                    "table": "sales",
+                    "dimensions": [{"field": "sales.region", "alias": "区域"}],
+                    "metrics": [{"field": "sales.amount", "aggregation": "SUM", "alias": "销售额"}],
+                },
                 filters_json={"filters": ["sales.status = paid"]},
                 status="published",
                 visibility="org",
@@ -65,8 +71,23 @@ class QueryDatasetScopeTests(unittest.TestCase):
                 owner_id=10,
             )
             db.add(dataset)
+            db.flush()
+            metric = Metric(
+                dataset_id=dataset.id,
+                datasource_id=datasource.id,
+                name="销售额",
+                definition="统计已支付销售金额",
+                formula="SUM(amount)",
+                unit="元",
+                status="published",
+                certification_status="certified",
+                quality_status="normal",
+                is_active=1,
+            )
+            db.add(metric)
             db.commit()
             db.refresh(dataset)
+            db.refresh(metric)
 
             captured_context = {}
 
@@ -79,7 +100,7 @@ class QueryDatasetScopeTests(unittest.TestCase):
             ):
                 captured_context["datasource_id"] = datasource.id
                 captured_context["context"] = context
-                return "SELECT region, amount FROM sales WHERE status = 'paid'"
+                return "SELECT region, SUM(amount) AS total_amount FROM sales WHERE status = 'paid' GROUP BY region"
 
             async def fake_plan_query(_question, _datasource):
                 return {"query_type": "detail"}
@@ -111,10 +132,20 @@ class QueryDatasetScopeTests(unittest.TestCase):
             self.assertEqual(captured_context["datasource_id"], datasource.id)
             self.assertIn("当前选择数据集：Paid Sales Dataset", captured_context["context"])
             self.assertIn("主表：sales", captured_context["context"])
-            self.assertIn("维度字段：sales.region, sales.amount", captured_context["context"])
+            self.assertIn("{'field': 'sales.region', 'alias': '区域'}", captured_context["context"])
             self.assertIn("固定筛选：sales.status = paid", captured_context["context"])
-            self.assertEqual(response["result"]["rows"], [{"region": "East", "amount": 100}])
-            self.assertEqual(db.query(QueryHistory).one().datasource_id, datasource.id)
+            self.assertEqual(response["result"]["rows"], [{"region": "East", "total_amount": 100}])
+            semantic_context = response["semantic_context"]
+            self.assertEqual(semantic_context["dataset"]["id"], dataset.id)
+            self.assertEqual(semantic_context["dataset"]["name"], "Paid Sales Dataset")
+            self.assertEqual(semantic_context["metrics"][0]["name"], "销售额")
+            self.assertEqual(semantic_context["metrics"][0]["certification_status"], "certified")
+            self.assertEqual(semantic_context["dimensions"][0]["field"], "sales.region")
+            self.assertEqual(semantic_context["dimensions"][0]["label"], "区域")
+            self.assertEqual(semantic_context["filters"][0]["label"], "sales.status = paid")
+            history = db.query(QueryHistory).one()
+            self.assertEqual(history.datasource_id, datasource.id)
+            self.assertIn("_semantic_context", json.loads(history.result_json))
         finally:
             os.unlink(source_path)
 

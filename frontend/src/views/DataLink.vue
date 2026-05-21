@@ -3,7 +3,10 @@
     <!-- 左侧连接列表 -->
     <aside class="dl-sidebar">
       <div class="dl-sidebar__header">
-        <span class="dl-sidebar__title">连接器接入</span>
+        <div>
+          <span class="dl-sidebar__title">连接器接入</span>
+          <small class="dl-sidebar__subtitle">外部业务系统同步入口</small>
+        </div>
         <el-button type="primary" size="small" :icon="Plus" @click="openCreateLink">新建连接</el-button>
       </div>
       <div class="dl-sidebar__search">
@@ -50,9 +53,11 @@
     <main class="dl-main">
       <!-- 未选中连接 -->
       <div v-if="!selectedLink" class="dl-welcome">
-        <div class="dl-welcome__icon">🔗</div>
+        <el-icon class="dl-welcome__icon"><Connection /></el-icon>
         <div class="dl-welcome__title">选择或新建一个数据连接</div>
-        <div class="dl-welcome__desc">支持聚水潭 ERP、易仓 WMS、纷享销客 CRM，一键同步数据到目标数据库</div>
+        <div class="dl-welcome__desc">
+          连接器接入负责把外部系统数据拉进平台，支持 ERP、WMS、CRM、SaaS API 等业务系统同步到目标数据库。
+        </div>
         <el-button type="primary" :icon="Plus" @click="openCreateLink">新建连接</el-button>
       </div>
 
@@ -346,7 +351,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue"
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus"
-import { Plus, Search, MoreFilled } from "@element-plus/icons-vue"
+import { Connection, Plus, Search, MoreFilled } from "@element-plus/icons-vue"
 import axios from "axios"
 
 // ── state ──────────────────────────────────────────────────────────────────
@@ -752,9 +757,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 16px 14px 10px;
 }
-.dl-sidebar__title { font-size: 14px; font-weight: 600; color: #1e293b; }
+.dl-sidebar__title { display: block; font-size: 14px; font-weight: 600; color: #1e293b; }
+.dl-sidebar__subtitle { display: block; margin-top: 2px; color: #64748b; font-size: 12px; line-height: 1.2; }
 .dl-sidebar__search { padding: 0 10px 10px; }
 .dl-sidebar__list { flex: 1; overflow-y: auto; padding: 0 6px 12px; }
 
@@ -803,7 +810,14 @@ onMounted(() => {
   gap: 16px;
   color: #64748b;
 }
-.dl-welcome__icon { font-size: 56px; }
+.dl-welcome__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--app-primary);
+  font-size: 32px;
+}
 .dl-welcome__title { font-size: 20px; font-weight: 600; color: #1e293b; }
 .dl-welcome__desc { font-size: 14px; max-width: 380px; text-align: center; }
 

@@ -11,6 +11,7 @@ class QueryHistoryModelTests(unittest.TestCase):
             history = SimpleNamespace(
                 id=7,
                 user_id=1,
+                datasource_id=3,
                 question="[SQL] 查询测试",
                 sql_query="select 1",
                 result_json='{"columns":["a"],"rows":[{"a":1}]}',
@@ -29,8 +30,14 @@ class QueryHistoryModelTests(unittest.TestCase):
                 def filter(self, *_args, **_kwargs):
                     return self
 
+                def order_by(self, *_args, **_kwargs):
+                    return self
+
                 def first(self):
                     return self.row
+
+                def all(self):
+                    return [self.row]
 
             class FakeDb:
                 def query(self, _model):

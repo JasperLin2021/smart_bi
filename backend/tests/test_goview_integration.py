@@ -5,6 +5,7 @@ import unittest
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -379,6 +380,48 @@ class GoViewIntegrationTests(unittest.TestCase):
         self.assertEqual(result["data"]["columns"], ["region", "amount"])
         self.assertEqual(result["data"]["rows"][0], {"region": "华东", "amount": 120})
         self.assertEqual(result["data"]["dataset"]["dimensions"], ["region", "amount"])
+
+    def test_smartbi_question_uses_agentic_query_mode(self):
+        from app.api import goview
+        from app.models.datasource import DataSource
+        from app.models.organization import Organization
+
+        db = self._db()
+        db.add(Organization(id=2, name="Nexteer", slug="nexteer"))
+        db.add(
+            DataSource(
+                id=1,
+                name="销售库",
+                slug="sales",
+                database_url="sqlite:///sales.db",
+                metadata_prompt="sales(region, amount)",
+                org_id=2,
+                is_active=1,
+            )
+        )
+        db.commit()
+        captured = {}
+
+        async def fake_ask(payload, db, current_user):
+            captured["mode"] = payload.mode
+            return {
+                "result": {"columns": ["region"], "rows": [{"region": "华东"}]},
+                "sql_query": "SELECT region FROM sales",
+                "summary": "ok",
+            }
+
+        with patch.object(goview.query_api, "ask", new=fake_ask):
+            result = asyncio.run(
+                goview.smartbi_query(
+                    payload={"datasource_id": 1, "question": "按区域统计"},
+                    db=db,
+                    current_user=self._user(org_id=2),
+                )
+            )
+
+        self.assertEqual(captured["mode"], "agentic")
+        self.assertEqual(result["code"], 200)
+        self.assertEqual(result["data"]["columns"], ["region"])
 
     def test_smartbi_query_rejects_non_select_sql(self):
         from app.api import goview

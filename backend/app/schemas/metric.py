@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 
 
@@ -12,6 +12,7 @@ class MetricBase(BaseModel):
     definition: str
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    calculation_config: Optional[dict[str, Any]] = None
     owner_name: Optional[str] = None
     unit: Optional[str] = None
     aggregation: str = "sum"
@@ -41,6 +42,7 @@ class MetricUpdate(BaseModel):
     definition: Optional[str] = None
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    calculation_config: Optional[dict[str, Any]] = None
     owner_name: Optional[str] = None
     unit: Optional[str] = None
     aggregation: Optional[str] = None
@@ -68,6 +70,7 @@ class MetricOut(BaseModel):
     definition: str
     column_name: Optional[str] = None
     formula: Optional[str] = None
+    calculation_config: Optional[dict[str, Any]] = None
     owner_name: Optional[str] = None
     unit: Optional[str] = None
     aggregation: str = "sum"
@@ -90,3 +93,51 @@ class MetricOut(BaseModel):
 
 class MetricListResponse(BaseModel):
     items: list[MetricOut]
+
+
+class MetricFromQueryDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_history_id: int
+    dataset_id: Optional[int] = None
+    selected_metric_column: Optional[str] = None
+    selected_dimensions: list[str] = []
+    time_column: Optional[str] = None
+
+
+class MetricFromQueryCreateRequest(MetricFromQueryDraftRequest):
+    name: Optional[str] = None
+    definition: Optional[str] = None
+    formula: Optional[str] = None
+    unit: Optional[str] = None
+    owner_name: Optional[str] = None
+    dimensions: Optional[list[str]] = None
+    status: str = "draft"
+    certification_status: str = "pending_review"
+
+
+class MetricFromQueryDraftResponse(BaseModel):
+    candidate: dict[str, Any]
+    source: dict[str, Any]
+    validation: dict[str, Any]
+    warnings: list[str] = []
+    llm_enhanced: bool = False
+    llm_model: Optional[str] = None
+
+
+class MetricPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimensions: list[str] = []
+    limit: int = 50
+
+
+class MetricPreviewResponse(BaseModel):
+    metric: dict[str, Any]
+    dataset: dict[str, Any]
+    datasource: dict[str, Any]
+    dimensions: list[dict[str, str]]
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    query: dict[str, Any]

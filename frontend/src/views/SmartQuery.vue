@@ -1,117 +1,150 @@
 <template>
   <div class="smart-query-page">
-    <el-row :gutter="16" class="page-row">
-      <el-col :xs="24" :md="17" :lg="18">
-        <el-card class="chat-card">
-          <template #header>
-            <div class="card-header">
-              <span class="card-header-title">智能问数助手</span>
-              <div class="header-actions">
-                <el-radio-group v-model="queryStore.mode" size="small">
-                  <el-radio-button label="text2sql">智能问数</el-radio-button>
-                  <el-radio-button label="chat">闲聊模式</el-radio-button>
-                </el-radio-group>
-                <el-button size="small" text @click="clearChat">
-                  <el-icon><Delete /></el-icon>
-                  清空对话
-                </el-button>
-              </div>
-            </div>
-          </template>
-
-          <div v-if="queryStore.mode === 'text2sql'" class="query-scope-panel">
-            <div class="scope-mode">
-              <span class="scope-label">问数范围</span>
-              <el-segmented v-model="queryStore.scopeMode" :options="scopeOptions" />
-            </div>
-            <el-select
-              v-if="queryStore.scopeMode === 'datasource'"
-              v-model="queryStore.selectedDatasourceId"
-              class="scope-select"
-              filterable
-              placeholder="选择数据源"
-              :loading="datasourceStore.datasources.length === 0"
+    <div class="query-workspace query-compact-workspace" :data-active-mode="queryStore.mode">
+      <div class="query-layout query-history-left-layout">
+        <main
+          class="conversation-shell"
+          :class="{ 'is-new-dialog': isNewConversation, 'has-conversation': hasConversation }"
+        >
+          <Teleport to="#smart-query-header-actions">
+            <section
+              class="scope-console query-workbench-toolbar query-header-teleport-toolbar"
+              :class="{ 'is-agentic': queryStore.mode === 'agentic' }"
             >
-              <el-option
-                v-for="datasource in datasourceStore.datasources"
-                :key="datasource.id"
-                :label="datasource.name"
-                :value="datasource.id"
-              >
-                <div class="scope-option">
-                  <strong>{{ datasource.name }}</strong>
-                  <small>{{ datasource.source_type === "excel" ? "Excel 数据源" : "数据库数据源" }}</small>
-                </div>
-              </el-option>
-            </el-select>
-            <el-select
-              v-else
-              v-model="queryStore.selectedDatasetId"
-              class="scope-select"
-              filterable
-              placeholder="选择数据集"
-              :loading="datasetsLoading"
-              :disabled="datasets.length === 0"
-            >
-              <el-option
-                v-for="dataset in datasets"
-                :key="dataset.id"
-                :label="dataset.name"
-                :value="dataset.id"
-              >
-                <div class="scope-option">
-                  <strong>{{ dataset.name }}</strong>
-                  <small>{{ datasourceName(dataset.datasource_id) }}</small>
-                </div>
-              </el-option>
-            </el-select>
-            <span class="scope-current">{{ activeScopeText }}</span>
-          </div>
-
-          <div ref="chatContainerRef" class="chat-container">
-            <div v-if="queryStore.messages.length === 0" class="welcome-message">
-              <div class="welcome-icon">
-                <el-icon :size="48"><ChatDotRound /></el-icon>
-              </div>
-              <h3>欢迎使用智能问数助手</h3>
-              <p>您可以用自然语言提问，我会帮您查询数据并生成分析结果</p>
-              <div class="welcome-examples">
-                <span class="example-label">试试这样问：</span>
-                <el-tag
-                  v-for="example in examples"
-                  :key="example"
-                  type="info"
-                  effect="plain"
-                  class="example-tag"
-                  @click="useExample(example)"
+              <el-radio-group v-model="queryStore.mode" class="mode-tabs query-mode-switcher" size="small">
+                <el-radio-button label="business">
+                  <el-icon><DataAnalysis /></el-icon>
+                  <span>业务问数</span>
+                </el-radio-button>
+                <el-radio-button v-if="canUseAgenticMode" label="agentic">
+                  <el-icon><MagicStick /></el-icon>
+                  <span>探索模式</span>
+                </el-radio-button>
+              </el-radio-group>
+              <div class="query-toolbar-scope">
+                <span class="scope-label">{{ scopeLabel }}</span>
+                <strong class="scope-current">{{ activeScopeText }}</strong>
+                <el-select
+                  v-if="queryStore.mode === 'agentic'"
+                  v-model="queryStore.selectedDatasourceId"
+                  class="scope-select"
+                  filterable
+                  popper-class="query-scope-popper"
+                  placeholder="选择数据源"
+                  :loading="datasourceStore.datasources.length === 0"
                 >
-                  {{ example }}
+                  <el-option
+                    v-for="datasource in datasourceStore.datasources"
+                    :key="datasource.id"
+                    :label="datasource.name"
+                    :value="datasource.id"
+                  >
+                    <div class="scope-option">
+                      <strong>{{ datasource.name }}</strong>
+                      <small>{{ datasource.source_type === "excel" ? "Excel 数据源" : "数据库数据源" }}</small>
+                    </div>
+                  </el-option>
+                </el-select>
+                <el-select
+                  v-else
+                  v-model="queryStore.selectedDatasetId"
+                  class="scope-select"
+                  filterable
+                  popper-class="query-scope-popper"
+                  placeholder="选择数据集"
+                  :loading="datasetsLoading"
+                  :disabled="datasets.length === 0"
+                >
+                  <el-option
+                    v-for="dataset in datasets"
+                    :key="dataset.id"
+                    :label="dataset.name"
+                    :value="dataset.id"
+                  >
+                    <div class="scope-option">
+                      <strong>{{ dataset.name }}</strong>
+                      <small>{{ datasourceName(dataset.datasource_id) }}</small>
+                    </div>
+                  </el-option>
+                </el-select>
+                <el-tag class="scope-state-tag" size="small" :type="queryContextReady ? 'success' : 'warning'" effect="plain">
+                  {{ queryContextReady ? "已就绪" : "待选择" }}
                 </el-tag>
               </div>
+              <div class="query-toolbar-actions">
+                <el-button type="primary" plain @click="startNewConversation">
+                  <el-icon><Plus /></el-icon>
+                  新建对话
+                </el-button>
+                <el-button text :disabled="queryStore.messages.length === 0" @click="clearChat">
+                  <el-icon><Delete /></el-icon>
+                  清空当前
+                </el-button>
+              </div>
+            </section>
+          </Teleport>
+
+          <div
+            class="query-dialog-stage"
+            :class="{ 'is-new-dialog': isNewConversation, 'has-conversation': hasConversation }"
+          >
+            <div ref="chatContainerRef" class="chat-container">
+              <div v-if="queryStore.messages.length === 0" class="welcome-message welcome-panel query-start-panel">
+                <div class="welcome-primary query-start-copy">
+                  <div class="welcome-icon query-start-icon">
+                    <el-icon :size="22"><ChatDotRound /></el-icon>
+                  </div>
+                  <div class="welcome-copy">
+                    <h2>提出一个问题，直接查看结果</h2>
+                    <p>{{ composerHintText }}</p>
+                  </div>
+                </div>
+                <div class="prompt-suggestion-grid prompt-suggestion-rail query-prompt-list" aria-label="示例问题">
+                  <button
+                    v-for="card in suggestionCards"
+                    :key="card.title"
+                    type="button"
+                    class="prompt-suggestion-card query-prompt-action"
+                    @click="useExample(card.title)"
+                  >
+                    <el-icon><component :is="card.icon" /></el-icon>
+                    <span>{{ card.title }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div v-else class="messages-list">
+                <ChatBubble
+                  v-for="message in queryStore.messages"
+                  :key="message.id"
+                  :message="message"
+                  compact-result
+                  @use-refinement="applyRefinementDraft"
+                  @open-result="openResultDock(message, $event)"
+                />
+              </div>
             </div>
 
-            <div v-else class="messages-list">
-              <ChatBubble
-                v-for="message in queryStore.messages"
-                :key="message.id"
-                :message="message"
-              />
-            </div>
-          </div>
-
-          <div class="input-area">
-            <el-input
-              v-model="question"
-              :placeholder="inputPlaceholder"
-              :disabled="queryStore.loading || !queryContextReady"
-              size="large"
-              @keyup.enter="submit"
+            <section
+              class="command-composer"
+              :class="{ 'is-composer-focused': composeFocused, 'is-disabled': !queryContextReady }"
             >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-              <template #append>
+              <div class="composer-input-row">
+                <el-input
+                  ref="composerInputRef"
+                  v-model="question"
+                  class="composer-input"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 5 }"
+                  :placeholder="inputPlaceholder"
+                  :disabled="queryStore.loading || !queryContextReady"
+                  resize="none"
+                  @focus="composeFocused = true"
+                  @blur="composeFocused = false"
+                  @keydown.enter="submitOnEnter"
+                />
                 <el-button
+                  class="composer-submit"
                   type="primary"
                   :loading="queryStore.loading"
                   :disabled="!question.trim() || !queryContextReady"
@@ -120,79 +153,155 @@
                   <el-icon><Promotion /></el-icon>
                   发送
                 </el-button>
-              </template>
-            </el-input>
-            <div class="input-tips">
-              <span v-if="queryStore.mode === 'text2sql' && queryContextReady">
-                当前使用{{ queryStore.scopeMode === "dataset" ? "数据集" : "数据源" }}：{{ activeScopeText }}
-              </span>
-              <span v-else-if="queryStore.mode === 'text2sql'">
-                请先选择问数范围
-              </span>
-              <span v-else>
-                提示：闲聊模式下可以进行自由对话
-              </span>
-            </div>
+              </div>
+            </section>
           </div>
-        </el-card>
-      </el-col>
 
-      <el-col :xs="24" :md="7" :lg="6">
-        <el-card class="history-card">
-          <template #header>
-            <div class="card-header">
-              <span class="card-header-title">查询历史</span>
-              <div class="history-header-actions">
-                <el-button
-                  size="small"
-                  text
-                  type="danger"
-                  :disabled="!queryStore.history.length"
-                  @click="deleteAllHistoryItems"
-                >
-                  删除全部
-                </el-button>
-                <el-button size="small" text @click="queryStore.fetchHistory">
-                  <el-icon><Refresh /></el-icon>
-                </el-button>
+          <section v-if="selectedResultMessage && selectedResult" class="query-result-dock">
+            <div class="query-result-dock-header">
+              <div>
+                <span>结果区</span>
+                <strong>{{ resultDockTitle }}</strong>
+              </div>
+              <div class="query-result-dock-actions">
+                <el-tag size="small" effect="plain">{{ resultDockRowsText }}</el-tag>
+                <el-button text :icon="Close" @click="closeResultDock">关闭</el-button>
               </div>
             </div>
-          </template>
+            <el-tabs v-model="resultDockTab" class="query-result-tabs">
+              <el-tab-pane label="图表" name="chart" lazy>
+                <div class="query-result-pane query-result-pane--chart">
+                  <MessageChart
+                    :message="selectedResultMessage"
+                    :columns="selectedResult.columns"
+                    :rows="selectedResult.rows"
+                    :sql-query="selectedResultMessage.sqlQuery"
+                    :chart-spec="selectedResultMessage.chartSpec"
+                  />
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="明细数据" name="table" lazy>
+                <div class="query-result-pane">
+                  <MessageTable
+                    :message="selectedResultMessage"
+                    :columns="selectedResult.columns"
+                    :rows="selectedResult.rows"
+                  />
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="SQL" name="sql" lazy>
+                <pre v-if="selectedResultMessage.sqlQuery" class="query-result-sql">{{ selectedResultMessage.sqlQuery }}</pre>
+                <el-empty v-else description="本次结果没有 SQL" :image-size="56" />
+              </el-tab-pane>
+            </el-tabs>
+          </section>
+        </main>
+
+        <aside class="history-card query-side-panel">
+          <div class="side-panel-header">
+            <div>
+              <span class="side-panel-eyebrow">History</span>
+              <strong>查询历史</strong>
+            </div>
+            <el-tag class="history-count-tag" size="small" effect="plain">{{ historyCountText }}</el-tag>
+          </div>
+          <div class="history-toolbar">
+            <el-input
+              v-model="historySearch"
+              class="history-search"
+              size="small"
+              clearable
+              placeholder="搜索历史问题"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+            <el-segmented
+              v-model="historyFilter"
+              class="history-filter"
+              size="small"
+              :options="historyFilterOptions"
+            />
+          </div>
           <div class="history-list">
             <div
-              v-for="item in queryStore.history"
+              v-for="item in filteredHistory"
               :key="item.id"
               class="history-item"
+              :class="{ 'is-active': activeHistoryId === item.id, 'is-loading': historyLoadingId === item.id }"
               @click="viewHistory(item)"
             >
+              <div class="history-item-top">
+                <el-tag size="small" :type="historyModeTagType(item)" effect="plain">
+                  {{ historyModeLabel(item) }}
+                </el-tag>
+                <span class="history-date">{{ formatHistoryDate(item.created_at) }}</span>
+              </div>
               <div class="history-content">
                 <el-icon class="history-icon"><ChatLineSquare /></el-icon>
                 <span class="history-text">{{ cleanHistoryText(item.question) }}</span>
               </div>
               <div class="history-meta">
-                <span class="history-date">{{ item.created_at }}</span>
+                <span class="history-source">{{ item.favorite ? "已收藏" : "普通历史" }}</span>
+                <el-icon v-if="historyLoadingId === item.id" class="history-loading-icon is-loading"><Loading /></el-icon>
                 <div class="history-actions">
-                  <el-icon
-                    :class="['favorite-icon', { 'is-favorite': item.favorite }]"
+                  <el-button
+                    size="small"
+                    text
+                    :type="item.favorite ? 'warning' : 'info'"
+                    :icon="item.favorite ? StarFilled : Star"
+                    :disabled="Boolean(historyLoadingId)"
                     @click.stop="queryStore.toggleFavorite(item.id)"
                   >
-                    <Star v-if="item.favorite" />
-                    <StarFilled v-else />
-                  </el-icon>
-                  <el-icon
-                    class="delete-icon"
-                    @click.stop="deleteHistoryItem(item.id)"
+                    {{ item.favorite ? "取消收藏" : "收藏" }}
+                  </el-button>
+                  <el-button
+                    size="small"
+                    text
+                    type="danger"
+                    :icon="Close"
+                    :disabled="Boolean(historyLoadingId)"
+                    @click.stop="confirmDeleteHistoryItem(item)"
                   >
-                    <Close />
-                  </el-icon>
+                    删除
+                  </el-button>
                 </div>
               </div>
             </div>
-            <el-empty v-if="!queryStore.history.length" description="暂无历史记录" :image-size="60" />
+            <el-empty v-if="!filteredHistory.length" :description="historyEmptyDescription" :image-size="72">
+              <div class="history-empty-actions">
+                <el-button
+                  v-if="historySearch || historyFilter !== 'all'"
+                  size="small"
+                  @click="resetHistoryFilters"
+                >
+                  重置筛选
+                </el-button>
+                <el-button size="small" type="primary" plain @click="startNewConversation">
+                  新建对话
+                </el-button>
+              </div>
+            </el-empty>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+          <div class="side-panel-footer">
+            <el-button size="small" text @click="queryStore.fetchHistory">
+              <el-icon><Refresh /></el-icon>
+              刷新
+            </el-button>
+            <el-button
+              size="small"
+              text
+              type="danger"
+              :disabled="!queryStore.history.length"
+              @click="deleteAllHistoryItems"
+            >
+              清空历史
+            </el-button>
+          </div>
+        </aside>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -202,17 +311,37 @@ import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {
   ChatDotRound, Search, Promotion, Delete, Refresh,
-  ChatLineSquare, Star, StarFilled, Close
+  ChatLineSquare, Star, StarFilled, Close, Plus,
+  DataAnalysis, MagicStick, Monitor, TrendCharts, Compass, Loading
 } from "@element-plus/icons-vue"
 import ChatBubble from "@/components/ChatBubble.vue"
-import { useQueryStore } from "@/store/query"
+import MessageChart from "@/components/MessageChart.vue"
+import MessageTable from "@/components/MessageTable.vue"
+import { useQueryStore, type ChatMessage } from "@/store/query"
 import { useDatasourceStore } from "@/store/datasource"
+import { useAuthStore } from "@/store/auth"
 
 const queryStore = useQueryStore()
 const datasourceStore = useDatasourceStore()
+const authStore = useAuthStore()
 const question = ref("")
+const composerInputRef = ref<any>(null)
 const chatContainerRef = ref<HTMLDivElement | null>(null)
 const datasetsLoading = ref(false)
+const historySearch = ref("")
+const historyFilter = ref<"all" | "favorite">("all")
+const activeHistoryId = ref<number | null>(null)
+const historyLoadingId = ref<number | null>(null)
+const isRestoringHistory = ref(false)
+const composeFocused = ref(false)
+type ResultDockTab = "chart" | "table" | "sql"
+type ResultRequestTab = ResultDockTab | "summary"
+const resultDockTab = ref<ResultDockTab>("chart")
+const selectedResultMessageId = ref<string | null>(null)
+const historyFilterOptions = [
+  { label: "全部", value: "all" },
+  { label: "收藏", value: "favorite" },
+]
 
 interface DatasetItem {
   id: number
@@ -223,23 +352,60 @@ interface DatasetItem {
   visibility: string
 }
 
+interface HistoryItem {
+  id: number
+  question: string
+  created_at: string
+  favorite: boolean
+  mode?: "business" | "agentic"
+}
+
 const datasets = ref<DatasetItem[]>([])
 
-const scopeOptions = [
-  { label: "数据源", value: "datasource" },
-  { label: "数据集", value: "dataset" },
+const canUseAgenticMode = computed(() => authStore.canUseAgenticMode)
+const agenticDefaultRoles = new Set(["dept_admin", "department_admin", "org_admin", "super_admin"])
+const isDeptAdminOrAbove = computed(() => agenticDefaultRoles.has(authStore.profile?.role || ""))
+const roleDefaultApplied = ref(false)
+
+const businessExamples = [
+  "最近 30 天各渠道销售额趋势",
+  "华东区毛利率为什么下降？",
+  "蓝途科技订单量 TOP10 商品"
 ]
 
-const examples = [
-  "产出最高的前5个单元",
-  "在“1001/OP100 - Failed Hall Cal test”这一不良类型下，各工位的NG数量分布是怎样的？",
-  "查询各单元的异常分布"
+const agenticExamples = [
+  "先判断可用表，再统计最近 30 天各区域销售额",
+  "分析订单数据里最适合回答复购率的问题并查询",
+  "基于当前数据源生成一条安全 SQL 查看异常趋势"
 ]
+
+const examples = computed(() => {
+  if (queryStore.mode === "agentic") return agenticExamples
+  return businessExamples
+})
+
+const suggestionCards = computed(() => {
+  const icons = queryStore.mode === "agentic"
+    ? [MagicStick, Compass, TrendCharts]
+    : [TrendCharts, DataAnalysis, Monitor]
+  return examples.value.map((title, index) => ({
+    title,
+    icon: icons[index] || DataAnalysis,
+  }))
+})
 
 const inputPlaceholder = computed(() => {
-  if (queryStore.mode === "chat") return "输入您想聊的内容..."
-  if (!queryContextReady.value) return "请先选择问数范围..."
-  return `基于${queryStore.scopeMode === "dataset" ? "数据集" : "数据源"}提问...`
+  if (!queryContextReady.value && queryStore.mode === "business") return "业务问数必须选择数据集"
+  if (!queryContextReady.value) return "请先选择数据源"
+  if (queryStore.mode === "business") return "输入业务问题，例如：最近 30 天销售额趋势"
+  if (queryStore.mode === "agentic") return "输入探索问题，例如：先判断可用表，再统计异常趋势"
+  return "请输入问题..."
+})
+
+const scopeLabel = computed(() => {
+  if (queryStore.mode === "business") return "业务数据集"
+  if (queryStore.mode === "agentic") return "探索数据源"
+  return "业务数据集"
 })
 
 const selectedDataset = computed(() =>
@@ -251,15 +417,65 @@ const activeDatasource = computed(() =>
 )
 
 const queryContextReady = computed(() => {
-  if (queryStore.mode === "chat") return true
-  if (queryStore.scopeMode === "dataset") return Boolean(queryStore.selectedDatasetId)
-  return Boolean(queryStore.selectedDatasourceId)
+  if (queryStore.mode === "business") return Boolean(queryStore.selectedDatasetId)
+  if (queryStore.mode === "agentic") return Boolean(queryStore.selectedDatasourceId)
+  return false
 })
 
+const isNewConversation = computed(() => queryStore.messages.length === 0 && !queryStore.loading)
+const hasConversation = computed(() => queryStore.messages.length > 0 || queryStore.loading)
+
 const activeScopeText = computed(() => {
-  if (queryStore.mode === "chat") return "闲聊模式"
-  if (queryStore.scopeMode === "dataset") return selectedDataset.value?.name || "未选择数据集"
-  return activeDatasource.value?.name || "未选择数据源"
+  if (queryStore.mode === "business") return selectedDataset.value?.name || "未选择数据集"
+  if (queryStore.mode === "agentic") return activeDatasource.value?.name || "未选择数据源"
+  return "未选择数据源"
+})
+
+const composerHintText = computed(() => {
+  if (!queryContextReady.value) return "选择问数范围后即可开始"
+  if (queryStore.mode === "agentic") return "描述目标、时间范围和维度，探索模式会生成安全 SQL 并执行"
+  return "围绕已选数据集提问，可直接获得图表、表格和分析总结"
+})
+
+const filteredHistory = computed(() => {
+  const keyword = historySearch.value.trim().toLowerCase()
+  return queryStore.history.filter((item) => {
+    if (historyFilter.value === "favorite" && !item.favorite) return false
+    if (!keyword) return true
+    return cleanHistoryText(item.question).toLowerCase().includes(keyword)
+  })
+})
+
+const historyCountText = computed(() => {
+  const total = queryStore.history.length
+  if (historySearch.value || historyFilter.value !== "all") {
+    return `${filteredHistory.value.length}/${total} 条`
+  }
+  return `${total} 条`
+})
+
+const historyEmptyDescription = computed(() => {
+  if (!queryStore.history.length) return "暂无历史记录，开始一次新对话后会自动保存"
+  return "没有匹配的历史记录"
+})
+
+const selectedResultMessage = computed(() => {
+  if (!selectedResultMessageId.value) return null
+  return queryStore.messages.find((message) => message.id === selectedResultMessageId.value) || null
+})
+
+const selectedResult = computed(() => selectedResultMessage.value?.result || null)
+
+const resultDockTitle = computed(() =>
+  selectedResultMessage.value?.sourceQuestion ||
+  selectedResultMessage.value?.content ||
+  "本次问数结果"
+)
+
+const resultDockRowsText = computed(() => {
+  const rows = selectedResult.value?.rows.length || 0
+  const columns = selectedResult.value?.columns.length || 0
+  return `${rows} 行 · ${columns} 字段`
 })
 
 const datasourceName = (id: number) =>
@@ -277,14 +493,31 @@ const fetchDatasets = async () => {
   }
 }
 
-const ensureScopeDefaults = () => {
+const applyRoleDefaultMode = () => {
+  if (roleDefaultApplied.value || !authStore.profile?.role) return
+  if (isDeptAdminOrAbove.value) {
+    queryStore.mode = "agentic"
+  }
+  roleDefaultApplied.value = true
+}
+
+const ensureScopeDefaults = (useRoleDefault = false) => {
+  if (useRoleDefault) applyRoleDefaultMode()
+  if (!canUseAgenticMode.value && queryStore.mode === "agentic") {
+    queryStore.mode = "business"
+  }
+  if (queryStore.mode === "agentic") {
+    queryStore.scopeMode = "datasource"
+  } else {
+    queryStore.scopeMode = "dataset"
+  }
   if (!queryStore.selectedDatasourceId) {
     queryStore.selectedDatasourceId = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
   }
-  if (queryStore.scopeMode === "dataset" && !queryStore.selectedDatasetId && datasets.value.length > 0) {
+  if (queryStore.mode === "business" && !queryStore.selectedDatasetId && datasets.value.length > 0) {
     queryStore.selectedDatasetId = datasets.value[0].id
   }
-  if (selectedDataset.value) {
+  if (queryStore.mode === "business" && selectedDataset.value) {
     queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
   }
 }
@@ -298,29 +531,85 @@ const submit = async () => {
   }
 
   question.value = ""
+  closeResultDock()
   await queryStore.ask(q)
   scrollToBottom()
 }
 
+const submitOnEnter = (event: KeyboardEvent) => {
+  if (event.shiftKey) return
+  event.preventDefault()
+  submit()
+}
+
 const useExample = (example: string) => {
   question.value = example
+  composeFocused.value = true
 }
 
-const viewHistory = async (item: { id: number; question: string }) => {
-  await queryStore.loadHistoryDetail(item.id)
-  scrollToBottom()
+const applyRefinementDraft = async (draftQuestion: string) => {
+  const nextQuestion = draftQuestion.trim()
+  if (!nextQuestion) return
+  question.value = nextQuestion
+  composeFocused.value = true
+  await nextTick()
+  composerInputRef.value?.focus?.()
+  ElMessage.success("已填入建议问题，可编辑后发送")
 }
 
-const deleteHistoryItem = async (id: number) => {
-  await queryStore.deleteHistory(id)
+const openResultDock = (message: ChatMessage, tab: ResultRequestTab = "chart") => {
+  if (!message.result?.rows?.length) return
+  const nextTab: ResultDockTab = tab === "summary" || (tab === "sql" && !message.sqlQuery) ? "chart" : tab
+  selectedResultMessageId.value = message.id
+  resultDockTab.value = nextTab
+}
+
+const closeResultDock = () => {
+  selectedResultMessageId.value = null
+}
+
+const viewHistory = async (item: HistoryItem) => {
+  if (historyLoadingId.value || queryStore.loading) return
+  historyLoadingId.value = item.id
+  isRestoringHistory.value = true
+  closeResultDock()
+  try {
+    await queryStore.loadHistoryDetail(item.id)
+    activeHistoryId.value = item.id
+    await scrollToBottom()
+  } finally {
+    isRestoringHistory.value = false
+    historyLoadingId.value = null
+  }
+}
+
+const confirmDeleteHistoryItem = async (item: HistoryItem) => {
+  const title = cleanHistoryText(item.question).slice(0, 64)
+  try {
+    await ElMessageBox.confirm(
+      `将删除这条查询历史：${title || `#${item.id}`}。删除后不可恢复，是否继续？`,
+      "删除历史",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    )
+    await queryStore.deleteHistory(item.id)
+    if (activeHistoryId.value === item.id) {
+      startNewConversation()
+    }
+  } catch {
+    return
+  }
 }
 
 const deleteAllHistoryItems = async () => {
   if (!queryStore.history.length) return
   try {
     await ElMessageBox.confirm(
-      "将删除当前数据源下的全部查询历史，且不可恢复，是否继续？",
-      "删除全部历史",
+      "将删除当前模式和数据源下的全部查询历史，筛选条件不会影响清空范围。删除后不可恢复，是否继续？",
+      "清空历史",
       {
         confirmButtonText: "删除",
         cancelButtonText: "取消",
@@ -328,17 +617,67 @@ const deleteAllHistoryItems = async () => {
       }
     )
     await queryStore.deleteAllHistory()
+    historySearch.value = ""
+    historyFilter.value = "all"
+    activeHistoryId.value = null
+    question.value = ""
   } catch {
     return
   }
 }
 
 const cleanHistoryText = (text: string) => {
-  return text.replace(/^\[(SQL|闲聊)\]\s*/, "")
+  return text.replace(/^\[(SQL|闲聊|业务问数|探索问数|探索模式|Agentic问数)\]\s*/, "")
+}
+
+const historyModeLabel = (item: HistoryItem) => {
+  if (item.mode === "agentic") return "探索"
+  if (item.mode === "business") return "业务"
+  const text = item.question
+  if (/^\[(探索模式|探索问数|Agentic问数)\]/.test(text)) return "探索"
+  if (/^\[业务问数\]/.test(text)) return "业务"
+  if (/^\[SQL\]/.test(text)) return "SQL"
+  return "问数"
+}
+
+const historyModeTagType = (item: HistoryItem) => {
+  const label = historyModeLabel(item)
+  if (label === "探索") return "primary"
+  if (label === "业务") return "success"
+  if (label === "SQL") return "warning"
+  return "info"
+}
+
+const formatHistoryDate = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value || "-"
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+const resetHistoryFilters = () => {
+  historySearch.value = ""
+  historyFilter.value = "all"
+}
+
+const startNewConversation = () => {
+  question.value = ""
+  activeHistoryId.value = null
+  closeResultDock()
+  queryStore.clearMessages()
+  nextTick(() => {
+    if (chatContainerRef.value) {
+      chatContainerRef.value.scrollTop = 0
+    }
+  })
 }
 
 const clearChat = () => {
-  queryStore.clearMessages()
+  startNewConversation()
 }
 
 const scrollToBottom = async () => {
@@ -348,123 +687,620 @@ const scrollToBottom = async () => {
   }
 }
 
+const refreshHistoryForScope = () => {
+  if (isRestoringHistory.value) return
+  queryStore.fetchHistory()
+}
+
 watch(() => queryStore.messages.length, () => {
+  if (
+    selectedResultMessageId.value &&
+    !queryStore.messages.some((message) => message.id === selectedResultMessageId.value)
+  ) {
+    closeResultDock()
+  }
   scrollToBottom()
 })
 
 watch(() => queryStore.scopeMode, () => {
   ensureScopeDefaults()
-  queryStore.fetchHistory()
+  refreshHistoryForScope()
+})
+
+watch(() => queryStore.mode, () => {
+  ensureScopeDefaults()
+  refreshHistoryForScope()
 })
 
 watch(() => queryStore.selectedDatasourceId, (id) => {
   if (id) datasourceStore.switchDatasource(id)
-  if (queryStore.scopeMode === "datasource") {
-    queryStore.fetchHistory()
+  if (queryStore.mode === "agentic") {
+    refreshHistoryForScope()
   }
 })
 
 watch(() => queryStore.selectedDatasetId, () => {
-  if (selectedDataset.value) {
+  if (queryStore.mode === "business" && selectedDataset.value) {
     queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
     datasourceStore.switchDatasource(selectedDataset.value.datasource_id)
   }
-  if (queryStore.scopeMode === "dataset") {
-    queryStore.fetchHistory()
+  if (queryStore.mode === "business") {
+    refreshHistoryForScope()
   }
+})
+
+watch(() => authStore.profile?.role, () => {
+  ensureScopeDefaults(true)
+  refreshHistoryForScope()
 })
 
 onMounted(async () => {
   await datasourceStore.fetchDatasources()
   await fetchDatasets()
-  ensureScopeDefaults()
+  ensureScopeDefaults(true)
   queryStore.fetchHistory()
 })
 </script>
 
 <style scoped>
 .smart-query-page {
+  --query-primary: #0f766e;
+  --query-primary-hover: #0d9488;
+  --query-primary-soft: #f0fdfa;
+  --query-primary-tint: #ecfdf5;
+  --query-primary-border: #a7f3d0;
+  --query-surface: #ffffff;
+  --query-surface-muted: #f8fafc;
+  --query-border: #dbe4f0;
+  --query-border-soft: #eef2f7;
+  --query-text: #0f172a;
+  --query-text-soft: #334155;
+  --query-muted: #64748b;
+  --query-light: #94a3b8;
+  --query-danger: #dc2626;
+  --query-danger-soft: #fef2f2;
+  --query-warning: #a16207;
+  --query-warning-soft: #fffbeb;
+  --query-radius: 8px;
+  --query-radius-lg: 12px;
+  --query-control-height: 36px;
+  --query-shadow-sm: 0 1px 0 rgba(15, 23, 42, 0.03);
+  --query-shadow-md: 0 10px 22px rgba(15, 23, 42, 0.08);
+  --query-shadow-panel: 0 12px 26px rgba(15, 23, 42, 0.07);
+  --query-focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.13);
+  --el-color-primary: var(--query-primary);
+  --el-border-radius-base: var(--query-radius);
+  min-height: calc(100vh - 120px);
   height: calc(100vh - 120px);
+  padding: 0;
+  background:
+    linear-gradient(180deg, #f8fafc 0%, #eef7f5 54%, #f8fafc 100%);
+  color: var(--query-text);
 }
 
-.page-row {
+.query-workspace {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+  padding: 10px;
 }
 
-.chat-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-soft);
+.query-layout {
+  grid-column: 1 / -1;
 }
 
-.chat-card:hover {
+.smart-query-page :deep(.el-button) {
+  min-height: var(--query-control-height);
+  padding: 8px 12px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius);
+  background: var(--query-surface);
+  color: var(--query-text-soft);
+  box-shadow: none;
+  font-weight: 650;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.smart-query-page :deep(.el-button:hover),
+.smart-query-page :deep(.el-button:focus) {
+  border-color: rgba(15, 118, 110, 0.38);
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
+  transform: translateY(-1px);
+}
+
+.smart-query-page :deep(.el-button:focus-visible) {
+  outline: 0;
+  box-shadow: var(--query-focus-ring);
+}
+
+.smart-query-page :deep(.el-button.is-disabled),
+.smart-query-page :deep(.el-button.is-disabled:hover) {
+  border-color: var(--query-border-soft);
+  background: var(--query-surface-muted);
+  color: var(--query-light);
+  transform: none;
+  opacity: 0.78;
+}
+
+.smart-query-page :deep(.el-button--primary) {
+  border-color: var(--query-primary);
+  background: var(--query-primary);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.18);
+}
+
+.smart-query-page :deep(.el-button--primary:hover),
+.smart-query-page :deep(.el-button--primary:focus) {
+  border-color: var(--query-primary-hover);
+  background: var(--query-primary-hover);
+  color: #ffffff;
+}
+
+.smart-query-page :deep(.el-button--primary.is-plain) {
+  border-color: var(--query-primary-border);
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
+  box-shadow: none;
+}
+
+.smart-query-page :deep(.el-button--primary.is-plain:hover),
+.smart-query-page :deep(.el-button--primary.is-plain:focus) {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: var(--query-primary-tint);
+  color: var(--query-primary);
+}
+
+.smart-query-page :deep(.el-button.is-text) {
+  min-height: 32px;
+  padding: 6px 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--query-muted);
+  box-shadow: none;
+}
+
+.smart-query-page :deep(.el-button.is-text:hover),
+.smart-query-page :deep(.el-button.is-text:focus) {
+  background: var(--query-surface-muted);
+  color: var(--query-primary);
   transform: none;
 }
 
-.chat-card :deep(.el-card__header) {
-  padding: 14px 16px;
-  background: var(--app-surface);
+.smart-query-page :deep(.el-button--danger.is-text) {
+  color: var(--query-danger);
 }
 
-.chat-card :deep(.el-card__body) {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
+.smart-query-page :deep(.el-button--danger.is-text:hover),
+.smart-query-page :deep(.el-button--danger.is-text:focus) {
+  background: var(--query-danger-soft);
+  color: var(--query-danger);
 }
 
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.smart-query-page :deep(.el-button--warning.is-text) {
+  color: var(--query-warning);
 }
 
-.card-header-title {
-  font-weight: 600;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.smart-query-page :deep(.el-tag) {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--query-border);
+  border-radius: 999px;
+  background: var(--query-surface);
+  color: var(--query-muted);
+  font-weight: 700;
 }
 
-.card-header-title::before {
-  content: '';
-  width: 4px;
-  height: 18px;
-  background: var(--app-primary);
-  border-radius: 2px;
+.smart-query-page :deep(.el-tag--info) {
+  border-color: var(--query-border);
+  background: var(--query-surface-muted);
+  color: var(--query-muted);
 }
 
-.header-actions,
-.history-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.smart-query-page :deep(.el-tag--primary),
+.smart-query-page :deep(.el-tag--success) {
+  border-color: var(--query-primary-border);
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
 }
 
-.query-scope-panel {
-  display: grid;
-  grid-template-columns: auto minmax(220px, 340px) minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface);
+.smart-query-page :deep(.el-tag--warning) {
+  border-color: #fde68a;
+  background: var(--query-warning-soft);
+  color: var(--query-warning);
 }
 
-.scope-mode {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.smart-query-page :deep(.el-tag--danger) {
+  border-color: #fecaca;
+  background: var(--query-danger-soft);
+  color: var(--query-danger);
+}
+
+.scope-select :deep(.el-select__wrapper),
+.history-search :deep(.el-input__wrapper) {
+  min-height: var(--query-control-height);
+  border-radius: var(--query-radius);
+  background: var(--query-surface);
+  box-shadow: inset 0 0 0 1px var(--query-border);
+  transition: box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.scope-select :deep(.el-select__wrapper:hover),
+.history-search :deep(.el-input__wrapper:hover) {
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.38);
+}
+
+.scope-select :deep(.el-select__wrapper.is-focused),
+.history-search :deep(.el-input__wrapper.is-focus) {
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 118, 110, 0.62),
+    var(--query-focus-ring);
+}
+
+.scope-select :deep(.el-select__placeholder),
+.history-search :deep(.el-input__inner::placeholder),
+.composer-input :deep(.el-textarea__inner::placeholder) {
+  color: var(--query-light);
+}
+
+.history-search {
   min-width: 0;
 }
 
-.scope-label {
-  color: var(--app-text-muted);
+.history-filter {
+  min-height: var(--query-control-height);
+  padding: 3px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius-lg);
+  background: var(--query-surface-muted);
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+.history-filter :deep(.el-segmented) {
+  min-height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--query-radius-lg);
+  background: transparent;
+  box-shadow: none;
+}
+
+.history-filter :deep(.el-segmented__group) {
+  gap: 2px;
+}
+
+.history-filter :deep(.el-segmented__item) {
+  min-height: 28px;
+  border-radius: var(--query-radius);
+  color: var(--query-muted);
+  font-weight: 700;
+}
+
+.history-filter :deep(.el-segmented__item:hover) {
+  color: var(--query-primary);
+  background: var(--query-primary-soft);
+}
+
+.history-filter :deep(.el-segmented__item-selected),
+.history-filter :deep(.el-segmented__item.is-selected) {
+  background: var(--query-primary);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.2);
+}
+
+.history-filter :deep(.el-segmented__item-selected .el-segmented__item-label),
+.history-filter :deep(.el-segmented__item.is-selected .el-segmented__item-label) {
+  color: #ffffff;
+}
+
+.history-list :deep(.el-empty) {
+  padding: 32px 16px;
+}
+
+.history-list :deep(.el-empty__description p) {
+  color: var(--query-muted);
   font-size: 12px;
+}
+
+.history-list :deep(.el-empty__image) {
+  opacity: 0.72;
+}
+
+:global(.query-scope-popper) {
+  --query-primary: #0f766e;
+  --query-primary-soft: #f0fdfa;
+  --query-primary-tint: #ecfdf5;
+  --query-border: #dbe4f0;
+  --query-text-soft: #334155;
+  --query-muted: #64748b;
+  --query-radius: 8px;
+  --query-radius-lg: 12px;
+  --query-shadow-panel: 0 12px 26px rgba(15, 23, 42, 0.07);
+  border: 1px solid var(--query-border) !important;
+  border-radius: var(--query-radius-lg) !important;
+  box-shadow: var(--query-shadow-panel) !important;
+}
+
+:global(.query-scope-popper .el-select-dropdown__list) {
+  padding: 6px;
+}
+
+:global(.query-scope-popper .el-select-dropdown__item) {
+  height: auto;
+  min-height: 42px;
+  margin: 2px 0;
+  padding: 7px 10px;
+  border-radius: var(--query-radius);
+  color: var(--query-text-soft);
+  line-height: 1.35;
+}
+
+:global(.query-scope-popper .el-select-dropdown__item.is-hovering),
+:global(.query-scope-popper .el-select-dropdown__item:hover) {
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
+}
+
+:global(.query-scope-popper .el-select-dropdown__item.is-selected) {
+  background: var(--query-primary-tint);
+  color: var(--query-primary);
+  font-weight: 750;
+}
+
+:global(.query-scope-popper .scope-option) {
+  display: grid;
+  gap: 2px;
+}
+
+:global(.query-scope-popper .scope-option strong) {
+  color: inherit;
+  font-size: 13px;
+}
+
+:global(.query-scope-popper .scope-option small) {
+  color: var(--query-muted);
+  font-size: 11px;
+}
+
+.mode-tabs {
+  padding: 3px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius-lg);
+  background: var(--query-surface-muted);
+}
+
+.mode-tabs :deep(.el-radio-button__inner) {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--query-radius);
+  background: transparent;
+  color: var(--query-muted);
+  font-weight: 600;
+  box-shadow: none;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.mode-tabs :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: var(--query-primary);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.22);
+}
+
+.mode-tabs :deep(.el-radio-button__inner:hover) {
+  color: var(--query-primary);
+  background: var(--query-primary-tint);
+}
+
+.mode-tabs :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner:hover) {
+  color: #ffffff;
+  background: var(--query-primary);
+}
+
+.query-mode-switcher {
+  justify-self: start;
+  flex-shrink: 0;
+}
+
+.query-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 318px) minmax(0, 1fr);
+  grid-template-areas: "history chat";
+  gap: 10px;
+}
+
+.conversation-shell,
+.query-side-panel {
+  min-height: 0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: var(--query-radius-lg);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--query-shadow-panel);
+  overflow: hidden;
+}
+
+.conversation-shell {
+  grid-area: chat;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.query-dialog-stage {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--query-surface-muted);
+  overflow: hidden;
+}
+
+.query-dialog-stage.is-new-dialog {
+  justify-content: center;
+  gap: 10px;
+  padding: clamp(18px, 4vh, 44px);
+}
+
+.query-dialog-stage.has-conversation {
+  justify-content: flex-start;
+}
+
+.scope-console {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--query-border);
+  background: var(--query-surface);
+}
+
+.query-header-teleport-toolbar {
+  --query-primary: #0f766e;
+  --query-primary-hover: #0d9488;
+  --query-primary-soft: #f0fdfa;
+  --query-primary-tint: #ecfdf5;
+  --query-primary-border: #a7f3d0;
+  --query-surface: #ffffff;
+  --query-surface-muted: #f8fafc;
+  --query-border: #dbe4f0;
+  --query-border-soft: #eef2f7;
+  --query-text: #0f172a;
+  --query-text-soft: #334155;
+  --query-muted: #64748b;
+  --query-light: #94a3b8;
+  --query-warning: #a16207;
+  --query-warning-soft: #fffbeb;
+  --query-radius: 8px;
+  --query-radius-lg: 12px;
+  --query-control-height: 36px;
+  --query-focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.13);
+  --el-color-primary: var(--query-primary);
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.query-header-teleport-toolbar :deep(.el-button) {
+  min-height: var(--query-control-height);
+  padding: 8px 12px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius);
+  background: var(--query-surface);
+  color: var(--query-text-soft);
+  box-shadow: none;
+  font-weight: 650;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.query-header-teleport-toolbar :deep(.el-button:hover),
+.query-header-teleport-toolbar :deep(.el-button:focus) {
+  border-color: rgba(15, 118, 110, 0.38);
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
+  transform: translateY(-1px);
+}
+
+.query-header-teleport-toolbar :deep(.el-button--primary.is-plain) {
+  border-color: var(--query-primary-border);
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
+}
+
+.query-header-teleport-toolbar :deep(.el-button.is-text) {
+  min-height: 32px;
+  padding: 6px 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--query-muted);
+}
+
+.query-header-teleport-toolbar :deep(.el-tag) {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--query-border);
+  border-radius: 999px;
+  background: var(--query-surface);
+  color: var(--query-muted);
+  font-weight: 700;
+}
+
+.query-header-teleport-toolbar :deep(.el-tag--success) {
+  border-color: var(--query-primary-border);
+  background: var(--query-primary-soft);
+  color: var(--query-primary);
+}
+
+.query-header-teleport-toolbar :deep(.el-tag--warning) {
+  border-color: #fde68a;
+  background: var(--query-warning-soft);
+  color: var(--query-warning);
+}
+
+.query-toolbar-scope {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 0.55fr) minmax(260px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-inline: 10px;
+  border-inline: 1px solid var(--query-border-soft);
+}
+
+.query-header-teleport-toolbar .query-toolbar-scope {
+  flex: 1 1 420px;
+  grid-template-columns: auto minmax(90px, 150px) minmax(190px, 280px) auto;
+  max-width: 620px;
+  padding-inline: 8px;
+}
+
+.scope-current {
+  min-width: 0;
+  color: var(--query-text);
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.query-header-teleport-toolbar .query-toolbar-actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.scope-label {
+  color: var(--query-muted);
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -472,216 +1308,465 @@ onMounted(async () => {
   width: 100%;
 }
 
-.scope-option {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.3;
-}
-
-.scope-option strong {
-  color: var(--app-text);
-  font-weight: 500;
-}
-
-.scope-option small,
-.scope-current {
-  color: var(--app-text-muted);
-  font-size: 12px;
-}
-
-.scope-current {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.scope-state-tag {
+  justify-self: end;
 }
 
 .chat-container {
-  flex: 1;
+  order: 2;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 20px;
-  background: var(--app-surface-muted);
+  padding: 14px;
+  background: var(--query-surface-muted);
+}
+
+.query-dialog-stage.is-new-dialog .chat-container {
+  order: 1;
+  flex: 0 0 auto;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  overflow: visible;
+  padding: 0;
+  background: transparent;
 }
 
 .welcome-message {
-  display: flex;
-  flex-direction: column;
+  min-height: 100%;
+  width: min(100%, 760px);
+  display: grid;
+  grid-template-columns: 1fr;
   align-items: center;
-  justify-content: center;
-  height: 100%;
-  text-align: center;
-  padding: 40px;
+  align-content: center;
+  justify-content: stretch;
+  gap: 8px;
+  margin: 0 auto;
+  padding: 14px;
+  text-align: left;
+}
+
+.query-dialog-stage.is-new-dialog .welcome-message {
+  width: 100%;
+  min-height: auto;
+  padding: 0;
+}
+
+.welcome-primary {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-content: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 82px;
+  padding: 14px 15px 14px 17px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius);
+  background: var(--query-surface);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.query-start-copy::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--query-primary);
 }
 
 .welcome-icon {
-  width: 64px;
-  height: 64px;
-  display: flex;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 118, 110, 0.1);
-  border: 1px solid rgba(15, 118, 110, 0.18);
-  border-radius: var(--app-radius);
-  margin-bottom: 20px;
-  color: var(--app-primary);
+  margin-bottom: 0;
+  border-radius: var(--query-radius);
+  color: var(--query-primary);
+  background: var(--query-primary-soft);
+  border: 1px solid var(--query-primary-border);
+  box-shadow: none;
 }
 
-.welcome-message h3 {
-  margin: 0 0 12px;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-
-.welcome-message p {
-  margin: 0 0 32px;
-  color: var(--app-text-muted);
-  font-size: 15px;
-}
-
-.welcome-examples {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  max-width: 500px;
+.welcome-copy {
   min-width: 0;
 }
 
-.example-label {
-  width: 100%;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--app-text-light);
+.welcome-message h2 {
+  margin: 0 0 5px;
+  color: var(--query-text);
+  font-size: 17px;
+  line-height: 1.25;
 }
 
-.example-tag {
-  cursor: pointer;
-  max-width: 100%;
-  height: auto;
-  min-height: 32px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  transition: all 0.2s;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  white-space: normal;
-}
-
-.example-tag :deep(.el-tag__content) {
+.welcome-message p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--query-muted);
+  font-size: 12px;
   line-height: 1.45;
-  overflow-wrap: anywhere;
-  text-align: left;
-  white-space: normal;
 }
 
-.example-tag:hover {
-  background: rgba(15, 118, 110, 0.08);
-  color: var(--app-primary-dark);
-  border-color: rgba(15, 118, 110, 0.24);
-  transform: none;
-  box-shadow: none;
+.prompt-suggestion-grid {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.prompt-suggestion-rail {
+  grid-template-columns: 1fr;
+  align-content: start;
+}
+
+.prompt-suggestion-card {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius);
+  background: var(--query-surface);
+  color: var(--query-text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--query-shadow-sm);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.prompt-suggestion-card:hover {
+  transform: translateX(3px);
+  border-color: rgba(15, 118, 110, 0.38);
+  background: #fbfefd;
+  box-shadow: var(--query-shadow-md);
+}
+
+.prompt-suggestion-card:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.18);
+  outline-offset: 2px;
+}
+
+.prompt-suggestion-card .el-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+  border-radius: var(--query-radius);
+  color: var(--query-primary);
+  background: var(--query-primary-soft);
+}
+
+.prompt-suggestion-card span {
+  color: var(--query-text-soft);
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 1.35;
 }
 
 .messages-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.input-area {
-  padding: 16px;
-  border-top: 1px solid var(--app-border);
-  background: var(--app-surface);
+.command-composer {
+  order: 1;
+  display: block;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--query-border);
+  background: var(--query-surface);
+  transition:
+    width 0.28s ease,
+    transform 0.28s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
 }
 
-.input-area :deep(.el-input__wrapper) {
-  border-radius: var(--app-radius-sm);
-  padding: 4px 4px 4px 16px;
-  box-shadow: 0 0 0 1px var(--app-border);
+.query-dialog-stage.is-new-dialog .command-composer {
+  order: 2;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 10px;
+  border: 1px solid var(--query-border);
+  border-radius: var(--query-radius-lg);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.1);
 }
 
-.input-area :deep(.el-input-group__append) {
-  background: var(--app-primary);
-  border: none;
-  padding: 0;
-  border-radius: 0 var(--app-radius-sm) var(--app-radius-sm) 0;
+.query-dialog-stage.has-conversation .command-composer {
+  animation: query-composer-dock-enter 0.34s ease both;
 }
 
-.input-area :deep(.el-input-group__append .el-button) {
-  margin: 0;
-  padding: 0 24px;
-  height: 100%;
-  border: none;
-  color: white;
-  font-weight: 500;
+.command-composer.is-composer-focused {
+  box-shadow: 0 -12px 34px rgba(15, 118, 110, 0.11);
 }
 
-.input-area :deep(.el-input-group__append .el-button:hover) {
-  background: transparent;
+.command-composer.is-disabled {
+  background: var(--query-surface-muted);
 }
 
-.input-tips {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--app-text-light);
+.composer-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
 }
 
-.history-card {
-  height: 100%;
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-soft);
+.composer-input {
+  display: flex;
+  min-width: 0;
 }
 
-.history-card:hover {
-  transform: none;
+.composer-input :deep(.el-textarea__inner) {
+  display: block;
+  width: 100%;
+  min-height: 54px !important;
+  padding: 10px 12px;
+  border-radius: var(--query-radius);
+  border: 1px solid var(--query-border);
+  box-shadow: none;
+  color: var(--query-text);
+  line-height: 1.45;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.history-card :deep(.el-card__header) {
-  padding: 14px 16px;
-  background: var(--app-surface);
+.composer-input :deep(.el-textarea__inner:focus) {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
-.history-card :deep(.el-card__body) {
-  padding: 0;
+.composer-submit {
+  height: auto;
+  align-self: stretch;
+  min-width: 88px;
+  min-height: 54px;
+  border-radius: var(--query-radius);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@keyframes query-composer-dock-enter {
+  from {
+    transform: translateY(18px) scale(0.985);
+    opacity: 0.82;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.query-result-dock {
+  min-height: 310px;
+  max-height: min(48vh, 520px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-top: 1px solid var(--query-border);
+  background: var(--query-surface);
+  box-shadow: 0 -16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.query-result-dock-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--query-border-soft);
+}
+
+.query-result-dock-header > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.query-result-dock-header span {
+  color: var(--query-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.query-result-dock-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--query-text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-result-dock-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.query-result-tabs {
+  min-height: 0;
+  padding: 0 12px 12px;
   overflow: hidden;
 }
 
+.query-result-tabs :deep(.el-tabs__content) {
+  height: calc(100% - 42px);
+  overflow: hidden;
+}
+
+.query-result-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  overflow: auto;
+}
+
+.query-result-tabs :deep(.el-tabs__item) {
+  color: var(--query-muted);
+  font-weight: 800;
+}
+
+.query-result-tabs :deep(.el-tabs__item.is-active) {
+  color: var(--query-primary);
+}
+
+.query-result-tabs :deep(.el-tabs__active-bar) {
+  background: var(--query-primary);
+}
+
+.query-result-pane {
+  min-height: 220px;
+  height: 100%;
+  overflow: auto;
+}
+
+.query-result-pane--chart {
+  min-height: 260px;
+}
+
+.query-result-sql {
+  min-height: 220px;
+  max-height: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border-radius: var(--query-radius);
+  background: #0f172a;
+  color: #dbeafe;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.query-side-panel {
+  grid-area: history;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.side-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--query-border);
+}
+
+.side-panel-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.side-panel-eyebrow {
+  color: var(--query-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.side-panel-header strong {
+  color: var(--query-text);
+  font-size: 14px;
+}
+
+.history-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--query-border-soft);
+  background: var(--query-surface);
+}
+
 .history-list {
-  max-height: calc(100vh - 220px);
+  max-height: none;
+  min-height: 0;
   overflow-y: auto;
 }
 
 .history-item {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--app-border-light);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--query-border-soft);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .history-item:hover {
-  background: rgba(15, 118, 110, 0.05);
+  background: var(--query-surface-muted);
+  transform: translateX(2px);
+}
+
+.history-item.is-active {
+  background: var(--query-primary-tint);
+  border-left: 3px solid var(--query-primary);
+  padding-left: 11px;
+}
+
+.history-item.is-loading {
+  background: #f0fdfa;
+  pointer-events: none;
+}
+
+.history-item-top,
+.history-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.history-item-top {
+  margin-bottom: 6px;
 }
 
 .history-content {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 9px;
+  margin-bottom: 6px;
 }
 
 .history-icon {
   flex-shrink: 0;
-  color: var(--app-primary);
+  color: var(--query-primary);
   margin-top: 2px;
 }
 
 .history-text {
-  font-size: 13px;
-  color: var(--app-text);
-  line-height: 1.6;
+  color: var(--query-text-soft);
+  font-size: 12px;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -689,118 +1774,233 @@ onMounted(async () => {
   -webkit-box-orient: vertical;
 }
 
-.history-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.history-date,
+.history-source {
+  color: var(--query-light);
+  font-size: 11px;
+}
+
+.history-loading-icon {
+  flex-shrink: 0;
+  color: var(--query-primary);
 }
 
 .history-actions {
   display: flex;
   align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.history-actions :deep(.el-button) {
+  min-height: 28px;
+  padding: 4px 6px;
+}
+
+.history-empty-actions {
+  display: flex;
+  justify-content: center;
   gap: 8px;
-  opacity: 0;
-  transition: opacity 0.2s;
+  flex-wrap: wrap;
 }
 
-.history-item:hover .history-actions {
-  opacity: 1;
+.side-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--query-border);
+  background: var(--query-surface);
 }
 
-.history-date {
-  font-size: 11px;
-  color: var(--app-text-light);
+@media (prefers-reduced-motion: reduce) {
+  .prompt-suggestion-card,
+  .history-item,
+  .command-composer,
+  .query-dialog-stage,
+  .composer-input :deep(.el-textarea__inner) {
+    transition: none;
+  }
+
+  .prompt-suggestion-card:hover,
+  .history-item:hover {
+    transform: none;
+  }
+
+  .query-dialog-stage.has-conversation .command-composer {
+    animation: none;
+  }
 }
 
-.favorite-icon {
-  color: var(--app-text-light);
-  cursor: pointer;
-  transition: all 0.2s;
+@media (max-width: 1180px) {
+  .query-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .query-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "chat"
+      "history";
+  }
+
+  .query-side-panel {
+    min-height: 360px;
+  }
 }
 
-.favorite-icon:hover,
-.favorite-icon.is-favorite {
-  color: var(--app-warning);
-  transform: scale(1.1);
-}
-
-.delete-icon {
-  color: var(--app-text-light);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.delete-icon:hover {
-  color: var(--app-danger);
-  transform: scale(1.1);
-}
-
-@media (max-width: 1024px) {
+@media (max-width: 900px) {
   .smart-query-page {
     height: auto;
-    min-height: calc(100vh - 120px);
   }
 
-  .page-row {
+  .query-workspace {
     height: auto;
+    min-height: calc(100vh - 120px);
+    padding: 12px;
   }
 
-  .card-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
+  .prompt-suggestion-grid {
+    grid-template-columns: 1fr;
   }
 
-  .header-actions,
-  .history-header-actions {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .query-scope-panel {
+  .scope-console {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .scope-mode {
-    justify-content: space-between;
+  .query-header-teleport-toolbar {
+    align-items: center;
+    flex-wrap: wrap;
   }
 
-  .chat-card,
-  .history-card {
-    height: auto;
+  .query-mode-switcher {
+    justify-self: stretch;
   }
 
-  .history-card {
-    margin-top: 16px;
+  .query-toolbar-scope {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding-inline: 0;
+    border-inline: 0;
   }
 
-  .history-list {
-    max-height: 320px;
+  .query-toolbar-scope .scope-select,
+  .query-toolbar-scope .scope-state-tag {
+    grid-column: 1 / -1;
+  }
+
+  .query-header-teleport-toolbar .query-toolbar-scope {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .query-toolbar-actions {
+    justify-content: flex-start;
+  }
+
+  .query-header-teleport-toolbar .query-toolbar-actions {
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+
+  .scope-state-tag {
+    justify-self: start;
+  }
+
+  .query-result-dock {
+    max-height: 58vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .welcome-message {
+    grid-template-columns: 1fr;
+    align-content: start;
+    width: 100%;
+  }
+
+  .welcome-primary {
+    grid-template-columns: auto minmax(0, 1fr);
+    justify-items: start;
+    min-height: auto;
+    text-align: left;
   }
 }
 
 @media (max-width: 640px) {
+  .mode-tabs {
+    width: 100%;
+  }
+
+  .query-header-teleport-toolbar .mode-tabs {
+    width: auto;
+  }
+
+  .query-toolbar-actions :deep(.el-button) {
+    flex: 1;
+  }
+
+  .query-header-teleport-toolbar .query-toolbar-actions :deep(.el-button) {
+    flex: 0 0 auto;
+  }
+
+  .mode-tabs :deep(.el-radio-button) {
+    width: 50%;
+  }
+
+  .query-header-teleport-toolbar .mode-tabs :deep(.el-radio-button) {
+    width: auto;
+  }
+
+  .mode-tabs :deep(.el-radio-button__inner) {
+    width: 100%;
+  }
+
+  .query-header-teleport-toolbar .mode-tabs :deep(.el-radio-button__inner) {
+    width: auto;
+  }
+
   .chat-container {
     padding: 14px;
   }
 
   .welcome-message {
-    min-height: 420px;
-    padding: 28px 12px;
+    padding: 16px 8px;
   }
 
-  .welcome-message p {
-    margin-bottom: 24px;
-    font-size: 14px;
+  .composer-input-row {
+    grid-template-columns: minmax(0, 1fr) 76px;
   }
 
-  .input-area {
-    padding: 12px;
+  .composer-submit {
+    min-width: 0;
+    padding-inline: 10px;
   }
 
-  .input-area :deep(.el-input-group__append .el-button) {
-    padding: 0 14px;
+  .query-dialog-stage.is-new-dialog {
+    padding: 16px 10px;
+  }
+
+  .query-result-dock-header,
+  .query-result-dock-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .history-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .history-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .history-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 </style>

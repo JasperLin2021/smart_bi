@@ -112,6 +112,8 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <div id="smart-query-header-actions" class="smart-query-header-actions-target"></div>
+
           <el-button :icon="Refresh" circle @click="refresh" />
 
           <!-- Notification bell -->
@@ -171,6 +173,8 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <FloatingAgent />
   </el-container>
 </template>
 
@@ -178,6 +182,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, type Component } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import axios from "axios"
+import FloatingAgent from "@/components/FloatingAgent.vue"
 import { useAuthStore } from "@/store/auth"
 import { useDatasourceStore } from "@/store/datasource"
 import {
@@ -256,9 +261,9 @@ const isMobileLayout = ref(false)
 
 const activePath = computed(() => route.path)
 const effectiveSidebarCollapsed = computed(() => isSidebarCollapsed.value || isMobileLayout.value)
-const sidebarWidth = computed(() => (effectiveSidebarCollapsed.value ? "72px" : "260px"))
+const sidebarWidth = computed(() => (effectiveSidebarCollapsed.value ? "72px" : "224px"))
 
-type MenuRole = "org_admin" | "super_admin"
+type MenuRole = "dept_admin" | "org_admin" | "super_admin"
 type MenuItem = {
   path: string
   label: string
@@ -287,23 +292,22 @@ const menuEntries: MenuEntry[] = [
     label: "工作台",
     icon: DataLine,
     items: [
-      { path: "/dashboard", label: "Dashboard", icon: DataLine },
       { path: "/smart-query", label: "智能问数", icon: ChatDotRound },
+      { path: "/dashboard", label: "仪表盘", icon: DataLine },
       { path: "/analysis-workbench", label: "自助分析", icon: TrendCharts },
+      { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
-  { type: "item", path: "/big-screen-center", label: "大屏中心", icon: DataLine },
   {
     type: "group",
     key: "data-access",
     label: "数据准备",
     icon: Coin,
     items: [
-      { path: "/data-access", label: "准备总览", icon: DataLine },
+      { path: "/data-development", label: "数据接入", icon: Document },
       { path: "/data-link", label: "连接器接入", icon: Coin },
-      { path: "/data-pipelines", label: "数据加工管道", icon: SetUp, roles: ["org_admin", "super_admin"] },
-      { path: "/data-development", label: "数据源与数据集", icon: Document },
+      { path: "/data-pipelines", label: "可视化ETL", icon: SetUp, roles: ["org_admin", "super_admin"] },
       { path: "/olap-status", label: "OLAP 数据平台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/data-catalog", label: "数据目录", icon: FolderOpened },
     ],
@@ -315,7 +319,6 @@ const menuEntries: MenuEntry[] = [
     icon: Grid,
     items: [
       { path: "/dashboard-center", label: "看板中心", icon: Grid },
-      { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/metric-settings", label: "可信指标", icon: TrendCharts },
       { path: "/alert-settings", label: "预警管理", icon: Bell },
       { path: "/scheduled-reports", label: "定时报告", icon: AlarmClock },
@@ -327,7 +330,7 @@ const menuEntries: MenuEntry[] = [
     label: "系统管理",
     icon: Setting,
     items: [
-      { path: "/access-control", label: "用户与权限", icon: User, roles: ["org_admin", "super_admin"] },
+      { path: "/access-control", label: "用户与权限", icon: User, roles: ["dept_admin", "org_admin", "super_admin"] },
       { path: "/audit-logs", label: "审计日志", icon: Document, roles: ["org_admin", "super_admin"] },
       { path: "/operations", label: "运营后台", icon: DataLine, roles: ["org_admin", "super_admin"] },
       { path: "/llm-settings", label: "大模型配置", icon: Setting, roles: ["super_admin"] },
@@ -336,6 +339,10 @@ const menuEntries: MenuEntry[] = [
     ],
   },
 ]
+
+const hiddenPageTitles: Record<string, string> = {
+  "/big-screen-center": "大屏中心",
+}
 
 const hasRole = (roles?: MenuRole[]) => {
   if (!roles?.length) return true
@@ -375,13 +382,14 @@ const pageTitleMap = computed(() =>
 )
 
 const pageTitle = computed(() => {
-  return pageTitleMap.value[route.path] || "Dashboard"
+  return pageTitleMap.value[route.path] || hiddenPageTitles[route.path] || "Dashboard"
 })
 
 const roleLabel = computed(() => {
   const labels: Record<string, string> = {
     super_admin: '超级管理员',
     org_admin: '企业管理员',
+    dept_admin: '部门管理员',
     user: '普通用户',
   }
   return labels[authStore.profile?.role || ''] || authStore.profile?.role
@@ -391,6 +399,7 @@ const roleTagType = computed(() => {
   const types: Record<string, string> = {
     super_admin: 'danger',
     org_admin: 'warning',
+    dept_admin: 'warning',
     user: 'info',
   }
   return types[authStore.profile?.role || ''] || 'info'
@@ -452,7 +461,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px 18px 14px;
+  padding: 18px 14px 14px;
   border-bottom: 1px solid var(--app-border);
 }
 
@@ -580,7 +589,7 @@ onBeforeUnmount(() => {
 .app-menu {
   background: transparent;
   border: none;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 
 .app-sidebar.collapsed .app-menu {
@@ -626,8 +635,8 @@ onBeforeUnmount(() => {
 }
 
 .app-menu:not(.el-menu--collapse) :deep(.el-sub-menu .el-menu-item) {
-  margin-left: 12px;
-  padding-left: 42px !important;
+  margin-left: 8px;
+  padding-left: 38px !important;
   min-width: 0;
 }
 
@@ -718,6 +727,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18px;
   padding: 0 22px;
   height: 64px;
   background: var(--app-surface);
@@ -727,7 +737,9 @@ onBeforeUnmount(() => {
 .header-left {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 4px;
+  min-width: 0;
 }
 
 .page-title {
@@ -744,7 +756,22 @@ onBeforeUnmount(() => {
 .header-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex: 1;
   gap: 12px;
+  min-width: 0;
+}
+
+.smart-query-header-actions-target {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+
+.smart-query-header-actions-target:empty {
+  display: none;
 }
 
 .dropdown-user {

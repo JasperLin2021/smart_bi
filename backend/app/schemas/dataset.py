@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class DatasetBase(BaseModel):
@@ -15,6 +15,7 @@ class DatasetBase(BaseModel):
     aggregations_json: Optional[dict[str, Any]] = None
     pipeline_json: Optional[dict[str, Any]] = None
     semantic_model_json: Optional[dict[str, Any]] = None
+    drill_config_json: Optional[dict[str, Any]] = None
     status: str = "draft"
     visibility: str = "private"
     materialization_status: Optional[str] = None
@@ -25,6 +26,13 @@ class DatasetBase(BaseModel):
     materialization_message: Optional[str] = None
     org_id: Optional[int] = None
     owner_id: Optional[int] = None
+
+    @field_validator("joins_json", mode="before")
+    @classmethod
+    def normalize_joins_json(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return {"joins": value}
+        return value
 
 
 class DatasetCreate(DatasetBase):
@@ -42,6 +50,7 @@ class DatasetUpdate(BaseModel):
     aggregations_json: Optional[dict[str, Any]] = None
     pipeline_json: Optional[dict[str, Any]] = None
     semantic_model_json: Optional[dict[str, Any]] = None
+    drill_config_json: Optional[dict[str, Any]] = None
     status: Optional[str] = None
     visibility: Optional[str] = None
     materialization_status: Optional[str] = None
@@ -93,6 +102,24 @@ class DatasetSemanticModelResponse(BaseModel):
 
 class DatasetSemanticModelValidationResponse(DatasetSemanticModelResponse):
     valid: bool
+
+
+class DatasetAIConfigSuggestRequest(BaseModel):
+    dataset_id: Optional[int] = None
+    datasource_id: Optional[int] = None
+    table: Optional[str] = None
+    fields_json: Optional[dict[str, Any]] = None
+    aggregations_json: Optional[dict[str, Any]] = None
+    semantic_model_json: Optional[dict[str, Any]] = None
+    drill_config_json: Optional[dict[str, Any]] = None
+
+
+class DatasetAIConfigSuggestResponse(BaseModel):
+    semantic_model: dict[str, Any]
+    field_roles: list[dict[str, Any]]
+    drill_config: dict[str, Any]
+    warnings: list[str] = []
+    source: str = "rule"
 
 
 class DatasetPreviewResponse(BaseModel):

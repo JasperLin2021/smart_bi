@@ -22,6 +22,25 @@ test("enterprise management uses an organization and department tree", () => {
   assert.doesNotMatch(view, /v-show="activeTab === 'orgs'"[\s\S]*?<el-table :data="filteredOrgs"/)
 })
 
+test("access control exposes enterprise scoped role management", () => {
+  const router = read("src/router/index.ts")
+  const layout = read("src/layouts/MainLayout.vue")
+  const view = read("src/views/AccessControl.vue")
+
+  assert.match(router, /requiredRole:\s*\['dept_admin',\s*'org_admin',\s*'super_admin'\]/)
+  assert.match(layout, /type MenuRole = "dept_admin" \| "org_admin" \| "super_admin"/)
+  assert.match(view, /canManageRoles/)
+  assert.match(view, /canManageDepartments/)
+  assert.match(view, /assignableRoles/)
+  assert.match(view, /\/api\/roles\/assignable/)
+  assert.match(view, /\/api\/roles/)
+  assert.match(view, /openRoleCreate/)
+  assert.match(view, /saveRole/)
+  assert.match(view, /deleteRole/)
+  assert.match(view, /isRoleEditable/)
+  assert.match(view, /内置角色/)
+})
+
 test("enterprise management absorbs standalone user management", () => {
   const router = read("src/router/index.ts")
   const view = read("src/views/AccessControl.vue")

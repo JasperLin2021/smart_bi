@@ -12,6 +12,13 @@ class PipelineCreate(BaseModel):
     schedule_cron: Optional[str] = None
     run_mode: str = "manual"
     status: str = "draft"
+    environment: str = "prod"
+    priority: str = "medium"
+    sla_minutes: int = 120
+    retry_count: int = 2
+    timeout_minutes: int = 60
+    alert_policy_json: Optional[dict[str, Any]] = None
+    state_json: Optional[dict[str, Any]] = None
 
 
 class PipelineUpdate(BaseModel):
@@ -22,10 +29,19 @@ class PipelineUpdate(BaseModel):
     schedule_cron: Optional[str] = None
     run_mode: Optional[str] = None
     status: Optional[str] = None
+    environment: Optional[str] = None
+    priority: Optional[str] = None
+    sla_minutes: Optional[int] = None
+    retry_count: Optional[int] = None
+    timeout_minutes: Optional[int] = None
+    alert_policy_json: Optional[dict[str, Any]] = None
+    state_json: Optional[dict[str, Any]] = None
 
 
 class PipelineOut(PipelineCreate):
     id: int
+    current_version: int = 0
+    published_version: int = 0
     last_run_status: Optional[str] = None
     last_run_at: Optional[datetime] = None
     org_id: Optional[int] = None
@@ -41,6 +57,9 @@ class PipelineOut(PipelineCreate):
 class PipelineRunRequest(BaseModel):
     mode: str = "manual"
     reason: Optional[str] = None
+    window_start: Optional[datetime] = None
+    window_end: Optional[datetime] = None
+    dry_run: bool = False
 
 
 class PipelineRunOut(BaseModel):
@@ -54,10 +73,86 @@ class PipelineRunOut(BaseModel):
     records_written: int = 0
     records_failed: int = 0
     error_message: Optional[str] = None
+    notify_result_json: Optional[dict[str, Any]] = None
+    scheduled_job_id: Optional[str] = None
+    duration_ms: Optional[int] = None
     org_id: Optional[int] = None
     triggered_by_id: Optional[int] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PipelinePreviewRequest(BaseModel):
+    node_id: Optional[str] = None
+    limit: int = 100
+    dag_json: Optional[dict[str, Any]] = None
+
+
+class PipelineInspectRequest(PipelinePreviewRequest):
+    pass
+
+
+class PipelinePreviewOut(BaseModel):
+    pipeline_id: int
+    node_id: Optional[str] = None
+    columns: list[str] = []
+    rows: list[dict[str, Any]] = []
+    row_count: int = 0
+    schema: list[dict[str, Any]] = []
+    profile: list[dict[str, Any]] = []
+    execution_mode: str = "in_memory"
+    node_logs_json: Optional[dict[str, Any]] = None
+
+
+class PipelineInspectOut(PipelinePreviewOut):
+    pass
+
+
+class PipelineLineageOut(BaseModel):
+    pipeline_id: int
+    source: dict[str, Any]
+    target: dict[str, Any]
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+
+class PipelineDiagnostic(BaseModel):
+    severity: str
+    code: str
+    message: str
+    node_id: Optional[str] = None
+
+
+class PipelineValidationOut(BaseModel):
+    status: str
+    diagnostics: list[PipelineDiagnostic] = []
+    critical_count: int = 0
+    warning_count: int = 0
+    node_count: int = 0
+    edge_count: int = 0
+    schedule_cron: Optional[str] = None
+    run_mode: str = "manual"
+    environment: str = "prod"
+    priority: str = "medium"
+    sla_minutes: int = 120
+    retry_count: int = 2
+    timeout_minutes: int = 60
+
+
+class PipelineVersionOut(BaseModel):
+    id: int
+    pipeline_id: int
+    version: int
+    status: str
+    dag_json: dict[str, Any]
+    config_json: Optional[dict[str, Any]] = None
+    comment: Optional[str] = None
+    org_id: Optional[int] = None
+    created_by: Optional[int] = None
+    published_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

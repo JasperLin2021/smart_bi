@@ -4,7 +4,7 @@ from typing import Any, List, Dict, Optional
 
 class QueryAskRequest(BaseModel):
     question: str
-    mode: Optional[str] = "text2sql"
+    mode: Optional[str] = "business"
     datasource_id: Optional[int] = None
     dataset_id: Optional[int] = None
     drill_context: Optional[Dict[str, Any]] = None
@@ -48,6 +48,43 @@ class MetricTrustSignal(BaseModel):
     quality_message: Optional[str] = None
 
 
+class AgentTraceStep(BaseModel):
+    stage: str
+    status: str
+    message: str
+    detail: Optional[Dict[str, Any]] = None
+
+
+class ChartSpec(BaseModel):
+    chart_type: str
+    title: Optional[str] = None
+    x_field: Optional[str] = None
+    y_field: Optional[str] = None
+    series_fields: List[str] = []
+    layout: str = "single"
+    facet_field: Optional[str] = None
+    sort_order: str = "none"
+    reason: Optional[str] = None
+
+
+class AgenticRefinementAction(BaseModel):
+    label: str
+    question: str
+
+
+class AgenticQueryNotes(BaseModel):
+    assumptions: List[str] = []
+    risk_flags: List[str] = []
+    suggested_refinements: List[AgenticRefinementAction] = []
+    confidence: Optional[str] = None
+
+
+class EmptyDiagnostics(BaseModel):
+    reason: str
+    checks: List[str] = []
+    suggested_actions: List[AgenticRefinementAction] = []
+
+
 class QueryAskResponse(BaseModel):
     answer: str
     result: QueryResult
@@ -59,6 +96,11 @@ class QueryAskResponse(BaseModel):
     recommendations: List[str]
     mode: str
     trust_signals: List[MetricTrustSignal] = []
+    semantic_context: Optional[Dict[str, Any]] = None
+    agent_trace: List[AgentTraceStep] = []
+    chart_spec: Optional[ChartSpec] = None
+    agent_notes: Optional[AgenticQueryNotes] = None
+    empty_diagnostics: Optional[EmptyDiagnostics] = None
 
 
 class DrillAction(BaseModel):
@@ -77,6 +119,7 @@ class DrillAction(BaseModel):
 
 class DrillPreviewRequest(BaseModel):
     datasource_id: int
+    dataset_id: Optional[int] = None
     question: str
     sql_query: str
     selected_column: str
@@ -94,6 +137,7 @@ class HistoryItem(BaseModel):
     question: str
     created_at: str
     favorite: bool
+    mode: str = "business"
     parent_history_id: Optional[int] = None
 
 

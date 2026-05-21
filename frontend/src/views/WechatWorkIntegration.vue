@@ -8,8 +8,22 @@
       <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button>
     </div>
 
-    <el-tabs v-model="activeTab" class="settings-tabs">
-      <el-tab-pane label="基础配置" name="config">
+    <div class="page-tabbar settings-tabbar">
+      <button
+        v-for="tab in integrationTabs"
+        :key="tab.key"
+        class="page-tab"
+        :class="{ 'is-active': activeTab === tab.key }"
+        type="button"
+        @click="activeTab = tab.key"
+      >
+        <el-icon><component :is="tab.icon" /></el-icon>
+        {{ tab.label }}
+      </button>
+    </div>
+
+    <div class="settings-tabs">
+      <div v-show="activeTab === 'config'" class="settings-tab-panel">
         <section class="settings-panel">
           <div class="section-header">
             <div>
@@ -52,9 +66,9 @@
             </el-form-item>
           </el-form>
         </section>
-      </el-tab-pane>
+      </div>
 
-      <el-tab-pane label="组织绑定" name="bindings">
+      <div v-show="activeTab === 'bindings'" class="settings-tab-panel">
         <section class="settings-panel">
           <div class="section-header">
             <div>
@@ -87,9 +101,9 @@
             </el-table-column>
           </el-table>
         </section>
-      </el-tab-pane>
+      </div>
 
-      <el-tab-pane label="部门权限" name="mappings">
+      <div v-show="activeTab === 'mappings'" class="settings-tab-panel">
         <section class="settings-panel">
           <div class="section-header">
             <div>
@@ -181,9 +195,9 @@
             </el-table-column>
           </el-table>
         </section>
-      </el-tab-pane>
+      </div>
 
-      <el-tab-pane label="消息测试" name="test">
+      <div v-show="activeTab === 'test'" class="settings-tab-panel">
         <section class="settings-panel">
           <div class="section-header">
             <div>
@@ -217,9 +231,9 @@
             </el-form-item>
           </el-form>
         </section>
-      </el-tab-pane>
+      </div>
 
-      <el-tab-pane label="投递记录" name="deliveries">
+      <div v-show="activeTab === 'deliveries'" class="settings-tab-panel">
         <section class="settings-panel">
           <div class="section-header">
             <div>
@@ -246,8 +260,8 @@
             </el-table-column>
           </el-table>
         </section>
-      </el-tab-pane>
-    </el-tabs>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -255,7 +269,7 @@
 import { onMounted, reactive, ref } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
-import { Bell, Delete, Plus, Refresh } from "@element-plus/icons-vue"
+import { Bell, Delete, Key, Message, OfficeBuilding, Plus, Refresh, Setting } from "@element-plus/icons-vue"
 
 type OrgItem = {
   id: number
@@ -301,6 +315,13 @@ type MessageDelivery = {
 }
 
 const activeTab = ref("config")
+const integrationTabs = [
+  { key: "config", label: "基础配置", icon: Setting },
+  { key: "bindings", label: "组织绑定", icon: OfficeBuilding },
+  { key: "mappings", label: "部门权限", icon: Key },
+  { key: "test", label: "消息测试", icon: Bell },
+  { key: "deliveries", label: "投递记录", icon: Message },
+]
 const loading = ref(false)
 const savingConfig = ref(false)
 const savingBinding = ref(false)

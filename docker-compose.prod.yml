@@ -26,6 +26,12 @@ services:
       LLM_API_BASE: ${LLM_API_BASE:?set LLM_API_BASE in .env.production}
       LLM_API_KEY: ${LLM_API_KEY:?set LLM_API_KEY in .env.production}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_PI_BASE: ${LLM_PI_BASE:?set LLM_PI_BASE in .env.production}
+      LLM_PI_KEY: ${LLM_PI_KEY:-}
+      LLM_PI_MODEL: ${LLM_PI_MODEL:-pi/pi-mono}
+      LLM_DASHSCOPE_BASE: ${LLM_DASHSCOPE_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_DASHSCOPE_KEY: ${LLM_DASHSCOPE_KEY:-}
+      LLM_DASHSCOPE_MODEL: ${LLM_DASHSCOPE_MODEL:-qwen3.6-35b-a3b}
       CUBE_API_URL: ${CUBE_API_URL:-http://cube:4000/cubejs-api/v1}
       CUBE_API_TOKEN: ${CUBE_API_TOKEN:-change_me}
       DORIS_ENABLED: ${DORIS_ENABLED:-false}
@@ -58,6 +64,12 @@ services:
       LLM_API_BASE: ${LLM_API_BASE:?set LLM_API_BASE in .env.production}
       LLM_API_KEY: ${LLM_API_KEY:?set LLM_API_KEY in .env.production}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_PI_BASE: ${LLM_PI_BASE:?set LLM_PI_BASE in .env.production}
+      LLM_PI_KEY: ${LLM_PI_KEY:-}
+      LLM_PI_MODEL: ${LLM_PI_MODEL:-pi/pi-mono}
+      LLM_DASHSCOPE_BASE: ${LLM_DASHSCOPE_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_DASHSCOPE_KEY: ${LLM_DASHSCOPE_KEY:-}
+      LLM_DASHSCOPE_MODEL: ${LLM_DASHSCOPE_MODEL:-qwen3.6-35b-a3b}
       CUBE_API_URL: ${CUBE_API_URL:-http://cube:4000/cubejs-api/v1}
       CUBE_API_TOKEN: ${CUBE_API_TOKEN:-change_me}
       DORIS_ENABLED: ${DORIS_ENABLED:-false}

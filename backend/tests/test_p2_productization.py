@@ -1,5 +1,8 @@
+import asyncio
+import json
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -118,24 +121,180 @@ class P2ProductizationTests(unittest.TestCase):
             {"region": "华北", "month": "2026-01", "revenue": -30},
         ]
 
-        insights = auto_insights(
-            AutoInsightsRequest(columns=["region", "month", "revenue"], rows=rows),
-            current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+        insights = asyncio.run(
+            auto_insights(
+                AutoInsightsRequest(columns=["region", "month", "revenue"], rows=rows),
+                current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+            )
         )
-        attribution = anomaly_attribution(
-            AnomalyAttributionRequest(
-                columns=["region", "month", "revenue"],
-                rows=rows,
-                metric_column="revenue",
-                dimension_columns=["region"],
-            ),
-            current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+        attribution = asyncio.run(
+            anomaly_attribution(
+                AnomalyAttributionRequest(
+                    columns=["region", "month", "revenue"],
+                    rows=rows,
+                    metric_column="revenue",
+                    dimension_columns=["region"],
+                ),
+                current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+            )
         )
 
         self.assertGreaterEqual(len(insights["insights"]), 2)
         self.assertEqual(attribution["metric_column"], "revenue")
         self.assertEqual(attribution["drivers"][0]["dimension"], "region")
         self.assertEqual(attribution["drivers"][0]["value"], "华东")
+
+    def test_auto_insights_uses_system_llm_to_enrich_rule_evidence(self):
+        from app.api.insights import AutoInsightsRequest, auto_insights
+
+        rows = [
+            {"region": "华东", "revenue": 120},
+            {"region": "华南", "revenue": 80},
+        ]
+
+        async def fake_config():
+            return {
+                "provider": "deepseek",
+                "base_url": "http://llm.example/v1",
+                "api_key": "",
+                "model": "deepseek-v4-flash",
+                "temperature": 0.2,
+            }
+
+        with patch("app.api.insights.get_llm_config", new=fake_config), patch(
+            "app.api.insights.chat_completion",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "summary": "LLM 基于规则证据识别华东为主要贡献区域。",
+                        "insights": [
+                            {
+                                "type": "top_driver",
+                                "title": "华东贡献最突出",
+                                "description": "规则统计显示华东 revenue 为 120，应优先解释其来源。",
+                                "severity": "success",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ) as mocked_chat:
+            result = asyncio.run(
+                auto_insights(
+                    AutoInsightsRequest(columns=["region", "revenue"], rows=rows),
+                    current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+                )
+            )
+
+        self.assertEqual(result["summary"], "LLM 基于规则证据识别华东为主要贡献区域。")
+        self.assertEqual(result["insights"][0]["title"], "华东贡献最突出")
+        self.assertTrue(result["metadata"]["llm_enhanced"])
+        self.assertEqual(result["metadata"]["llm_model"], "deepseek-v4-flash")
+        self.assertEqual(mocked_chat.await_args.kwargs["config_override"]["model"], "deepseek-v4-flash")
+
+    def test_anomaly_attribution_uses_llm_for_explanation_but_keeps_numeric_drivers(self):
+        from app.api.insights import AnomalyAttributionRequest, anomaly_attribution
+
+        rows = [
+            {"region": "华东", "revenue": 120},
+            {"region": "华北", "revenue": -30},
+        ]
+
+        async def fake_config():
+            return {
+                "provider": "deepseek",
+                "base_url": "http://llm.example/v1",
+                "api_key": "",
+                "model": "deepseek-v4-flash",
+                "temperature": 0.2,
+            }
+
+        with patch("app.api.insights.get_llm_config", new=fake_config), patch(
+            "app.api.insights.chat_completion",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "summary": "LLM 建议优先核查华东贡献来源，并关注华北负向项。",
+                        "recommendations": ["核对华东明细来源", "为华北负值创建行动项"],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ):
+            result = asyncio.run(
+                anomaly_attribution(
+                    AnomalyAttributionRequest(
+                        columns=["region", "revenue"],
+                        rows=rows,
+                        metric_column="revenue",
+                        dimension_columns=["region"],
+                    ),
+                    current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+                )
+            )
+
+        self.assertEqual(result["summary"], "LLM 建议优先核查华东贡献来源，并关注华北负向项。")
+        self.assertEqual(result["recommendations"], ["核对华东明细来源", "为华北负值创建行动项"])
+        self.assertEqual(result["drivers"][0]["contribution"], 120)
+        self.assertTrue(result["llm_enhanced"])
+
+    def test_anomaly_precheck_detects_candidate_and_uses_system_llm(self):
+        from app.api.insights import AnomalyPrecheckRequest, anomaly_precheck
+
+        rows = [
+            {"day": "2026-05-01", "alarm_count": 10},
+            {"day": "2026-05-02", "alarm_count": 12},
+            {"day": "2026-05-03", "alarm_count": 11},
+            {"day": "2026-05-04", "alarm_count": 80},
+        ]
+
+        async def fake_config():
+            return {
+                "provider": "deepseek",
+                "base_url": "http://llm.example/v1",
+                "api_key": "",
+                "model": "deepseek-v4-flash",
+                "temperature": 0.2,
+            }
+
+        with patch("app.api.insights.get_llm_config", new=fake_config), patch(
+            "app.api.insights.chat_completion",
+            new=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "summary": "检测到 2026-05-04 alarm_count 明显高于前序水平，建议做异常归因。",
+                        "anomalies": [
+                            {
+                                "type": "trend_spike",
+                                "title": "alarm_count 突增",
+                                "description": "2026-05-04 的 alarm_count 为 80，明显高于前序值。",
+                                "severity": "warning",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+            ),
+        ) as mocked_chat:
+            result = asyncio.run(
+                anomaly_precheck(
+                    AnomalyPrecheckRequest(
+                        columns=["day", "alarm_count"],
+                        rows=rows,
+                        question="报警数是否异常",
+                    ),
+                    current_user=SimpleNamespace(id=1, username="analyst", role="user", org_id=1),
+                )
+            )
+
+        self.assertEqual(result["status"], "anomaly")
+        self.assertTrue(result["has_anomaly"])
+        self.assertEqual(result["recommended_action"], "anomaly_attribution")
+        self.assertEqual(result["action_label"], "查看异常归因")
+        self.assertTrue(result["llm_enhanced"])
+        self.assertEqual(result["llm_model"], "deepseek-v4-flash")
+        self.assertEqual(mocked_chat.await_args.kwargs["config_override"]["model"], "deepseek-v4-flash")
 
 
 if __name__ == "__main__":

@@ -1078,16 +1078,16 @@ INSERT INTO data_pipelines
    last_run_status, last_run_at, org_id, owner_id, created_by, created_at, updated_at)
 VALUES
   (1, 'Nexteer 生产明细日同步',
-   '每天凌晨从生产数据源抽取 mainrecord、ngtype、rtyinfo，完成清洗、质量校验后写入生产数据集。',
+   '每天凌晨从生产数据源抽取 mainrecord 班次主数据，完成字段标准化、异常值清洗和质量校验后写入生产明细目标表。',
    1,
-   '{"nodes":[{"id":"extract_mainrecord","type":"extract","label":"抽取 mainrecord"},{"id":"clean_shift","type":"transform","label":"班次字段清洗"},{"id":"quality_oee","type":"quality","label":"OEE/RTY 质量校验"},{"id":"load_dataset","type":"load","label":"写入生产数据集"}],"edges":[{"source":"extract_mainrecord","target":"clean_shift"},{"source":"clean_shift","target":"quality_oee"},{"source":"quality_oee","target":"load_dataset"}]}',
+   '{"nodes":[{"id":"extract_mainrecord","type":"extract","label":"抽取 mainrecord","config":{"dataset_id":1,"mode":"full","incremental_key":"班次开始时间","batch_size":5000}},{"id":"clean_shift","type":"transform","label":"字段标准化与类型清洗","config":{"field_mapping":[{"source":"产线","target":"line"},{"source":"班次","target":"shift_name"},{"source":"班次开始时间","target":"shift_start_time"},{"source":"零件号","target":"part_no"},{"source":"OEE","target":"oee"},{"source":"RTY","target":"rty"},{"source":"总产出","target":"total_count"}],"type_conversions":[{"field":"shift_start_time","type":"datetime"},{"field":"oee","type":"decimal"},{"field":"rty","type":"decimal"},{"field":"total_count","type":"integer"}],"filters":[{"field":"shift_start_time","operator":"not_null"},{"field":"line","operator":"not_null"},{"field":"oee","operator":"not_null"},{"field":"rty","operator":">=","value":0},{"field":"rty","operator":"<=","value":100}]}},{"id":"quality_oee","type":"quality","label":"OEE/RTY 质量校验","config":{"fail_fast":true}},{"id":"load_dataset","type":"load","label":"写入生产明细目标表","config":{"target_table":"etl_nexteer_production_daily","mode":"replace","batch_size":5000}}],"edges":[{"source":"extract_mainrecord","target":"clean_shift"},{"source":"clean_shift","target":"quality_oee"},{"source":"quality_oee","target":"load_dataset"}]}',
    '0 2 * * *', 'scheduled', 'active', 'success', NOW() - INTERVAL '1 day 02:04',
    1, 2, 2, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 day'),
 
   (2, '蓝途销售增量同步',
    '每小时同步蓝途销售订单增量数据，支持失败重试和月底补数。',
-   4,
-   '{"nodes":[{"id":"extract_sales_api","type":"extract","label":"抽取销售 API"},{"id":"dedupe_order","type":"transform","label":"订单去重"},{"id":"load_sales_dataset","type":"load","label":"写入销售数据集"}],"edges":[{"source":"extract_sales_api","target":"dedupe_order"},{"source":"dedupe_order","target":"load_sales_dataset"}]}',
+   3,
+   '{"nodes":[{"id":"extract_sales_orders","type":"extract","label":"抽取 orders 订单增量","config":{"dataset_id":3,"mode":"incremental","incremental_key":"下单日期","batch_size":5000}},{"id":"dedupe_order","type":"transform","label":"订单字段标准化与去重","config":{"field_mapping":[{"source":"订单号","target":"order_id"},{"source":"客户ID","target":"customer_id"},{"source":"客户名称","target":"customer_name"},{"source":"大区","target":"region"},{"source":"城市","target":"city"},{"source":"销售员","target":"salesperson"},{"source":"订单状态","target":"status"},{"source":"付款方式","target":"payment_method"},{"source":"下单日期","target":"order_date"},{"source":"订单金额","target":"total_amount"},{"source":"订单数","target":"order_count"}],"type_conversions":[{"field":"order_date","type":"date"},{"field":"total_amount","type":"decimal"},{"field":"order_count","type":"integer"}],"dedupe":{"keys":["order_id"],"keep":"last"}}},{"id":"quality_sales_orders","type":"quality","label":"订单质量校验","config":{"fail_fast":true}},{"id":"load_sales_dataset","type":"load","label":"写入销售订单增量表","config":{"target_table":"etl_lantu_sales_incremental_orders","mode":"upsert","primary_key":"order_id","upsert_keys":["order_id"],"batch_size":5000}}],"edges":[{"source":"extract_sales_orders","target":"dedupe_order"},{"source":"dedupe_order","target":"quality_sales_orders"},{"source":"quality_sales_orders","target":"load_sales_dataset"}]}',
    '0 * * * *', 'incremental', 'active', 'success', NOW() - INTERVAL '1 hour',
    1, 8, 8, NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour')
 ON CONFLICT (id) DO UPDATE SET
@@ -1107,37 +1107,50 @@ INSERT INTO data_pipeline_runs
    records_failed, error_message, org_id, triggered_by_id, started_at, finished_at)
 VALUES
   (1, 1, 'scheduled', 'success', '每日调度',
-   '{"summary":{"node_count":4,"edge_count":3,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","status":"success","records":4823},{"node_id":"clean_shift","status":"success","records":4823},{"node_id":"quality_oee","status":"success","records":4823},{"node_id":"load_dataset","status":"success","records":4823}]}',
-   4823, 4823, 0, NULL, 1, 2, NOW() - INTERVAL '1 day 02:00', NOW() - INTERVAL '1 day 02:04'),
-  (2, 1, 'backfill', 'success', '补齐五一假期生产记录',
-   '{"summary":{"node_count":4,"edge_count":3,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","status":"success","records":1260},{"node_id":"clean_shift","status":"success","records":1260},{"node_id":"quality_oee","status":"success","records":1260},{"node_id":"load_dataset","status":"success","records":1260}]}',
-   1260, 1260, 0, NULL, 1, 2, NOW() - INTERVAL '3 days 13:00', NOW() - INTERVAL '3 days 13:03'),
-  (3, 2, 'incremental', 'success', '小时级增量同步',
-   '{"summary":{"node_count":3,"edge_count":2,"quality":"passed"},"nodes":[{"node_id":"extract_sales_api","status":"success","records":84},{"node_id":"dedupe_order","status":"success","records":83},{"node_id":"load_sales_dataset","status":"success","records":83}]}',
-   84, 83, 1, NULL, 1, 8, NOW() - INTERVAL '1 hour 5 minutes', NOW() - INTERVAL '1 hour')
+   '{"summary":{"node_count":4,"edge_count":3,"source_row_count":10,"final_node_id":"load_dataset","final_row_count":8,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","type":"extract","status":"success","rows_in":0,"rows_out":10,"records_read":10,"records_written":10},{"node_id":"clean_shift","type":"transform","status":"success","rows_in":10,"rows_out":8,"records_read":10,"records_written":8},{"node_id":"quality_oee","type":"quality","status":"success","rows_in":8,"rows_out":8,"records_read":8,"records_written":8},{"node_id":"load_dataset","type":"load","status":"success","rows_in":8,"rows_out":8,"records_read":8,"records_written":8,"external_target":"etl_nexteer_production_daily","target_store":"managed_sqlite"}]}',
+   10, 8, 0, NULL, 1, 2, NOW() - INTERVAL '1 day 02:00', NOW() - INTERVAL '1 day 02:04'),
+  (2, 1, 'backfill', 'success', '补数窗口无新增生产记录',
+   '{"summary":{"node_count":4,"edge_count":3,"source_row_count":0,"final_node_id":"load_dataset","final_row_count":0,"quality":"passed"},"nodes":[{"node_id":"extract_mainrecord","type":"extract","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0},{"node_id":"clean_shift","type":"transform","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0},{"node_id":"quality_oee","type":"quality","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0},{"node_id":"load_dataset","type":"load","status":"success","rows_in":0,"rows_out":0,"records_read":0,"records_written":0,"external_target":"etl_nexteer_production_daily","target_store":"managed_sqlite"}]}',
+   0, 0, 0, NULL, 1, 2, NOW() - INTERVAL '3 days 13:00', NOW() - INTERVAL '3 days 13:03'),
+  (3, 2, 'incremental', 'success', '小时级订单增量同步',
+   '{"summary":{"node_count":4,"edge_count":3,"source_row_count":1006,"final_node_id":"load_sales_dataset","final_row_count":1006,"quality":"passed"},"nodes":[{"node_id":"extract_sales_orders","type":"extract","status":"success","rows_in":0,"rows_out":1006,"records_read":1006,"records_written":1006},{"node_id":"dedupe_order","type":"transform","status":"success","rows_in":1006,"rows_out":1006,"records_read":1006,"records_written":1006},{"node_id":"quality_sales_orders","type":"quality","status":"success","rows_in":1006,"rows_out":1006,"records_read":1006,"records_written":1006},{"node_id":"load_sales_dataset","type":"load","status":"success","rows_in":1006,"rows_out":1006,"records_read":1006,"records_written":1006,"external_target":"etl_lantu_sales_incremental_orders","target_store":"managed_sqlite"}]}',
+   1006, 1006, 0, NULL, 1, 8, NOW() - INTERVAL '1 hour 5 minutes', NOW() - INTERVAL '1 hour')
 ON CONFLICT (id) DO UPDATE SET
+  mode = EXCLUDED.mode,
   status = EXCLUDED.status,
+  reason = EXCLUDED.reason,
   node_logs_json = EXCLUDED.node_logs_json,
   records_read = EXCLUDED.records_read,
   records_written = EXCLUDED.records_written,
   records_failed = EXCLUDED.records_failed,
+  error_message = EXCLUDED.error_message,
+  started_at = EXCLUDED.started_at,
   finished_at = EXCLUDED.finished_at;
 
 INSERT INTO data_quality_rules
   (id, pipeline_id, dataset_id, name, rule_type, field, operator, threshold, severity,
    is_active, last_status, last_checked_at, org_id, created_by, created_at)
 VALUES
-  (1, 1, 1, 'OEE 不为空', 'not_null', 'OEE', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
-  (2, 1, 1, 'RTY 合理范围', 'range', 'RTY', 'between', '0,100', 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
-  (3, 2, 4, '订单号唯一', 'unique', 'order_id', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days'),
-  (4, 2, 4, '销售数据新鲜度', 'freshness', 'order_date', '<=', '2h', 'warning', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days')
+  (1, 1, 1, 'OEE 不为空', 'not_null', 'oee', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
+  (2, 1, 1, 'RTY 合理范围', 'range', 'rty', 'between', '0,100', 'error', true, 'passed', NOW() - INTERVAL '1 day 02:03', 1, 2, NOW() - INTERVAL '25 days'),
+  (3, 2, 3, '订单号唯一', 'unique', 'order_id', NULL, NULL, 'error', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days'),
+  (4, 2, 3, '销售数据新鲜度', 'freshness', 'order_date', '<=', '2h', 'warning', true, 'passed', NOW() - INTERVAL '1 hour', 1, 8, NOW() - INTERVAL '18 days')
 ON CONFLICT (id) DO UPDATE SET
+  pipeline_id = EXCLUDED.pipeline_id,
+  dataset_id = EXCLUDED.dataset_id,
   name = EXCLUDED.name,
   rule_type = EXCLUDED.rule_type,
   field = EXCLUDED.field,
+  operator = EXCLUDED.operator,
+  threshold = EXCLUDED.threshold,
   severity = EXCLUDED.severity,
+  is_active = EXCLUDED.is_active,
   last_status = EXCLUDED.last_status,
   last_checked_at = EXCLUDED.last_checked_at;
+
+SELECT setval(pg_get_serial_sequence('data_pipelines', 'id'), GREATEST((SELECT MAX(id) FROM data_pipelines), 2), true);
+SELECT setval(pg_get_serial_sequence('data_pipeline_runs', 'id'), GREATEST((SELECT MAX(id) FROM data_pipeline_runs), 3), true);
+SELECT setval(pg_get_serial_sequence('data_quality_rules', 'id'), GREATEST((SELECT MAX(id) FROM data_quality_rules), 4), true);
 
 -- ============================================================
 -- 21. P1 ENTERPRISE CAPABILITIES: SELF-SERVICE ANALYSIS
@@ -1188,6 +1201,92 @@ SET
   org_id = 1,
   owner_id = 2
 WHERE id = 1;
+
+UPDATE metrics
+SET
+  dataset_id = 1,
+  datasource_id = 2,
+  column_name = CASE name
+    WHEN '产出' THEN 'mainrecord.TOTALCOUNT'
+    WHEN 'OEE' THEN 'mainrecord.OEE'
+    ELSE column_name
+  END,
+  formula = CASE name
+    WHEN '产出' THEN 'SUM(mainrecord.TOTALCOUNT)'
+    WHEN 'OEE' THEN 'AVG(mainrecord.OEE)'
+    ELSE formula
+  END,
+  aggregation = CASE name
+    WHEN 'OEE' THEN 'avg'
+    ELSE 'sum'
+  END,
+  dimensions = CASE name
+    WHEN '产出' THEN '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]'::json
+    WHEN 'OEE' THEN '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]'::json
+    ELSE dimensions
+  END,
+  calculation_config = CASE name
+    WHEN '产出' THEN $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json
+    WHEN 'OEE' THEN $${"calculation_mode":"aggregate","metric_field":"mainrecord.OEE","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"mainrecord.OEE","operator":">=","value":0},{"logic":"AND","field":"mainrecord.OEE","operator":"<=","value":100}],"statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据中 OEE 取值在 0-100 的有效记录"],"excluded_subjects":["测试补录记录","OEE 超出 0-100 的异常采集值"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json
+    ELSE calculation_config
+  END,
+  description = CASE name
+    WHEN '产出' THEN 'Nexteer 班次产出总量'
+    WHEN 'OEE' THEN 'Nexteer 产线综合效率'
+    ELSE description
+  END,
+  definition = CASE name
+    WHEN '产出' THEN 'Nexteer mainrecord 班次主数据中 TOTALCOUNT 的合计，反映统计周期内实际产出件数。'
+    WHEN 'OEE' THEN 'Nexteer mainrecord 班次主数据中 OEE 的平均值，按产线、班次和日期可拆解。'
+    ELSE definition
+  END,
+  unit = CASE name
+    WHEN 'OEE' THEN '%'
+    ELSE '件'
+  END,
+  owner_name = COALESCE(owner_name, '生产运营部'),
+  tags = CASE name
+    WHEN 'OEE' THEN '["Nexteer","生产","OEE","认证指标"]'::json
+    ELSE '["Nexteer","生产","产出","认证指标"]'::json
+  END,
+  status = 'published',
+  updated_at = NOW()
+WHERE name IN ('产出','OEE');
+
+UPDATE metrics
+SET
+  dataset_id = 1,
+  datasource_id = 2,
+  description = '已下架：该指标与“产出”口径重复，请使用“产出”并选择产线维度分析。',
+  definition = '已下架：线产出可由“产出”指标按 mainrecord.LINE 维度实时拆解得到，不再作为独立可信指标维护。',
+  column_name = 'mainrecord.TOTALCOUNT',
+  formula = 'SUM(mainrecord.TOTALCOUNT)',
+  aggregation = 'sum',
+  dimensions = '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]'::json,
+  calculation_config = $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","replacement_metric":"产出","deprecation_reason":"该指标与“产出”口径重复；按 mainrecord.LINE 维度拆解即可得到同等业务结果。","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json,
+  owner_name = COALESCE(owner_name, '生产运营部'),
+  unit = '件',
+  tags = '["Nexteer","生产","产出","重复指标","已下架"]'::json,
+  status = 'archived',
+  certification_status = 'deprecated',
+  certified_by = NULL,
+  certified_at = NULL,
+  quality_status = 'unknown',
+  quality_message = '已下架：与“产出”指标口径重复，请使用“产出”并按产线维度预览。',
+  is_active = 0,
+  updated_at = NOW()
+WHERE name = '线产出';
+
+UPDATE data_assets
+SET
+  name = '线产出',
+  description = '已下架：该指标与“产出”口径重复，请使用“产出”并选择产线维度分析。',
+  datasource_id = 2,
+  status = 'archived',
+  tags = '["Nexteer","生产","产出","重复指标","已下架"]'::json,
+  metadata_json = $${"definition":"已下架：线产出可由“产出”指标按 mainrecord.LINE 维度实时拆解得到，不再作为独立可信指标维护。","formula":"SUM(mainrecord.TOTALCOUNT)","replacement_metric":"产出","deprecation_reason":"该指标与“产出”口径重复；按 mainrecord.LINE 维度拆解即可得到同等业务结果。","certification_status":"deprecated","quality_status":"unknown","is_active":0}$$::json,
+  updated_at = NOW()
+WHERE asset_type = 'metric' AND asset_id = 3;
 
 UPDATE datasets
 SET
@@ -1286,6 +1385,353 @@ ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
   visibility = EXCLUDED.visibility,
   updated_at = EXCLUDED.updated_at;
+
+-- ============================================================
+-- 22. TRUSTED METRIC CALCULATION MODEL MOCKS
+--     指标计算模型样例：聚合 / 比率 / 派生 / 窗口
+-- ============================================================
+
+UPDATE datasets
+SET
+  name = '蓝途销售订单数据集',
+  description = '基于蓝途销售 Excel 的 orders 订单主表，提供订单、客户、大区、销售员、金额和订单状态等统一语义字段。',
+  datasource_id = 4,
+  fields_json = $${
+    "table":"orders",
+    "dimensions":[
+      {"name":"orders.order_id","alias":"订单号","type":"string"},
+      {"name":"orders.customer_id","alias":"客户ID","type":"string"},
+      {"name":"orders.customer_name","alias":"客户名称","type":"string"},
+      {"name":"orders.region","alias":"大区","type":"string"},
+      {"name":"orders.city","alias":"城市","type":"string"},
+      {"name":"orders.salesperson","alias":"销售员","type":"string"},
+      {"name":"orders.status","alias":"订单状态","type":"string"},
+      {"name":"orders.payment_method","alias":"付款方式","type":"string"},
+      {"name":"orders.order_date","alias":"下单日期","type":"date"}
+    ],
+    "metrics":[
+      {"name":"orders.total_amount","alias":"订单金额","type":"decimal","aggregation":"sum"},
+      {"name":"orders.order_id","alias":"订单数","type":"string","aggregation":"count_distinct"}
+    ],
+    "joins":[
+      {"right":"customers","type":"LEFT JOIN","on":"orders.customer_id = customers.customer_id"},
+      {"right":"order_items","type":"LEFT JOIN","on":"orders.order_id = order_items.order_id"},
+      {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
+    ]
+  }$$::json,
+  joins_json = $${
+    "joins":[
+      {"right":"customers","type":"LEFT JOIN","on":"orders.customer_id = customers.customer_id"},
+      {"right":"order_items","type":"LEFT JOIN","on":"orders.order_id = order_items.order_id"},
+      {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
+    ]
+  }$$::json,
+  aggregations_json = $${
+    "aggregations":[
+      {"field":"orders.total_amount","aggregation":"sum","alias":"订单金额"},
+      {"field":"orders.order_id","aggregation":"count_distinct","alias":"订单数"}
+    ]
+  }$$::json,
+  semantic_model_json = $${
+    "dimensions":[
+      {"name":"order_id","label":"订单号"},
+      {"name":"customer_name","label":"客户名称"},
+      {"name":"region","label":"大区"},
+      {"name":"city","label":"城市"},
+      {"name":"salesperson","label":"销售员"},
+      {"name":"status","label":"订单状态"},
+      {"name":"payment_method","label":"付款方式"}
+    ],
+    "time_dimensions":[{"name":"order_date","label":"下单日期"}],
+    "metrics":[
+      {"name":"total_amount","label":"订单金额","aggregation":"sum"},
+      {"name":"order_id","label":"订单数","aggregation":"count_distinct"}
+    ],
+    "synonyms":{"销售额":["total_amount","订单金额"],"订单数":["order_id"],"大区":["region"],"销售员":["salesperson"]}
+  }$$::json,
+  status = 'published',
+  visibility = 'org',
+  incremental_key = NULL,
+  incremental_watermark = NULL,
+  materialization_status = NULL,
+  materialization_mode = NULL,
+  materialized_table_name = NULL,
+  materialized_at = NULL,
+  materialization_message = NULL,
+  org_id = 1,
+  owner_id = 8,
+  updated_at = NOW()
+WHERE id = 3;
+
+INSERT INTO datasets
+  (id, name, description, datasource_id, fields_json, aggregations_json, semantic_model_json,
+   status, visibility, last_refresh_status, last_refresh_at, last_refresh_row_count,
+   materialization_status, materialization_mode, org_id, owner_id, created_at, updated_at)
+VALUES
+  (5, '蓝途月度经营 KPI 数据集',
+   '基于 monthly_kpi 月度经营表，沉淀大区月度目标、实际收入、目标达成率、新增客户和 NPS，用于经营复盘与目标追踪。',
+   4,
+   $${
+     "table":"monthly_kpi",
+     "dimensions":[
+       {"name":"monthly_kpi.year_month","alias":"年月","type":"string"},
+       {"name":"monthly_kpi.year","alias":"年份","type":"integer"},
+       {"name":"monthly_kpi.month","alias":"月份","type":"integer"},
+       {"name":"monthly_kpi.region","alias":"大区","type":"string"}
+     ],
+     "metrics":[
+       {"name":"monthly_kpi.actual_revenue","alias":"实际收入","type":"decimal","aggregation":"sum"},
+       {"name":"monthly_kpi.revenue_target","alias":"销售目标","type":"decimal","aggregation":"sum"},
+       {"name":"monthly_kpi.achievement_rate","alias":"目标达成率","type":"decimal","aggregation":"avg"},
+       {"name":"monthly_kpi.new_customers","alias":"新增客户数","type":"integer","aggregation":"sum"},
+       {"name":"monthly_kpi.nps_score","alias":"NPS","type":"decimal","aggregation":"avg"}
+     ]
+   }$$::json,
+   $${
+     "aggregations":[
+       {"field":"monthly_kpi.actual_revenue","aggregation":"sum","alias":"实际收入"},
+       {"field":"monthly_kpi.revenue_target","aggregation":"sum","alias":"销售目标"},
+       {"field":"monthly_kpi.achievement_rate","aggregation":"avg","alias":"目标达成率"},
+       {"field":"monthly_kpi.new_customers","aggregation":"sum","alias":"新增客户数"},
+       {"field":"monthly_kpi.nps_score","aggregation":"avg","alias":"NPS"}
+     ]
+   }$$::json,
+   $${
+     "dimensions":[
+       {"name":"year_month","label":"年月"},
+       {"name":"region","label":"大区"}
+     ],
+     "time_dimensions":[{"name":"year_month","label":"年月"}],
+     "metrics":[
+       {"name":"actual_revenue","label":"实际收入","aggregation":"sum"},
+       {"name":"revenue_target","label":"销售目标","aggregation":"sum"},
+       {"name":"achievement_rate","label":"目标达成率","aggregation":"avg"},
+       {"name":"new_customers","label":"新增客户数","aggregation":"sum"},
+       {"name":"nps_score","label":"NPS","aggregation":"avg"}
+     ],
+     "synonyms":{"达成率":["achievement_rate"],"目标":["revenue_target"],"实际收入":["actual_revenue"],"NPS":["nps_score"]}
+   }$$::json,
+   'published', 'org', 'success', NOW() - INTERVAL '1 hour', 60,
+   'ready', 'view', 1, 8, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  datasource_id = EXCLUDED.datasource_id,
+  fields_json = EXCLUDED.fields_json,
+  aggregations_json = EXCLUDED.aggregations_json,
+  semantic_model_json = EXCLUDED.semantic_model_json,
+  status = EXCLUDED.status,
+  visibility = EXCLUDED.visibility,
+  last_refresh_status = EXCLUDED.last_refresh_status,
+  last_refresh_at = EXCLUDED.last_refresh_at,
+  last_refresh_row_count = EXCLUDED.last_refresh_row_count,
+  materialization_status = EXCLUDED.materialization_status,
+  materialization_mode = EXCLUDED.materialization_mode,
+  org_id = EXCLUDED.org_id,
+  owner_id = EXCLUDED.owner_id,
+  updated_at = EXCLUDED.updated_at;
+
+INSERT INTO metrics
+  (id, dataset_id, datasource_id, name, description, definition, column_name, formula,
+   calculation_config, owner_name, unit, aggregation, tags, status, dimensions,
+   certification_status, certified_by, certified_at, caliber_version, last_value,
+   last_computed_at, data_updated_at, quality_status, quality_message, is_active,
+   created_at, updated_at)
+VALUES
+  (11, 3, 4, '完成订单销售额',
+   '聚合指标样例：统计已完成订单金额，按自然月和大区/销售员/客户可拆解。',
+   '统计范围内订单状态为已完成的订单金额合计；退款、进行中和测试订单不纳入。',
+   'orders.total_amount',
+   'SUM(orders.total_amount)',
+   $${"calculation_mode":"aggregate","metric_field":"orders.total_amount","statistical_window":"自然月","time_field":"orders.order_date","time_grain":"month","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"orders.status","operator":"=","value":"已完成"}],"statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["已完成订单"],"excluded_subjects":["退款订单","进行中订单","测试订单"],"dimensions":["orders.region","orders.salesperson","orders.customer_name"]}}$$::json,
+   '销售运营中心', '元', 'sum', '["销售","经营","聚合指标","认证指标"]', 'published',
+   '["orders.region","orders.salesperson","orders.customer_name","orders.order_date"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '12 days', 'v2026.05.1',
+   656876400, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与蓝途销售月报核对一致，差异低于0.2%。', 1,
+   NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+
+  (12, 3, 4, '完成订单数',
+   '聚合指标样例：统计已完成订单去重数量，是客单价、转化漏斗等派生指标的基础口径。',
+   '统计范围内订单状态为已完成的订单号去重计数。',
+   'orders.order_id',
+   'COUNT(DISTINCT orders.order_id)',
+   $${"calculation_mode":"aggregate","metric_field":"orders.order_id","statistical_window":"自然月","time_field":"orders.order_date","time_grain":"month","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"orders.status","operator":"=","value":"已完成"}],"statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["已完成订单"],"excluded_subjects":["退款订单","进行中订单","重复订单"],"dimensions":["orders.region","orders.salesperson"]}}$$::json,
+   '销售运营中心', '单', 'count_distinct', '["销售","订单","聚合指标","基础指标"]', 'published',
+   '["orders.region","orders.salesperson","orders.order_date"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '12 days', 'v2026.05.1',
+   825, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '订单号唯一性校验通过，去重逻辑与订单主表一致。', 1,
+   NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+
+  (13, 3, 4, '平均成交客单价',
+   '派生指标样例：由完成订单销售额和完成订单数复用计算，避免重复维护公式。',
+   '完成订单销售额 / 完成订单数；仅统计已完成订单，分母为0时返回空值。',
+   'avg_deal_amount',
+   'SUM(orders.total_amount) / NULLIF(COUNT(DISTINCT orders.order_id), 0)',
+   $${"calculation_mode":"derived","derived_left_field":"metric:11","derived_operator":"/","derived_right_field":"metric:12","derived_expression":"(SUM(orders.total_amount)) / NULLIF((COUNT(DISTINCT orders.order_id)), 0)","dependency_metrics":"完成订单销售额, 完成订单数","decimal_precision":2,"output_alias":"avg_deal_amount","statistical_window":"自然月","time_field":"orders.order_date","time_grain":"month","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"orders.status","operator":"=","value":"已完成"}],"statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["已完成订单"],"excluded_subjects":["退款订单","进行中订单","测试订单"],"dimensions":["orders.region","orders.salesperson","orders.customer_name"]}}$$::json,
+   '商业分析组', '元/单', 'custom', '["销售","派生指标","客单价","认证指标"]', 'published',
+   '["orders.region","orders.salesperson","orders.customer_name","orders.order_date"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '10 days', 'v2026.05.1',
+   796213.82, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '依赖指标均已认证，派生结果与经营周报一致。', 1,
+   NOW() - INTERVAL '20 days', NOW() - INTERVAL '1 hour'),
+
+  (14, 5, 4, '销售目标达成率',
+   '比率指标样例：大区月度实际收入除以销售目标，用于经营复盘和预警。',
+   '自然月内实际收入合计 / 销售目标合计；目标为0时返回空值并标记风险。',
+   'achievement_rate',
+   'ROUND(SUM(monthly_kpi.actual_revenue) / NULLIF(SUM(monthly_kpi.revenue_target), 0), 4)',
+   $${"calculation_mode":"ratio","numerator_field":"monthly_kpi.actual_revenue","numerator_aggregation":"sum","numerator_expression":"SUM(monthly_kpi.actual_revenue)","denominator_field":"monthly_kpi.revenue_target","denominator_aggregation":"sum","denominator_expression":"SUM(monthly_kpi.revenue_target)","decimal_precision":4,"statistical_window":"自然月","time_field":"monthly_kpi.year_month","time_grain":"month","refresh_sla":"T+1 09:00 前完成刷新","filters":[{"logic":"AND","field":"monthly_kpi.region","operator":"IN","value":"华东,华南,华北,华西"}],"statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["各大区月度销售目标","各大区月度实际收入"],"excluded_subjects":["未下达目标的大区","手工临时预测值"],"dimensions":["monthly_kpi.region","monthly_kpi.year_month"]}}$$::json,
+   '销售管理部', '%', 'ratio', '["销售","经营目标","比率指标","认证指标"]', 'published',
+   '["monthly_kpi.region","monthly_kpi.year_month"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '9 days', 'v2026.05.1',
+   0.9724, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与销售目标月结表核对一致，目标缺失检查通过。', 1,
+   NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour'),
+
+  (15, 3, 4, '大区累计销售额',
+   '窗口指标样例：按大区和日期计算自然月内累计销售额，支持趋势跟踪和冲刺进度判断。',
+   '对已完成订单按大区分区、下单日期排序，计算自然月内累计订单金额。',
+   'region_running_revenue',
+   'SUM(orders.total_amount) OVER (PARTITION BY orders.region ORDER BY orders.order_date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)',
+   $${"calculation_mode":"window","metric_field":"orders.total_amount","window_function":"sum_over","partition_by":"orders.region","order_by":"orders.order_date","order_direction":"ASC","window_frame":"ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW","output_alias":"region_running_revenue","statistical_window":"自然月","time_field":"orders.order_date","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"orders.status","operator":"=","value":"已完成"}],"statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["已完成订单日明细"],"excluded_subjects":["退款订单","进行中订单"],"dimensions":["orders.region","orders.order_date"]}}$$::json,
+   '经营分析组', '元', 'custom', '["销售","窗口指标","累计","趋势"]', 'published',
+   '["orders.region","orders.order_date"]',
+   'pending_review', 'nexteer_certifier', NULL, 'v2026.05.0',
+   6321480.20, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '窗口分区与排序字段已校验，待经营负责人最终认证。', 1,
+   NOW() - INTERVAL '12 days', NOW() - INTERVAL '1 hour'),
+
+  (16, 1, 2, 'Final单元产出',
+   'Nexteer Final 末工序 OK 产出，用于核对产线最终成品流出。',
+   '通过 production.MAINID 关联 mainrecord.ID，统计 REPS3 Final 产线对应 production.OKCOUNT 的合计；该指标仅表达末工序/Final 单元口径，不替代通用线产出。',
+   'production.OKCOUNT',
+   'SUM((SELECT COALESCE(SUM(p.OKCOUNT), 0) FROM production p JOIN mainrecord mr ON p.MAINID = mr.ID AND mr.ID = mainrecord.ID))',
+   $${"calculation_mode":"aggregate","metric_field":"production.OKCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"mainrecord.LINE","operator":"=","value":"REPS3 Final"}],"statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["REPS3 Final 末工序 production.OKCOUNT"],"excluded_subjects":["其它产线","非 Final 末工序口径"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]}}$$::json,
+   '生产运营部', '件', 'sum', '["Nexteer","生产","Final单元","末工序产出","认证指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '6 days', 'v2026.05.1',
+   690, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与 production.OKCOUNT 末工序产出核对一致。', 1,
+   NOW() - INTERVAL '6 days', NOW() - INTERVAL '1 hour')
+ON CONFLICT (id) DO UPDATE SET
+  dataset_id = EXCLUDED.dataset_id,
+  datasource_id = EXCLUDED.datasource_id,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  definition = EXCLUDED.definition,
+  column_name = EXCLUDED.column_name,
+  formula = EXCLUDED.formula,
+  calculation_config = EXCLUDED.calculation_config,
+  owner_name = EXCLUDED.owner_name,
+  unit = EXCLUDED.unit,
+  aggregation = EXCLUDED.aggregation,
+  tags = EXCLUDED.tags,
+  status = EXCLUDED.status,
+  dimensions = EXCLUDED.dimensions,
+  certification_status = EXCLUDED.certification_status,
+  certified_by = EXCLUDED.certified_by,
+  certified_at = EXCLUDED.certified_at,
+  caliber_version = EXCLUDED.caliber_version,
+  last_value = EXCLUDED.last_value,
+  last_computed_at = EXCLUDED.last_computed_at,
+  data_updated_at = EXCLUDED.data_updated_at,
+  quality_status = EXCLUDED.quality_status,
+  quality_message = EXCLUDED.quality_message,
+  is_active = EXCLUDED.is_active,
+  updated_at = EXCLUDED.updated_at;
+
+INSERT INTO data_assets
+  (id, asset_type, asset_id, name, description, datasource_id, org_id, owner_id,
+   category_id, status, tags, metadata_json, view_count, created_at, updated_at)
+VALUES
+  (24, 'dataset', 3, '蓝途销售订单数据集',
+   '订单主表语义数据集，承载销售额、订单数、客单价和窗口累计指标。',
+   4, 1, 8, 5, 'published', '["销售","订单","语义数据集"]',
+   $${"table_name":"orders","row_count":1006,"update_frequency":"hourly","statistical_scope":"2024-01 至 2025-03 全量订单"}$$::json,
+   177, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+  (25, 'dataset', 5, '蓝途月度经营 KPI 数据集',
+   '月度经营 KPI 语义数据集，承载目标、实际、达成率、NPS 和新增客户。',
+   4, 1, 8, 5, 'published', '["销售","经营目标","KPI"]',
+   $${"table_name":"monthly_kpi","row_count":60,"update_frequency":"daily","statistical_scope":"自然月 × 大区"}$$::json,
+   91, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+  (26, 'metric', 11, '完成订单销售额',
+   '聚合指标：已完成订单金额合计。',
+   4, 1, 8, 5, 'published', '["销售","聚合指标","认证指标"]',
+   $${"formula":"SUM(orders.total_amount)","calculation_mode":"aggregate","unit":"元","caliber_version":"v2026.05.1","statistical_scope":{"window":"自然月","time_field":"orders.order_date","filters":["orders.status = 已完成"]}}$$::json,
+   138, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+  (27, 'metric', 12, '完成订单数',
+   '聚合指标：已完成订单号去重计数。',
+   4, 1, 8, 5, 'published', '["销售","订单","基础指标"]',
+   $${"formula":"COUNT(DISTINCT orders.order_id)","calculation_mode":"aggregate","unit":"单","caliber_version":"v2026.05.1","statistical_scope":{"window":"自然月","time_field":"orders.order_date","filters":["orders.status = 已完成"]}}$$::json,
+   122, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+  (28, 'metric', 13, '平均成交客单价',
+   '派生指标：完成订单销售额 / 完成订单数。',
+   4, 1, 8, 5, 'published', '["销售","派生指标","客单价"]',
+   $${"formula":"metric:11 / metric:12","calculation_mode":"derived","dependency_metrics":["完成订单销售额","完成订单数"],"unit":"元/单","caliber_version":"v2026.05.1"}$$::json,
+   104, NOW() - INTERVAL '20 days', NOW() - INTERVAL '1 hour'),
+  (29, 'metric', 14, '销售目标达成率',
+   '比率指标：实际收入 / 销售目标。',
+   4, 1, 8, 5, 'published', '["销售","比率指标","经营目标"]',
+   $${"formula":"SUM(actual_revenue) / SUM(revenue_target)","calculation_mode":"ratio","unit":"%","caliber_version":"v2026.05.1","statistical_scope":{"window":"自然月","time_field":"monthly_kpi.year_month"}}$$::json,
+   86, NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour'),
+  (30, 'metric', 15, '大区累计销售额',
+   '窗口指标：按大区和日期计算累计销售额。',
+   4, 1, 8, 5, 'published', '["销售","窗口指标","累计"]',
+   $${"formula":"SUM(total_amount) OVER (PARTITION BY region ORDER BY order_date)","calculation_mode":"window","unit":"元","caliber_version":"v2026.05.0","statistical_scope":{"window":"自然月","time_field":"orders.order_date"}}$$::json,
+   73, NOW() - INTERVAL '12 days', NOW() - INTERVAL '1 hour'),
+  (33, 'metric', 16, 'Final单元产出',
+   '末工序指标：REPS3 Final 对应 production.OKCOUNT 合计。',
+   2, 1, 2, 6, 'published', '["Nexteer","Final单元","末工序产出","认证指标"]',
+   $${"formula":"SUM((SELECT COALESCE(SUM(p.OKCOUNT), 0) FROM production p JOIN mainrecord mr ON p.MAINID = mr.ID AND mr.ID = mainrecord.ID))","calculation_mode":"aggregate","unit":"件","caliber_version":"v2026.05.1","statistical_scope":{"window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","filters":["mainrecord.LINE = REPS3 Final"],"included_subjects":["REPS3 Final 末工序 production.OKCOUNT"]}}$$::json,
+   68, NOW() - INTERVAL '6 days', NOW() - INTERVAL '1 hour'),
+  (31, 'table', NULL, 'orders 订单主表',
+   '蓝途订单主表，包含订单金额、客户、大区、销售员、状态和下单日期。',
+   4, 1, 8, 5, 'published', '["原始数据","订单","orders"]',
+   $${"table_name":"orders","columns":["order_id","customer_id","customer_name","order_date","region","city","salesperson","total_amount","status","payment_method"]}$$::json,
+   201, NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour'),
+  (32, 'table', NULL, 'monthly_kpi 月度经营表',
+   '蓝途月度目标与经营 KPI 表，按大区和月份记录目标、实际、达成率、新增客户和 NPS。',
+   4, 1, 8, 5, 'published', '["原始数据","KPI","monthly_kpi"]',
+   $${"table_name":"monthly_kpi","columns":["year_month","region","revenue_target","actual_revenue","achievement_rate","new_customers","nps_score"]}$$::json,
+   118, NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour')
+ON CONFLICT (id) DO UPDATE SET
+  asset_type = EXCLUDED.asset_type,
+  asset_id = EXCLUDED.asset_id,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  datasource_id = EXCLUDED.datasource_id,
+  org_id = EXCLUDED.org_id,
+  owner_id = EXCLUDED.owner_id,
+  category_id = EXCLUDED.category_id,
+  status = EXCLUDED.status,
+  tags = EXCLUDED.tags,
+  metadata_json = EXCLUDED.metadata_json,
+  view_count = EXCLUDED.view_count,
+  updated_at = EXCLUDED.updated_at;
+
+INSERT INTO asset_lineage
+  (id, source_id, target_id, rel_type, org_id, created_at)
+VALUES
+  (5, 31, 24, 'derives_from', 1, NOW() - INTERVAL '21 days'),
+  (6, 24, 26, 'derives_from', 1, NOW() - INTERVAL '21 days'),
+  (7, 24, 27, 'derives_from', 1, NOW() - INTERVAL '21 days'),
+  (8, 26, 28, 'depends_on', 1, NOW() - INTERVAL '20 days'),
+  (9, 27, 28, 'depends_on', 1, NOW() - INTERVAL '20 days'),
+  (10, 32, 25, 'derives_from', 1, NOW() - INTERVAL '18 days'),
+  (11, 25, 29, 'derives_from', 1, NOW() - INTERVAL '18 days'),
+  (12, 24, 30, 'derives_from', 1, NOW() - INTERVAL '12 days')
+ON CONFLICT (id) DO UPDATE SET
+  source_id = EXCLUDED.source_id,
+  target_id = EXCLUDED.target_id,
+  rel_type = EXCLUDED.rel_type,
+  org_id = EXCLUDED.org_id;
+
+SELECT setval(pg_get_serial_sequence('datasets', 'id'), GREATEST((SELECT MAX(id) FROM datasets), 5), true);
+SELECT setval(pg_get_serial_sequence('metrics', 'id'), GREATEST((SELECT MAX(id) FROM metrics), 16), true);
+SELECT setval(pg_get_serial_sequence('data_assets', 'id'), GREATEST((SELECT MAX(id) FROM data_assets), 33), true);
+SELECT setval(pg_get_serial_sequence('asset_lineage', 'id'), GREATEST((SELECT MAX(id) FROM asset_lineage), 12), true);
 
 COMMIT;
 -- END

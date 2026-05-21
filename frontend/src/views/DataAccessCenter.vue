@@ -180,8 +180,8 @@ const overview = reactive<Overview>({
 const capabilities = [
   {
     title: "连接器接入",
-    description: "覆盖多源异构接入，统一管理数据库、Excel 和后续 API / SaaS 连接器。",
-    path: "/data-development?tab=datasources",
+    description: "多源异构接入入口，统一管理 ERP、WMS、CRM、SaaS API 等外部业务系统同步。",
+    path: "/data-link",
     icon: Coin,
   },
   {
@@ -198,7 +198,7 @@ const capabilities = [
   },
   {
     title: "任务运维",
-    description: "查看数据加工管道、失败原因和接入链路运行状态。",
+    description: "查看可视化ETL、失败原因和接入链路运行状态。",
     path: "/data-pipelines",
     icon: Monitor,
   },

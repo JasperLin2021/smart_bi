@@ -13,6 +13,7 @@ class Metric(Base):
     definition = Column(Text, nullable=False)
     column_name = Column(String(64), nullable=True)
     formula = Column(Text, nullable=True)
+    calculation_config = Column(JSON, nullable=True)
     owner_name = Column(String(128), nullable=True)
     unit = Column(String(32), nullable=True)
     aggregation = Column(String(32), default="sum", nullable=False)

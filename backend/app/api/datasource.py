@@ -28,6 +28,7 @@ from app.core.excel_executor import (
 from app.core.excel_uploads import build_excel_storage_path, is_allowed_excel_filename
 from app.core.schema_detector import detect_schema, schema_to_prompt
 from app.core.drill_config import generate_drill_config
+from app.core.recommend_questions import generate_recommend_questions
 from app.core.schema_enrichment import generate_column_descriptions
 from app.core.audit import try_record_audit_log
 from app.core.safe_delete import assert_datasource_can_delete
@@ -105,13 +106,22 @@ def create_datasource(
     if existing:
         raise HTTPException(status_code=400, detail="数据源名称或标识已存在")
 
-    # Auto-generate metadata for Excel sources if not provided
-    metadata_prompt = payload.metadata_prompt
-    if payload.source_type == "excel" and not metadata_prompt:
+    source_type = payload.source_type or "database"
+    metadata_prompt = payload.metadata_prompt or ""
+    schema_metadata = payload.schema_metadata
+    if schema_metadata is None:
         try:
-            metadata_prompt = generate_excel_metadata(payload.database_url)
+            schema_metadata = detect_schema(payload.database_url, source_type)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"无法读取Excel文件: {e}")
+            raise HTTPException(status_code=400, detail=f"自动检测表结构失败: {e}")
+    if not metadata_prompt:
+        if source_type == "excel":
+            try:
+                metadata_prompt = generate_excel_metadata(payload.database_url)
+            except Exception:
+                metadata_prompt = schema_to_prompt(schema_metadata)
+        else:
+            metadata_prompt = schema_to_prompt(schema_metadata)
 
     # Determine org_id
     org_id = None
@@ -124,10 +134,10 @@ def create_datasource(
         name=payload.name,
         slug=payload.slug,
         database_url=payload.database_url,
-        source_type=payload.source_type or "database",
+        source_type=source_type,
         metadata_prompt=metadata_prompt,
-        schema_metadata=json.dumps(payload.schema_metadata.model_dump(), ensure_ascii=False)
-        if payload.schema_metadata
+        schema_metadata=json.dumps(schema_metadata.model_dump(), ensure_ascii=False)
+        if schema_metadata
         else None,
         drill_config=json.dumps(payload.drill_config.model_dump(), ensure_ascii=False)
         if payload.drill_config
@@ -151,7 +161,12 @@ def create_datasource(
         resource_name=ds.name,
         org_id=ds.org_id,
         message="数据源已创建",
-        detail={"slug": ds.slug, "source_type": ds.source_type},
+        detail={
+            "slug": ds.slug,
+            "source_type": ds.source_type,
+            "schema_detected": schema_metadata is not None,
+            "table_count": len(schema_metadata.tables) if schema_metadata else 0,
+        },
     )
     return _to_out(ds)
 
@@ -525,6 +540,61 @@ async def generate_column_descriptions_for_table(
     return {"table": enriched_table.model_dump(), "filled_count": filled_count}
 
 
+@router.post("/{datasource_id}/generate-recommend-questions")
+async def generate_recommend_questions_for_datasource(
+    datasource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+
+    schema = None
+    if ds.schema_metadata:
+        try:
+            schema = SchemaMetadata.model_validate(json.loads(ds.schema_metadata))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"现有表结构无效: {exc}")
+
+    try:
+        questions = await generate_recommend_questions(
+            datasource_name=ds.name,
+            source_type=ds.source_type or "database",
+            metadata_prompt=ds.metadata_prompt or "",
+            metrics_prompt=ds.metrics_prompt,
+            schema=schema,
+        )
+    except Exception as exc:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.generate_recommend_questions",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="error",
+            message=f"生成推荐问题失败: {exc}",
+        )
+        raise HTTPException(status_code=502, detail=f"生成推荐问题失败: {exc}")
+
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.generate_recommend_questions",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        message="推荐问题已生成",
+        detail={"question_count": len(questions), "has_schema": schema is not None},
+    )
+    return {"recommend_questions": questions}
+
+
 @router.get("/{datasource_id}/schema-simple")
 def get_schema_simple(
     datasource_id: int,
@@ -598,9 +668,9 @@ def generate_drill_config_from_schema(
         org_id=ds.org_id,
         message="候选钻取规则已生成",
         detail={
-            "dimensions": len(config.dimensions),
-            "metrics": len(config.metrics),
-            "paths": len(config.paths),
+            "dimensions": len(config.get("dimensions", [])),
+            "metrics": len(config.get("metrics", [])),
+            "paths": len(config.get("paths", [])),
         },
     )
     return config

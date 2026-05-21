@@ -21,7 +21,10 @@ def get_db():
 def get_datasource_engine(database_url: str):
     """Get or create a SQLAlchemy engine for a business datasource."""
     if database_url not in _datasource_engines:
-        _datasource_engines[database_url] = create_engine(
-            database_url, pool_pre_ping=True, pool_size=5, max_overflow=10
-        )
+        if database_url.startswith("sqlite"):
+            _datasource_engines[database_url] = create_engine(database_url, pool_pre_ping=True)
+        else:
+            _datasource_engines[database_url] = create_engine(
+                database_url, pool_pre_ping=True, pool_size=5, max_overflow=10
+            )
     return _datasource_engines[database_url]

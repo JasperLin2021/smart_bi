@@ -122,6 +122,28 @@ class OlapFoundationTests(unittest.TestCase):
         self.assertEqual(payload.incremental_watermark, "2026-05-02 00:00:00")
         self.assertEqual(payload.materialization_message, "2 rows written")
 
+    def test_dataset_schema_accepts_list_join_config(self):
+        from app.models.organization import Organization  # noqa: F401
+        from app.models.dataset import Dataset
+        from app.schemas.dataset import DatasetOut
+
+        dataset = Dataset(
+            id=8,
+            name="Sales Join Dataset",
+            datasource_id=3,
+            joins_json=[
+                {"right": "customers", "type": "LEFT JOIN", "on": "orders.customer_id = customers.customer_id"},
+                {"right": "order_items", "type": "LEFT JOIN", "on": "orders.order_id = order_items.order_id"},
+            ],
+            status="published",
+            visibility="org",
+            last_refresh_row_count=0,
+        )
+
+        payload = DatasetOut.model_validate(dataset)
+
+        self.assertEqual(payload.joins_json["joins"][0]["right"], "customers")
+
     def test_materialize_dataset_updates_state_and_logs_refresh(self):
         from app.api.datasets import materialize_dataset
         from app.core.olap import OlapWriteResult

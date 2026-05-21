@@ -1,17 +1,17 @@
 <template>
   <div class="ac-page">
     <!-- ── Top Tab Bar ─────────────────────────────────────────────── -->
-    <div class="ac-tabbar">
+    <div class="page-tabbar ac-tabbar">
       <button
         v-for="t in visibleTabs"
         :key="t.key"
-        class="ac-tab"
-        :class="{ active: activeTab === t.key }"
+        class="page-tab ac-tab"
+        :class="{ active: activeTab === t.key, 'is-active': activeTab === t.key }"
         @click="activeTab = t.key"
       >
         <el-icon><component :is="t.icon" /></el-icon>
         {{ t.label }}
-        <span v-if="t.badge" class="tab-badge">{{ t.badge }}</span>
+        <span v-if="t.badge" class="page-tab-badge tab-badge">{{ t.badge }}</span>
       </button>
     </div>
 
@@ -22,7 +22,10 @@
       <div class="roles-layout">
         <!-- Left: role cards -->
         <div class="roles-sidebar">
-          <div class="sidebar-label">系统角色</div>
+          <div class="roles-sidebar-head">
+            <div class="sidebar-label">角色库</div>
+            <el-button v-if="canManageRoles" size="small" type="primary" :icon="Plus" @click="openRoleCreate">新建角色</el-button>
+          </div>
           <div
             v-for="role in roles"
             :key="role.code"
@@ -34,7 +37,7 @@
             <div class="role-card-body">
               <div class="role-card-name">{{ role.name }}</div>
               <div class="role-card-meta">
-                {{ userCountByRole(role.code) }} 人
+                {{ role.is_builtin ? '内置角色' : (role.org_name || '自定义角色') }} · {{ userCountByRole(role.code) }} 人
               </div>
             </div>
             <el-icon v-if="selectedRole?.code === role.code" class="role-check"><Check /></el-icon>
@@ -47,9 +50,33 @@
             <div class="perm-detail-title">
               <span class="role-pill" :class="`role-pill--${selectedRole.code}`">{{ selectedRole.name }}</span>
               <span>权限详情</span>
+              <el-tag size="small" effect="plain" :type="selectedRole.is_builtin ? 'info' : 'success'">
+                {{ selectedRole.is_builtin ? '内置角色' : '自定义角色' }}
+              </el-tag>
             </div>
-            <el-text type="info" size="small">内置角色权限为系统默认，可在用户详情中为个别用户定制。</el-text>
+            <div class="perm-detail-actions">
+              <el-button
+                v-if="isRoleEditable(selectedRole)"
+                size="small"
+                :icon="Edit"
+                @click="openRoleEdit(selectedRole)"
+              >
+                编辑角色
+              </el-button>
+              <el-button
+                v-if="isRoleEditable(selectedRole)"
+                size="small"
+                type="danger"
+                :icon="Delete"
+                @click="deleteRole(selectedRole)"
+              >
+                删除角色
+              </el-button>
+            </div>
           </div>
+          <el-text type="info" size="small" style="margin-bottom:12px;display:block">
+            内置角色只读；企业自定义角色可控制菜单、操作权限和数据范围。
+          </el-text>
 
           <el-tabs v-model="permTab" class="perm-tabs">
             <el-tab-pane label="菜单权限" name="menu">
@@ -116,7 +143,7 @@
         </div>
         <div class="toolbar-right">
           <el-button :icon="Refresh" @click="fetchOrgTree">刷新</el-button>
-          <el-button v-if="isSuperAdmin" type="primary" :icon="Plus" @click="openOrgCreate">新增企业</el-button>
+          <el-button v-if="canManageOrganizations" type="primary" :icon="Plus" @click="openOrgCreate">新增企业</el-button>
         </div>
       </div>
 
@@ -128,7 +155,7 @@
               <div class="enterprise-panel-sub">{{ organizationCount }} 个企业 · {{ deptCount }} 个部门</div>
             </div>
             <el-button
-              v-if="selectedOrgNode"
+              v-if="selectedOrgNode && canManageDepartments"
               size="small"
               type="primary"
               :icon="Plus"
@@ -177,6 +204,7 @@
               </div>
               <div class="enterprise-actions">
                 <el-button
+                  v-if="canManageUsers"
                   size="small"
                   type="primary"
                   :icon="Plus"
@@ -185,13 +213,14 @@
                   新增成员
                 </el-button>
                 <el-button
+                  v-if="canManageDepartments"
                   size="small"
                   :icon="Plus"
                   @click="openDepartmentCreate(selectedOrgNode)"
                 >
                   新建下级部门
                 </el-button>
-                <template v-if="selectedOrgNode.type === 'department'">
+                <template v-if="selectedOrgNode.type === 'department' && canManageDepartments">
                   <el-button size="small" :icon="Edit" @click="openDepartmentEdit(selectedOrgNode)">
                     重命名部门
                   </el-button>
@@ -199,7 +228,7 @@
                     删除部门
                   </el-button>
                 </template>
-                <template v-else-if="isSuperAdmin">
+                <template v-else-if="canManageOrganizations">
                   <el-button size="small" :icon="Edit" @click="openOrgEdit(nodeToOrg(selectedOrgNode))">编辑企业</el-button>
                   <el-button size="small" type="danger" :icon="Delete" @click="deleteOrg(selectedOrgNode.id)">删除企业</el-button>
                 </template>
@@ -264,8 +293,8 @@
                 </el-table-column>
                 <el-table-column label="操作" width="142" fixed="right">
                   <template #default="{ row }">
-                    <el-button size="small" text type="primary" :icon="Edit" @click.stop="openDrawer(row)">编辑</el-button>
-                    <el-button size="small" text type="danger" :icon="Delete" @click.stop="deleteUser(row.id)">删除</el-button>
+                    <el-button v-if="canManageUsers" size="small" text type="primary" :icon="Edit" @click.stop="openDrawer(row)">编辑</el-button>
+                    <el-button v-if="canManageUsers" size="small" text type="danger" :icon="Delete" @click.stop="deleteUser(row.id)">删除</el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -368,7 +397,7 @@
         </el-tab-pane>
 
         <!-- Permission override tab (only when editing) -->
-        <el-tab-pane v-if="drawerUser" label="权限配置" name="perms">
+        <el-tab-pane v-if="drawerUser && canManageUserPermissions" label="权限配置" name="perms">
           <div class="perm-override-header">
             <el-switch
               v-model="overrideEnabled"
@@ -491,6 +520,76 @@
         <el-button type="primary" :loading="savingDepartment" @click="saveDepartment">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!--  ROLE DIALOG                                                  -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <el-dialog
+      v-model="roleDialogVisible"
+      :title="roleIsEdit ? '编辑角色' : '新建角色'"
+      width="820px"
+      destroy-on-close
+      class="role-dialog"
+    >
+      <el-form :model="roleForm" label-width="92px" class="role-form">
+        <div class="role-form-grid">
+          <el-form-item label="角色编码" required>
+            <el-input v-model="roleForm.code" :disabled="roleIsEdit" placeholder="sales_analyst" />
+          </el-form-item>
+          <el-form-item label="角色名称" required>
+            <el-input v-model="roleForm.name" placeholder="销售分析师" />
+          </el-form-item>
+          <el-form-item v-if="isSuperAdmin" label="所属企业">
+            <el-select v-model="roleForm.org_id" clearable placeholder="全局角色" style="width:100%">
+              <el-option v-for="org in organizations" :key="org.id" :label="org.name" :value="org.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="数据范围">
+            <el-select v-model="roleForm.data_scope" style="width:100%">
+              <el-option label="仅本人" value="owner" />
+              <el-option label="本企业" value="org" />
+              <el-option v-if="isSuperAdmin" label="全局" value="all" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <el-form-item label="说明">
+          <el-input v-model="roleForm.description" type="textarea" :rows="2" placeholder="描述该角色适用的岗位或授权边界" />
+        </el-form-item>
+
+        <el-tabs v-model="roleFormTab" class="role-perm-tabs">
+          <el-tab-pane label="菜单权限" name="menu">
+            <div class="override-grid">
+              <div v-for="group in menuGroups" :key="group.group" class="perm-group">
+                <div class="perm-group-label">{{ group.group }}</div>
+                <div class="perm-items">
+                  <label v-for="perm in group.permissions" :key="perm.code" class="perm-item override">
+                    <el-checkbox v-model="roleForm.menu_permissions[perm.code]" />
+                    <span class="perm-name">{{ perm.name }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="操作权限" name="action">
+            <div class="override-grid">
+              <div v-for="group in actionGroups" :key="group.group" class="perm-group">
+                <div class="perm-group-label">{{ group.group }}</div>
+                <div class="perm-items">
+                  <label v-for="perm in group.permissions" :key="perm.code" class="perm-item override">
+                    <el-checkbox v-model="roleForm.action_permissions[perm.code]" />
+                    <span class="perm-name">{{ perm.name }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </el-form>
+      <template #footer>
+        <el-button @click="roleDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingRole" @click="saveRole">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -557,17 +656,34 @@ interface DepartmentOption extends DepartmentItem {
 interface PermItem { code: string; name: string }
 interface PermGroup { type: string; group: string; permissions: PermItem[] }
 interface RoleTemplate {
+  id: number
   code: string
   name: string
+  description?: string | null
+  org_id?: number | null
+  org_name?: string | null
   is_builtin: boolean
-  template: { menu_permissions: Record<string, boolean>; action_permissions: Record<string, boolean> }
+  data_scope?: string | null
+  template: {
+    data_scope?: string
+    menu_permissions: Record<string, boolean>
+    action_permissions: Record<string, boolean>
+  }
+  menu_permissions?: Record<string, boolean>
+  action_permissions?: Record<string, boolean>
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
 const authStore = useAuthStore()
+const currentRole = computed(() => authStore.profile?.role || "")
 const isSuperAdmin = computed(() => authStore.profile?.role === "super_admin")
-const canManageEnterprise = computed(() => ["super_admin", "org_admin"].includes(authStore.profile?.role || ""))
+const canManageEnterprise = computed(() => ["super_admin", "org_admin", "dept_admin"].includes(currentRole.value))
+const canManageOrganizations = computed(() => currentRole.value === "super_admin")
+const canManageDepartments = computed(() => ["super_admin", "org_admin"].includes(currentRole.value))
+const canManageRoles = computed(() => ["super_admin", "org_admin"].includes(currentRole.value))
+const canManageUsers = computed(() => ["super_admin", "org_admin", "dept_admin"].includes(currentRole.value))
+const canManageUserPermissions = computed(() => ["super_admin", "org_admin"].includes(currentRole.value))
 
 const activeTab = ref<"orgs" | "roles">("orgs")
 
@@ -576,6 +692,7 @@ const users = ref<UserItem[]>([])
 
 // Roles
 const roles = ref<RoleTemplate[]>([])
+const assignableRoles = ref<RoleTemplate[]>([])
 const catalog = ref<PermGroup[]>([])
 const selectedRole = ref<RoleTemplate | null>(null)
 const permTab = ref("menu")
@@ -630,6 +747,22 @@ const departmentForm = reactive({
 })
 const savingDepartment = ref(false)
 
+// Role dialog
+const roleDialogVisible = ref(false)
+const roleIsEdit = ref(false)
+const roleEditId = ref<number | null>(null)
+const roleFormTab = ref("menu")
+const savingRole = ref(false)
+const roleForm = reactive({
+  code: "",
+  name: "",
+  description: "",
+  org_id: null as number | null,
+  data_scope: "owner",
+  menu_permissions: {} as Record<string, boolean>,
+  action_permissions: {} as Record<string, boolean>,
+})
+
 // ── Computed ───────────────────────────────────────────────────────────────────
 
 const visibleTabs = computed(() => {
@@ -637,7 +770,9 @@ const visibleTabs = computed(() => {
   if (canManageEnterprise.value) {
     tabs.push({ key: "orgs", label: "企业管理", icon: OfficeBuilding, badge: organizationCount.value })
   }
-  tabs.push({ key: "roles", label: "角色与权限", icon: Setting })
+  if (canManageRoles.value) {
+    tabs.push({ key: "roles", label: "角色与权限", icon: Setting })
+  }
   return tabs
 })
 
@@ -697,15 +832,12 @@ const departmentDialogParentName = computed(() => {
 })
 
 const availableRoles = computed(() => {
-  const all = [
-    { code: "user", name: "普通用户", desc: "可查询数据、浏览 BI 资产" },
-    { code: "dept_admin", name: "部门管理员", desc: "可管理本部门行动项和 BI 资产" },
-    { code: "org_admin", name: "企业管理员", desc: "可管理本企业用户、数据源和全部 BI 资产" },
-  ]
-  if (isSuperAdmin.value) {
-    all.push({ code: "super_admin", name: "超级管理员", desc: "拥有所有权限，跨企业管理" })
-  }
-  return all
+  const source = assignableRoles.value.length ? assignableRoles.value : roles.value
+  return source.map(role => ({
+    code: role.code,
+    name: role.name,
+    desc: role.description || roleDefaultDesc(role.code),
+  }))
 })
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -716,6 +848,16 @@ const roleLabel = (role: string) => {
     org_admin: "企业管理员", super_admin: "超级管理员",
   }
   return map[role] || role
+}
+
+const roleDefaultDesc = (role: string) => {
+  const map: Record<string, string> = {
+    user: "可查询数据、浏览 BI 资产",
+    dept_admin: "可管理本部门成员和部门内数据工作",
+    org_admin: "可管理本企业用户、角色、部门和 BI 资产",
+    super_admin: "拥有所有权限，跨企业管理",
+  }
+  return map[role] || "企业自定义岗位权限"
 }
 
 const roleTagType = (role: string): "info" | "success" | "warning" | "danger" | "primary" => {
@@ -741,6 +883,21 @@ const userCountByOrg = (orgId: number) => users.value.filter(u => u.org_id === o
 const isEnabled = (role: RoleTemplate, code: string, type: "menu" | "action") => {
   const key = type === "menu" ? "menu_permissions" : "action_permissions"
   return Boolean(role.template[key]?.[code])
+}
+
+const isRoleEditable = (role: RoleTemplate | null) => {
+  return Boolean(role && canManageRoles.value && !role.is_builtin)
+}
+
+const seedPermissionMap = (type: "menu" | "action", source: Record<string, boolean> = {}) => {
+  const groups = type === "menu" ? menuGroups.value : actionGroups.value
+  const map: Record<string, boolean> = {}
+  groups.forEach(group => {
+    group.permissions.forEach(perm => {
+      map[perm.code] = Boolean(source[perm.code])
+    })
+  })
+  return map
 }
 
 const formatDate = (s: string) => {
@@ -874,12 +1031,37 @@ const fetchDepartmentsForOrg = async (orgId: number) => {
   departmentCache.value = { ...departmentCache.value, [orgId]: data }
 }
 
+const fetchRoles = async () => {
+  if (!canManageRoles.value) return
+  const { data } = await axios.get("/api/roles")
+  roles.value = data
+  if (selectedRole.value) {
+    selectedRole.value = roles.value.find(role => role.code === selectedRole.value?.code && role.org_id === selectedRole.value?.org_id) || roles.value[0] || null
+  } else {
+    selectedRole.value = roles.value[0] || null
+  }
+}
+
+const fetchAssignableRoles = async () => {
+  try {
+    const { data } = await axios.get("/api/roles/assignable")
+    assignableRoles.value = data
+  } catch {
+    assignableRoles.value = roles.value.filter(role => role.code === "user")
+  }
+}
+
 const fetchCatalog = async () => {
   try {
     const { data } = await axios.get("/api/users/permissions/catalog")
     catalog.value = data.catalog
-    roles.value = data.roles
-    if (roles.value.length) selectedRole.value = roles.value[0]
+    if (canManageRoles.value) {
+      await fetchRoles()
+    } else {
+      roles.value = data.roles
+      selectedRole.value = roles.value[0] || null
+    }
+    await fetchAssignableRoles()
   } catch {
     ElMessage.error("权限目录加载失败")
   }
@@ -892,6 +1074,7 @@ const fetchAll = async () => {
 // ── User drawer ────────────────────────────────────────────────────────────────
 
 const openCreateForOrgNode = (node: OrgTreeNode | null = selectedOrgNode.value) => {
+  if (!canManageUsers.value) return
   drawerUser.value = null
   drawerTab.value = "info"
   drawerForm.username = ""
@@ -1025,6 +1208,81 @@ const resetOverride = async () => {
   if (drawerUser.value) await openDrawer(drawerUser.value)
 }
 
+// ── Role CRUD ────────────────────────────────────────────────────────────────
+
+const openRoleCreate = () => {
+  roleIsEdit.value = false
+  roleEditId.value = null
+  roleForm.code = ""
+  roleForm.name = ""
+  roleForm.description = ""
+  roleForm.org_id = isSuperAdmin.value ? null : (authStore.profile?.org_id || null)
+  roleForm.data_scope = "owner"
+  roleForm.menu_permissions = seedPermissionMap("menu")
+  roleForm.action_permissions = seedPermissionMap("action")
+  roleFormTab.value = "menu"
+  roleDialogVisible.value = true
+}
+
+const openRoleEdit = (role: RoleTemplate) => {
+  if (!isRoleEditable(role)) return
+  roleIsEdit.value = true
+  roleEditId.value = role.id
+  roleForm.code = role.code
+  roleForm.name = role.name
+  roleForm.description = role.description || ""
+  roleForm.org_id = role.org_id || null
+  roleForm.data_scope = role.data_scope || role.template.data_scope || "owner"
+  roleForm.menu_permissions = seedPermissionMap("menu", role.template.menu_permissions)
+  roleForm.action_permissions = seedPermissionMap("action", role.template.action_permissions)
+  roleFormTab.value = "menu"
+  roleDialogVisible.value = true
+}
+
+const saveRole = async () => {
+  if (!roleForm.code.trim() || !roleForm.name.trim()) {
+    ElMessage.warning("请填写角色编码和名称")
+    return
+  }
+  savingRole.value = true
+  try {
+    const payload = {
+      code: roleForm.code.trim(),
+      name: roleForm.name.trim(),
+      description: roleForm.description.trim() || null,
+      org_id: roleForm.org_id,
+      data_scope: roleForm.data_scope,
+      menu_permissions: roleForm.menu_permissions,
+      action_permissions: roleForm.action_permissions,
+    }
+    if (roleIsEdit.value && roleEditId.value) {
+      await axios.put(`/api/roles/${roleEditId.value}`, payload)
+      ElMessage.success("角色已更新")
+    } else {
+      await axios.post("/api/roles", payload)
+      ElMessage.success("角色已创建")
+    }
+    roleDialogVisible.value = false
+    await Promise.all([fetchRoles(), fetchAssignableRoles()])
+    selectedRole.value = roles.value.find(role => role.code === payload.code) || selectedRole.value
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } } }
+    ElMessage.error(err.response?.data?.detail || "保存角色失败")
+  } finally {
+    savingRole.value = false
+  }
+}
+
+const deleteRole = async (role: RoleTemplate) => {
+  if (!isRoleEditable(role)) return
+  try {
+    await ElMessageBox.confirm(`确定删除角色「${role.name}」？已分配给用户的角色会被系统阻止删除。`, "删除角色", { type: "warning" })
+    await axios.delete(`/api/roles/${role.id}`)
+    ElMessage.success("角色已删除")
+    await Promise.all([fetchRoles(), fetchAssignableRoles()])
+  } catch { /* cancelled */ }
+}
+
 // ── Org CRUD ───────────────────────────────────────────────────────────────────
 
 const selectOrgNode = (node: OrgTreeNode) => {
@@ -1032,6 +1290,7 @@ const selectOrgNode = (node: OrgTreeNode) => {
 }
 
 const openOrgCreate = () => {
+  if (!canManageOrganizations.value) return
   orgIsEdit.value = false
   orgEditId.value = null
   orgForm.name = ""
@@ -1040,6 +1299,7 @@ const openOrgCreate = () => {
 }
 
 const openOrgEdit = (row: OrgItem) => {
+  if (!canManageOrganizations.value) return
   orgIsEdit.value = true
   orgEditId.value = row.id
   orgForm.name = row.name
@@ -1069,6 +1329,7 @@ const saveOrg = async () => {
 }
 
 const deleteOrg = async (id: number) => {
+  if (!canManageOrganizations.value) return
   try {
     await ElMessageBox.confirm("确定删除此企业？删除后该企业下的用户将无法登录。", "提示", { type: "warning" })
     await axios.delete(`/api/organizations/${id}`)
@@ -1080,6 +1341,10 @@ const deleteOrg = async (id: number) => {
 // ── Department CRUD ───────────────────────────────────────────────────────────
 
 const openDepartmentCreate = (baseNode: OrgTreeNode | null) => {
+  if (!canManageDepartments.value) {
+    ElMessage.warning("无权维护部门")
+    return
+  }
   const node = baseNode || selectedOrgNode.value
   if (!node) {
     ElMessage.warning("请先选择企业或部门")
@@ -1095,6 +1360,7 @@ const openDepartmentCreate = (baseNode: OrgTreeNode | null) => {
 }
 
 const openDepartmentEdit = (node: OrgTreeNode) => {
+  if (!canManageDepartments.value) return
   if (node.type !== "department") return
   departmentIsEdit.value = true
   departmentEditId.value = node.id
@@ -1138,6 +1404,7 @@ const saveDepartment = async () => {
 }
 
 const deleteDepartment = async (node: OrgTreeNode) => {
+  if (!canManageDepartments.value) return
   if (node.type !== "department") return
   try {
     await ElMessageBox.confirm(`确定删除部门「${node.name}」？如果仍有下级部门或用户，系统会阻止删除。`, "删除部门", { type: "warning" })
@@ -1607,6 +1874,14 @@ onMounted(fetchAll)
   gap: 6px;
 }
 
+.roles-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
 .sidebar-label {
   font-size: 11px;
   font-weight: 700;
@@ -1614,7 +1889,6 @@ onMounted(fetchAll)
   text-transform: uppercase;
   color: var(--app-text-muted);
   padding: 0 4px;
-  margin-bottom: 4px;
 }
 
 .role-card {
@@ -1678,6 +1952,12 @@ onMounted(fetchAll)
   gap: 10px;
   font-size: 15px;
   font-weight: 600;
+}
+
+.perm-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .role-pill {
@@ -1793,6 +2073,34 @@ onMounted(fetchAll)
   flex-direction: column;
   gap: 16px;
   padding-top: 8px;
+}
+
+.role-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+}
+
+.role-dialog :deep(.el-dialog__body) {
+  padding-top: 12px;
+}
+
+.role-perm-tabs {
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .roles-layout {
+    flex-direction: column;
+  }
+
+  .roles-sidebar {
+    width: 100%;
+  }
+
+  .role-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ── Role option in select ──────────────────────────────────────────────────── */

@@ -1,14 +1,11 @@
 <template>
-  <div class="dataset-page">
-    <section class="dataset-hero">
-      <div>
-        <p class="eyebrow">DATASET CENTER</p>
-        <h2>数据集中心</h2>
-        <p class="hero-copy">
-          {{ datasourceStore.datasources.length }} 个数据源，{{ datasetStats.published }} 个已发布数据集
-        </p>
+  <div class="dataset-page" :class="{ 'dataset-page--embedded': embedded }">
+    <section v-if="!embedded" class="dataset-toolbar" aria-label="数据集工具栏">
+      <div class="dataset-toolbar-title">
+        <strong>数据集中心</strong>
+        <span>{{ filteredDatasets.length }} / {{ datasets.length }} 个数据集</span>
       </div>
-      <div class="hero-actions">
+      <div class="dataset-toolbar-actions">
         <el-input
           v-model="keyword"
           :prefix-icon="Search"
@@ -16,31 +13,17 @@
           clearable
           placeholder="搜索数据集 / 数据源"
         />
-        <el-segmented v-model="statusFilter" :options="statusOptions" @change="fetchDatasets" />
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建数据集</el-button>
+        <el-segmented
+          class="page-segmented-tabs"
+          v-model="statusFilter"
+          :options="statusOptions"
+          @change="fetchDatasets"
+        />
+        <el-button type="primary" :icon="Plus" @click="openCreate()">新建数据集</el-button>
       </div>
     </section>
 
-    <section class="summary-grid">
-      <div class="summary-card">
-        <span class="summary-label">全部数据集</span>
-        <strong>{{ datasetStats.total }}</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">已发布</span>
-        <strong>{{ datasetStats.published }}</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">草稿</span>
-        <strong>{{ datasetStats.draft }}</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">可用数据源</span>
-        <strong>{{ datasourceStore.datasources.length }}</strong>
-      </div>
-    </section>
-
-    <el-card class="dataset-card" shadow="never">
+    <el-card v-if="!embedded" class="dataset-card" shadow="never">
       <el-table
         v-loading="loading"
         :data="filteredDatasets"
@@ -84,8 +67,8 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'published' ? 'success' : 'info'" effect="plain">
-              {{ row.status === "published" ? "已发布" : "草稿" }}
+            <el-tag :type="datasetStatusTagType(row.status)" effect="plain">
+              {{ datasetStatusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -123,7 +106,15 @@
             <el-button text type="primary" @click.stop="openEdit(row)">编辑</el-button>
             <el-button text type="primary" :icon="EditPen" @click.stop="openSemanticModel(row)">语义层</el-button>
             <el-button
-              v-if="row.status !== 'published'"
+              v-if="row.status === 'pending_review' && canApproveDatasets"
+              text
+              type="success"
+              @click.stop="approveDataset(row)"
+            >
+              审批发布
+            </el-button>
+            <el-button
+              v-else-if="row.status !== 'published' && row.status !== 'pending_review'"
               text
               type="success"
               @click.stop="publishDataset(row)"
@@ -135,16 +126,20 @@
         </el-table-column>
       </el-table>
     </el-card>
+    <div v-else class="dataset-embedded-anchor" aria-hidden="true"></div>
 
     <el-drawer
       v-model="drawerVisible"
       :title="editingId ? '编辑数据集' : '新建数据集'"
-      size="92%"
-      class="dataset-drawer"
+      :size="embedded ? 'min(1040px, 96vw)' : '92%'"
+      :class="['dataset-drawer', { 'dataset-drawer--embedded': embedded }]"
+      :modal-class="embedded ? 'dataset-drawer-modal dataset-drawer-modal--embedded' : 'dataset-drawer-modal'"
       :close-on-click-modal="false"
+      :append-to-body="embedded"
       destroy-on-close
+      @closed="handleDrawerClosed"
     >
-      <div class="designer-shell">
+      <div class="designer-shell" :class="{ 'embedded-designer-shell': embedded }">
         <aside class="step-rail">
           <button
             v-for="(step, index) in steps"
@@ -252,6 +247,13 @@
                   <span>{{ metricConfigs.length }} 指标</span>
                   <span>{{ filters.length }} 筛选</span>
                 </div>
+                <el-button
+                  :loading="aiConfigLoading"
+                  :disabled="!form.datasource_id || !form.table"
+                  @click="generateDatasetAiConfig"
+                >
+                  AI 自动配置
+                </el-button>
                 <el-button type="primary" :loading="previewLoading" :disabled="!form.table" @click="fetchPreview">
                   预览数据
                 </el-button>
@@ -464,6 +466,80 @@
                     </div>
                   </el-tab-pane>
 
+                  <el-tab-pane name="drill">
+                    <template #label>下钻配置 {{ drillConfig.paths.length }}</template>
+                    <div class="logic-card drill-config-card">
+                      <div class="panel-title drill-config-title">
+                        <div>
+                          <span>数据集下钻路径</span>
+                          <small>点击图表或明细行时，优先使用这里的路径生成下钻动作</small>
+                        </div>
+                        <div class="drill-config-actions">
+                          <el-button size="small" :loading="aiConfigLoading" @click="generateDatasetAiConfig">
+                            AI 生成
+                          </el-button>
+                          <el-button size="small" @click="generateLocalDrillPaths">从当前字段生成</el-button>
+                        </div>
+                      </div>
+
+                      <div class="drill-summary-grid">
+                        <div>
+                          <span>维度</span>
+                          <strong>{{ drillConfig.dimensions.length }}</strong>
+                        </div>
+                        <div>
+                          <span>指标</span>
+                          <strong>{{ drillConfig.metrics.length }}</strong>
+                        </div>
+                        <div>
+                          <span>路径</span>
+                          <strong>{{ drillConfig.paths.length }}</strong>
+                        </div>
+                      </div>
+
+                      <div class="drill-path-builder">
+                        <el-select v-model="newDrillPath.source_dimension_id" placeholder="起点维度" filterable>
+                          <el-option
+                            v-for="dimension in drillDimensionOptions"
+                            :key="dimension.id"
+                            :label="dimension.label"
+                            :value="dimension.id"
+                          />
+                        </el-select>
+                        <span class="drill-path-arrow">→</span>
+                        <el-select v-model="newDrillPath.target_dimension_id" placeholder="下钻维度" filterable>
+                          <el-option
+                            v-for="dimension in drillDimensionOptions"
+                            :key="dimension.id"
+                            :label="dimension.label"
+                            :value="dimension.id"
+                          />
+                        </el-select>
+                        <el-input v-model="newDrillPath.label" placeholder="按钮文案，如：看设备分布" />
+                        <el-button type="primary" @click="addDrillPath">添加路径</el-button>
+                      </div>
+
+                      <div v-if="drillConfig.paths.length" class="drill-path-list">
+                        <div
+                          v-for="path in drillConfig.paths"
+                          :key="path.id"
+                          class="drill-path-row"
+                          :class="{ disabled: !path.enabled }"
+                        >
+                          <div class="drill-path-flow">
+                            <strong>{{ drillDimensionLabel(path.source_dimension_id) }}</strong>
+                            <span>→</span>
+                            <strong>{{ drillDimensionLabel(path.target_dimension_id) }}</strong>
+                          </div>
+                          <el-input v-model="path.label" class="drill-path-label-input" />
+                          <el-switch v-model="path.enabled" />
+                          <el-button text type="danger" @click="removeDrillPath(path.id)">删除</el-button>
+                        </div>
+                      </div>
+                      <el-empty v-else :image-size="64" description="暂无下钻路径，可用 AI 生成或从当前字段生成" />
+                    </div>
+                  </el-tab-pane>
+
                   <el-tab-pane name="advanced">
                     <template #label>高级建模 {{ derivedColumns.length + joins.length }}</template>
                     <div class="advanced-workbench">
@@ -501,15 +577,26 @@
                               </button>
                             </div>
 
-                            <div v-if="selectedColumns.length" class="field-token-panel">
-                              <button
-                                v-for="field in selectedColumns"
-                                :key="field.key"
-                                type="button"
-                                @click="appendDerivedToken(field.key)"
-                              >
-                                {{ field.alias || field.column }}
-                              </button>
+                            <div class="candidate-section">
+                              <div class="candidate-section-head">
+                                <span>可插入指标</span>
+                                <small>{{ derivedMetricCandidates.length ? "点击插入聚合表达式" : "请先配置指标字段" }}</small>
+                              </div>
+                              <div v-if="derivedMetricCandidates.length" class="field-token-panel metric-token-panel">
+                                <button
+                                  v-for="metric in derivedMetricCandidates"
+                                  :key="metric.key"
+                                  type="button"
+                                  :title="metric.expression"
+                                  @click="appendDerivedToken(metric.expression)"
+                                >
+                                  <strong>{{ metric.label }}</strong>
+                                  <small>{{ metric.expression }}</small>
+                                </button>
+                              </div>
+                              <div v-else class="metric-token-empty">
+                                在字段配置中把可计算字段标记为指标后，可在这里插入。
+                              </div>
                             </div>
 
                             <el-button type="primary" class="builder-primary" @click="addDerivedColumn">
@@ -670,8 +757,22 @@
                   <el-radio-button value="private">仅自己</el-radio-button>
                   <el-radio-button value="org">组织内</el-radio-button>
                 </el-radio-group>
+                <el-alert
+                  v-if="form.visibility === 'org'"
+                  class="visibility-approval-alert"
+                  :type="orgVisibilityApprovalRequired ? 'warning' : 'success'"
+                  :closable="false"
+                  show-icon
+                >
+                  <template #title>
+                    {{ orgVisibilityApprovalRequired ? "待部门管理员审批" : "你具备组织内发布权限" }}
+                  </template>
+                  <template #default>
+                    {{ orgVisibilityApprovalRequired ? "提交后状态会变为待审批，审批通过前仅创建者和管理员可见。" : "保存发布后会直接组织内可见。" }}
+                  </template>
+                </el-alert>
                 <el-checkbox v-model="saveAndPublish" class="publish-check">
-                  保存后立即发布
+                  {{ orgVisibilityApprovalRequired ? "保存后提交审批" : "保存后立即发布" }}
                 </el-checkbox>
               </section>
 
@@ -777,11 +878,28 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
+import { useRoute, useRouter } from "vue-router"
 import { EditPen, Plus, Refresh, Search, View as ViewIcon } from "@element-plus/icons-vue"
 import { useDatasourceStore } from "@/store/datasource"
+import { useAuthStore } from "@/store/auth"
+
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+  autoCreate?: boolean
+  preferredDatasourceId?: number | null
+}>(), {
+  embedded: false,
+  autoCreate: false,
+  preferredDatasourceId: null,
+})
+
+const emit = defineEmits<{
+  (event: "saved", payload: { datasource_id: number | null }): void
+  (event: "closed"): void
+}>()
 
 interface SchemaColumn {
   name: string
@@ -820,6 +938,7 @@ interface DatasetItem {
   joins_json: Record<string, unknown> | null
   aggregations_json: Record<string, unknown> | null
   semantic_model_json: Record<string, unknown> | null
+  drill_config_json: Record<string, unknown> | null
   last_refresh_status: string | null
   last_refresh_row_count: number
   last_refresh_at: string | null
@@ -830,6 +949,39 @@ interface DatasetItem {
 type StepKey = "source" | "fields" | "publish"
 type FieldRole = "ignore" | "dimension" | "metric"
 type FieldRoleFilter = FieldRole | "all"
+
+interface DrillDimension {
+  id: string
+  table: string
+  column: string
+  label: string
+  kind: string
+  enabled: boolean
+}
+
+interface DrillMetric {
+  id: string
+  table: string
+  column: string
+  label: string
+  aggregation: string
+  enabled: boolean
+}
+
+interface DrillPath {
+  id: string
+  source_dimension_id: string
+  target_dimension_id: string
+  label: string
+  action: string
+  enabled: boolean
+}
+
+interface DrillConfig {
+  dimensions: DrillDimension[]
+  metrics: DrillMetric[]
+  paths: DrillPath[]
+}
 
 interface FieldRoleConfig {
   key: string
@@ -843,6 +995,10 @@ interface FieldRoleConfig {
 }
 
 const datasourceStore = useDatasourceStore()
+const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+const embedded = computed(() => props.embedded)
 const datasets = ref<DatasetItem[]>([])
 const datasourceDetails = ref<Record<number, DataSourceDetail>>({})
 const loading = ref(false)
@@ -872,8 +1028,16 @@ const joinRightColumn = ref("")
 const joinType = ref("LEFT JOIN")
 const joinOperator = ref("=")
 const previewLoading = ref(false)
+const aiConfigLoading = ref(false)
 const previewRows = ref<Record<string, unknown>[]>([])
 const rawPreviewColumns = ref<string[]>([])
+const semanticModelDraft = ref<Record<string, unknown> | null>(null)
+const drillConfig = ref<DrillConfig>({ dimensions: [], metrics: [], paths: [] })
+const newDrillPath = reactive({
+  source_dimension_id: "",
+  target_dimension_id: "",
+  label: "",
+})
 const saveAndPublish = ref(false)
 const datasetPreviewVisible = ref(false)
 const datasetPreviewLoading = ref(false)
@@ -897,9 +1061,18 @@ const steps: { key: StepKey; title: string; subtitle: string }[] = [
   { key: "publish", title: "保存发布", subtitle: "权限与摘要" },
 ]
 
+const routeDatasourceId = computed(() => {
+  const raw = route.query.datasource_id
+  const value = Array.isArray(raw) ? raw[0] : raw
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null
+})
+const shouldOpenCreateFromRoute = computed(() => route.query.create === "dataset")
+
 const statusOptions = [
   { label: "全部", value: "all" },
   { label: "已发布", value: "published" },
+  { label: "待审批", value: "pending_review" },
   { label: "草稿", value: "draft" },
 ]
 
@@ -941,12 +1114,12 @@ const form = reactive({
 })
 
 const currentStepIndex = computed(() => stepIndex(activeStep.value))
-
-const datasetStats = computed(() => ({
-  total: datasets.value.length,
-  published: datasets.value.filter((dataset) => dataset.status === "published").length,
-  draft: datasets.value.filter((dataset) => dataset.status !== "published").length,
-}))
+const canApproveDatasets = computed(() =>
+  ["dept_admin", "org_admin", "super_admin"].includes(authStore.profile?.role || "")
+)
+const orgVisibilityApprovalRequired = computed(() =>
+  form.visibility === "org" && saveAndPublish.value && !canApproveDatasets.value
+)
 
 const filteredDatasets = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -1063,7 +1236,22 @@ const metricExpressions = computed(() =>
   metricConfigs.value.map((config) => `${config.aggregation}(${config.key})`)
 )
 
+const derivedMetricCandidates = computed(() =>
+  metricConfigs.value.map((config) => ({
+    key: `${config.aggregation}:${config.key}`,
+    label: config.alias.trim() || defaultMetricAlias(config),
+    expression: `${config.aggregation}(${config.key})`,
+  }))
+)
+
 const aggregations = metricExpressions
+
+const drillDimensionOptions = computed(() => {
+  const dimensions = drillConfig.value.dimensions.length
+    ? drillConfig.value.dimensions
+    : drillConfigFromSemantic(buildSemanticModelFromCurrentFields()).dimensions
+  return dimensions.filter((dimension) => dimension.enabled)
+})
 
 const previewColumns = computed(() => {
   return rawPreviewColumns.value
@@ -1106,6 +1294,26 @@ const datasourceName = (id: number) =>
   datasourceDetails.value[id]?.name ||
   datasourceStore.datasources.find((datasource) => datasource.id === id)?.name ||
   `数据源 #${id}`
+
+const datasetStatusLabel = (status: string) => {
+  const map: Record<string, string> = {
+    published: "已发布",
+    pending_review: "待审批",
+    draft: "草稿",
+    archived: "已归档",
+  }
+  return map[status] || status
+}
+
+const datasetStatusTagType = (status: string) => {
+  const map: Record<string, "success" | "warning" | "info"> = {
+    published: "success",
+    pending_review: "warning",
+    draft: "info",
+    archived: "info",
+  }
+  return map[status] || "info"
+}
 
 const normalizeList = (value: unknown) => (Array.isArray(value) ? value.map(String).filter(Boolean) : [])
 const rawList = (value: unknown) => (Array.isArray(value) ? value : [])
@@ -1218,6 +1426,242 @@ const createFieldRoleConfig = (
   alias: column.name,
   aggregation: defaultAggregationForColumn(column),
 })
+
+const cloneJson = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
+
+const semanticId = (value: string, seen: Set<string>) => {
+  const base = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/^_+|_+$/g, "") || "field"
+  const normalized = /^[a-z_]/.test(base) ? base : `f_${base}`
+  let candidate = normalized
+  let index = 2
+  while (seen.has(candidate)) {
+    candidate = `${normalized}_${index}`
+    index += 1
+  }
+  seen.add(candidate)
+  return candidate
+}
+
+const isTimeColumnConfig = (config: FieldRoleConfig) =>
+  /(date|time|datetime|timestamp|day|month|year)/i.test(`${config.type} ${config.column}`)
+
+const semanticFieldColumn = (field: string) => {
+  const index = field.indexOf(".")
+  return index === -1 ? field : field.slice(index + 1)
+}
+
+const semanticFieldTable = (field: string) => {
+  const index = field.indexOf(".")
+  return index === -1 ? form.table : field.slice(0, index)
+}
+
+const buildSemanticModelFromCurrentFields = () => {
+  const seen = new Set<string>()
+  const dimensions: Array<Record<string, unknown>> = []
+  const timeDimensions: Array<Record<string, unknown>> = []
+  const metrics: Array<Record<string, unknown>> = []
+  const draftDimensionIds = new Map<string, string>()
+  rawList(semanticModelDraft.value?.dimensions).forEach((item) => {
+    if (!item || typeof item !== "object") return
+    const value = item as Record<string, unknown>
+    draftDimensionIds.set(String(value.field || "").toLowerCase(), String(value.id || ""))
+  })
+  rawList(semanticModelDraft.value?.time_dimensions).forEach((item) => {
+    if (!item || typeof item !== "object") return
+    const value = item as Record<string, unknown>
+    draftDimensionIds.set(String(value.field || "").toLowerCase(), String(value.id || ""))
+  })
+  const draftMetricIds = new Map<string, string>()
+  rawList(semanticModelDraft.value?.metrics).forEach((item) => {
+    if (!item || typeof item !== "object") return
+    const value = item as Record<string, unknown>
+    const key = `${String(value.aggregation || "").toLowerCase()}:${String(value.field || "").toLowerCase()}`
+    draftMetricIds.set(key, String(value.id || ""))
+  })
+
+  dimensionConfigs.value.forEach((config) => {
+    const item = {
+      id: semanticId(draftDimensionIds.get(config.key.toLowerCase()) || config.column, seen),
+      field: config.key,
+      label: config.alias.trim() || config.column,
+    }
+    if (isTimeColumnConfig(config)) {
+      timeDimensions.push({ ...item, granularity: "day" })
+    } else {
+      dimensions.push(item)
+    }
+  })
+
+  metricConfigs.value.forEach((config) => {
+    const metricKey = `${config.aggregation.toLowerCase()}:${config.key.toLowerCase()}`
+    metrics.push({
+      id: semanticId(draftMetricIds.get(metricKey) || `${config.aggregation.toLowerCase()}_${config.column}`, seen),
+      field: config.key,
+      label: config.alias.trim() || defaultMetricAlias(config),
+      aggregation: config.aggregation.toLowerCase(),
+    })
+  })
+
+  const draftSynonyms = rawList(semanticModelDraft.value?.synonyms)
+  const validIds = new Set([...dimensions, ...timeDimensions, ...metrics].map((item) => String(item.id)))
+  const synonyms = draftSynonyms.filter((item) => {
+    if (!item || typeof item !== "object") return false
+    const targetId = String((item as Record<string, unknown>).target_id || "")
+    return !targetId || validIds.has(targetId)
+  })
+
+  return {
+    dimensions,
+    metrics,
+    time_dimensions: timeDimensions,
+    synonyms,
+  }
+}
+
+const drillKindForColumn = (column: string, time = false) => {
+  const lower = column.toLowerCase()
+  if (time) return "time"
+  if (lower.includes("equip")) return "equipment"
+  if (lower.includes("alarm") || lower.includes("error")) return "alarm"
+  if (lower.includes("site")) return "site"
+  if (lower.includes("line")) return "line"
+  if (lower.includes("shift")) return "shift"
+  if (lower.includes("step") || lower.includes("process")) return "process"
+  if (lower.includes("product") || lower.includes("sku") || lower.includes("part")) return "product"
+  if (lower.endsWith("id") || lower.includes("code")) return "code"
+  return "category"
+}
+
+const drillConfigFromSemantic = (semanticModel: Record<string, any>): DrillConfig => {
+  const dimensions: DrillDimension[] = []
+  const dimensionItems = rawList(semanticModel.dimensions)
+  const timeItems = rawList(semanticModel.time_dimensions)
+  dimensionItems.forEach((item) => {
+    if (!item || typeof item !== "object") return
+    const value = item as Record<string, unknown>
+    const field = String(value.field || "")
+    const column = semanticFieldColumn(field)
+    dimensions.push({
+      id: String(value.id || column),
+      table: semanticFieldTable(field),
+      column,
+      label: String(value.label || value.id || column),
+      kind: drillKindForColumn(column),
+      enabled: true,
+    })
+  })
+  timeItems.forEach((item) => {
+    if (!item || typeof item !== "object") return
+    const value = item as Record<string, unknown>
+    const field = String(value.field || "")
+    const column = semanticFieldColumn(field)
+    dimensions.push({
+      id: String(value.id || column),
+      table: semanticFieldTable(field),
+      column,
+      label: String(value.label || value.id || column),
+      kind: drillKindForColumn(column, true),
+      enabled: true,
+    })
+  })
+
+  const metrics: DrillMetric[] = rawList(semanticModel.metrics).flatMap((item) => {
+    if (!item || typeof item !== "object") return []
+    const value = item as Record<string, unknown>
+    const field = String(value.field || "")
+    const column = field === "*" ? "*" : semanticFieldColumn(field)
+    return [{
+      id: String(value.id || column),
+      table: field === "*" ? form.table : semanticFieldTable(field),
+      column,
+      label: String(value.label || value.id || column),
+      aggregation: String(value.aggregation || "sum"),
+      enabled: true,
+    }]
+  })
+
+  return { dimensions, metrics, paths: [] }
+}
+
+const normalizeDrillConfig = (value: unknown): DrillConfig => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { dimensions: [], metrics: [], paths: [] }
+  }
+  const source = value as Record<string, unknown>
+  const dimensions = rawList(source.dimensions).flatMap((item) => {
+    if (!item || typeof item !== "object") return []
+    const value = item as Record<string, unknown>
+    return [{
+      id: String(value.id || ""),
+      table: String(value.table || form.table),
+      column: String(value.column || ""),
+      label: String(value.label || value.column || value.id || ""),
+      kind: String(value.kind || "category"),
+      enabled: value.enabled !== false,
+    }]
+  }).filter((item) => item.id && item.column)
+  const metrics = rawList(source.metrics).flatMap((item) => {
+    if (!item || typeof item !== "object") return []
+    const value = item as Record<string, unknown>
+    return [{
+      id: String(value.id || ""),
+      table: String(value.table || form.table),
+      column: String(value.column || ""),
+      label: String(value.label || value.column || value.id || ""),
+      aggregation: String(value.aggregation || "sum"),
+      enabled: value.enabled !== false,
+    }]
+  }).filter((item) => item.id && item.column)
+  const paths = rawList(source.paths).flatMap((item) => {
+    if (!item || typeof item !== "object") return []
+    const value = item as Record<string, unknown>
+    return [{
+      id: String(value.id || `${value.source_dimension_id}__${value.target_dimension_id}`),
+      source_dimension_id: String(value.source_dimension_id || ""),
+      target_dimension_id: String(value.target_dimension_id || ""),
+      label: String(value.label || "继续下钻"),
+      action: String(value.action || "group_by"),
+      enabled: value.enabled !== false,
+    }]
+  }).filter((item) => item.id && item.source_dimension_id && item.target_dimension_id)
+  return { dimensions, metrics, paths }
+}
+
+const syncDrillConfigFromSemantic = (semanticModel: Record<string, any>) => {
+  const base = drillConfigFromSemantic(semanticModel)
+  const validDimensionIds = new Set(base.dimensions.map((item) => item.id))
+  const existingPaths = drillConfig.value.paths.filter((path) =>
+    validDimensionIds.has(path.source_dimension_id) && validDimensionIds.has(path.target_dimension_id)
+  )
+  drillConfig.value = {
+    ...base,
+    paths: existingPaths,
+  }
+}
+
+const drillConfigForSave = () => {
+  const semanticModel = buildSemanticModelFromCurrentFields()
+  const base = drillConfigFromSemantic(semanticModel)
+  const validDimensionIds = new Set(base.dimensions.map((item) => item.id))
+  return {
+    ...base,
+    paths: drillConfig.value.paths.filter((path) =>
+      validDimensionIds.has(path.source_dimension_id) && validDimensionIds.has(path.target_dimension_id)
+    ),
+  }
+}
+
+const drillDimensionLabel = (id: string) =>
+  drillDimensionOptions.value.find((dimension) => dimension.id === id)?.label || id
+
+const resetNewDrillPath = () => {
+  newDrillPath.source_dimension_id = ""
+  newDrillPath.target_dimension_id = ""
+  newDrillPath.label = ""
+}
 
 const uniquePush = (list: string[], value: string) => {
   const normalized = value.trim()
@@ -1362,12 +1806,12 @@ const applySavedFieldModel = (dataset: DatasetItem) => {
   }
 }
 
-const resetForm = () => {
+const resetForm = (preferredDatasourceId: number | null = null) => {
   editingId.value = null
   activeStep.value = "source"
   form.name = ""
   form.description = ""
-  form.datasource_id = datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
+  form.datasource_id = preferredDatasourceId || props.preferredDatasourceId || datasourceStore.currentId || datasourceStore.datasources[0]?.id || null
   form.table = ""
   form.visibility = "private"
   fieldRoleConfigs.value = []
@@ -1389,6 +1833,9 @@ const resetForm = () => {
   fieldKeyword.value = ""
   previewRows.value = []
   rawPreviewColumns.value = []
+  semanticModelDraft.value = null
+  drillConfig.value = { dimensions: [], metrics: [], paths: [] }
+  resetNewDrillPath()
   saveAndPublish.value = false
 }
 
@@ -1402,10 +1849,31 @@ const ensureDatasourceReady = async () => {
   }
 }
 
-const openCreate = async () => {
-  resetForm()
+const openCreate = async (preferredDatasourceId: number | null = null) => {
+  resetForm(preferredDatasourceId)
   await ensureDatasourceReady()
   drawerVisible.value = true
+}
+
+const clearCreateDatasetQuery = () => {
+  const nextQuery = { ...route.query }
+  delete nextQuery.create
+  delete nextQuery.datasource_id
+  delete nextQuery.from
+  router.replace({ path: route.path, query: nextQuery })
+}
+
+const openCreateFromRoute = async () => {
+  if (embedded.value) return
+  if (!shouldOpenCreateFromRoute.value) return
+  await openCreate(routeDatasourceId.value)
+  clearCreateDatasetQuery()
+}
+
+const handleDrawerClosed = () => {
+  if (embedded.value) {
+    emit("closed")
+  }
 }
 
 const openEdit = async (dataset: DatasetItem) => {
@@ -1424,6 +1892,8 @@ const openEdit = async (dataset: DatasetItem) => {
   filters.value = normalizeList(dataset.filters_json?.filters)
   derivedColumns.value = normalizeList(dataset.derived_columns_json?.expressions)
   joins.value = normalizeList(dataset.joins_json?.joins)
+  semanticModelDraft.value = dataset.semantic_model_json ? cloneJson(dataset.semantic_model_json) : null
+  drillConfig.value = normalizeDrillConfig(dataset.drill_config_json)
   activeStep.value = "source"
   drawerVisible.value = true
 }
@@ -1440,6 +1910,9 @@ const handleDatasourceChange = async () => {
   filterField.value = ""
   previewRows.value = []
   rawPreviewColumns.value = []
+  semanticModelDraft.value = null
+  drillConfig.value = { dimensions: [], metrics: [], paths: [] }
+  resetNewDrillPath()
   await ensureDatasourceReady()
 }
 
@@ -1453,6 +1926,9 @@ const selectTable = (tableName: string) => {
   joinRightColumn.value = firstColumnName(joinRightTable.value)
   previewRows.value = []
   rawPreviewColumns.value = []
+  semanticModelDraft.value = null
+  drillConfig.value = { dimensions: [], metrics: [], paths: [] }
+  resetNewDrillPath()
 }
 
 const detectSchema = async () => {
@@ -1491,6 +1967,7 @@ const setFieldRole = (key: string, role: FieldRole) => {
 }
 
 const handleRoleChange = (config: FieldRoleConfig) => {
+  semanticModelDraft.value = null
   if (config.role === "metric") {
     const column = currentColumns.value.find((item) => item.name === config.column)
     if (column && config.aggregation === "SUM" && !isNumericColumn(column)) {
@@ -1561,6 +2038,119 @@ const addJoin = () => {
 
 const removeJoin = (join: string) => {
   joins.value = joins.value.filter((item) => item !== join)
+}
+
+const applyAiFieldRoles = (roles: Array<Record<string, unknown>>) => {
+  const byKey = new Map(fieldRoleConfigs.value.map((config) => [config.key.toLowerCase(), config]))
+  roles.forEach((role) => {
+    const field = String(role.field || "")
+    if (!field || field === "*") return
+    const key = field.includes(".") ? field : columnKey(form.table, field)
+    const config = byKey.get(key.toLowerCase())
+    if (!config) return
+    const nextRole = role.role === "metric" ? "metric" : "dimension"
+    config.role = nextRole
+    config.alias = String(role.alias || config.alias || config.column)
+    if (nextRole === "metric") {
+      config.aggregation = String(role.aggregation || config.aggregation || "SUM").toUpperCase()
+    }
+    handleRoleChange(config)
+  })
+}
+
+const generateDatasetAiConfig = async () => {
+  if (!form.datasource_id || !form.table) {
+    ElMessage.warning("请先选择数据源和主表")
+    return
+  }
+  aiConfigLoading.value = true
+  try {
+    const response = await axios.post("/api/datasets/ai-config/suggest", {
+      dataset_id: editingId.value || null,
+      datasource_id: form.datasource_id,
+      table: form.table,
+      fields_json: {
+        table: form.table,
+        dimensions: dimensionPayloads.value,
+        fields: dimensionPayloads.value.map((item) => item.field),
+        metrics: metricPayloads.value,
+      },
+      aggregations_json: { aggregations: metricExpressions.value },
+      semantic_model_json: buildSemanticModelFromCurrentFields(),
+      drill_config_json: drillConfig.value,
+    })
+    const nextSemanticModel = response.data.semantic_model || null
+    applyAiFieldRoles(response.data.field_roles || [])
+    semanticModelDraft.value = nextSemanticModel
+    drillConfig.value = normalizeDrillConfig(response.data.drill_config)
+    const warnings = response.data.warnings || []
+    if (warnings.length) {
+      ElMessage.warning(warnings[0])
+    } else {
+      ElMessage.success("AI 自动配置已应用到当前草稿")
+    }
+    logicTab.value = "drill"
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "AI 自动配置失败")
+  } finally {
+    aiConfigLoading.value = false
+  }
+}
+
+const generateLocalDrillPaths = () => {
+  const semanticModel = buildSemanticModelFromCurrentFields()
+  const base = drillConfigFromSemantic(semanticModel)
+  const dimensions = base.dimensions.filter((dimension) => dimension.kind !== "time")
+  const timeDimensions = base.dimensions.filter((dimension) => dimension.kind === "time")
+  const paths: DrillPath[] = []
+  dimensions.forEach((source) => {
+    const targets = [...dimensions.filter((dimension) => dimension.id !== source.id), ...timeDimensions.slice(0, 1)]
+    targets.slice(0, 3).forEach((target) => {
+      const id = `${source.id}__${target.id}`
+      if (paths.some((path) => path.id === id)) return
+      paths.push({
+        id,
+        source_dimension_id: source.id,
+        target_dimension_id: target.id,
+        label: target.kind === "time" ? "看时间趋势" : `看${target.label}分布`,
+        action: "group_by",
+        enabled: true,
+      })
+    })
+  })
+  drillConfig.value = { ...base, paths }
+  resetNewDrillPath()
+  logicTab.value = "drill"
+}
+
+const addDrillPath = () => {
+  const sourceId = newDrillPath.source_dimension_id
+  const targetId = newDrillPath.target_dimension_id
+  if (!sourceId || !targetId || sourceId === targetId) {
+    ElMessage.warning("请选择不同的起点维度和下钻维度")
+    return
+  }
+  if (!drillConfig.value.dimensions.length) {
+    syncDrillConfigFromSemantic(buildSemanticModelFromCurrentFields())
+  }
+  const id = `${sourceId}__${targetId}`
+  if (drillConfig.value.paths.some((path) => path.id === id)) {
+    ElMessage.warning("这条下钻路径已存在")
+    return
+  }
+  drillConfig.value.paths.push({
+    id,
+    source_dimension_id: sourceId,
+    target_dimension_id: targetId,
+    label: newDrillPath.label.trim() || `看${drillDimensionLabel(targetId)}分布`,
+    action: "group_by",
+    enabled: true,
+  })
+  resetNewDrillPath()
+}
+
+const removeDrillPath = (id: string) => {
+  drillConfig.value.paths = drillConfig.value.paths.filter((path) => path.id !== id)
 }
 
 const fetchPreview = async () => {
@@ -1713,6 +2303,8 @@ const buildPayload = () => ({
   derived_columns_json: { expressions: derivedColumns.value },
   joins_json: { joins: joins.value },
   aggregations_json: { aggregations: metricExpressions.value },
+  semantic_model_json: buildSemanticModelFromCurrentFields(),
+  drill_config_json: drillConfigForSave(),
   visibility: form.visibility,
   status: saveAndPublish.value ? "published" : "draft",
 })
@@ -1727,13 +2319,18 @@ const saveDataset = async () => {
     } else {
       await axios.post("/api/datasets", payload)
     }
-    if (saveAndPublish.value) {
+    if (orgVisibilityApprovalRequired.value) {
+      ElMessage.success("数据集已保存并提交审批")
+    } else if (saveAndPublish.value) {
       ElMessage.success("数据集已保存并发布")
     } else {
       ElMessage.success("数据集已保存")
     }
     drawerVisible.value = false
     await fetchDatasets()
+    if (embedded.value) {
+      emit("saved", { datasource_id: form.datasource_id })
+    }
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || "数据集保存失败")
   } finally {
@@ -1742,8 +2339,14 @@ const saveDataset = async () => {
 }
 
 const publishDataset = async (dataset: DatasetItem) => {
-  await axios.post(`/api/datasets/${dataset.id}/publish`)
-  ElMessage.success("数据集已发布")
+  const response = await axios.post(`/api/datasets/${dataset.id}/publish`)
+  ElMessage.success(response.data?.status === "pending_review" ? "数据集已提交审批" : "数据集已发布")
+  await fetchDatasets()
+}
+
+const approveDataset = async (dataset: DatasetItem) => {
+  await axios.post(`/api/datasets/${dataset.id}/approve`)
+  ElMessage.success("数据集已审批发布")
   await fetchDatasets()
 }
 
@@ -1758,26 +2361,95 @@ onMounted(async () => {
   await datasourceStore.fetchDatasources().catch(() => undefined)
   await fetchDatasourceDetails()
   await fetchDatasets()
+  if (embedded.value && props.autoCreate) {
+    await openCreate(props.preferredDatasourceId)
+    return
+  }
+  await openCreateFromRoute()
 })
+
+watch(
+  () => [route.query.create, route.query.datasource_id, route.query.tab],
+  async () => {
+    if (embedded.value) return
+    if (route.query.tab !== "datasets") return
+    await openCreateFromRoute()
+  }
+)
+
+watch(
+  () => [props.autoCreate, props.preferredDatasourceId],
+  async () => {
+    if (!embedded.value || !props.autoCreate) return
+    await openCreate(props.preferredDatasourceId)
+  }
+)
 </script>
 
 <style scoped>
 .dataset-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.dataset-hero {
+.dataset-page--embedded,
+.dataset-embedded-anchor {
+  display: contents;
+}
+
+:global(.dataset-drawer-modal--embedded) {
+  overflow-x: hidden;
+}
+
+:global(.dataset-drawer-modal--embedded .el-overlay-dialog) {
+  overflow-x: hidden;
+}
+
+:global(.dataset-drawer-modal--embedded .el-drawer) {
+  max-width: calc(100vw - 16px);
+}
+
+:global(.dataset-drawer-modal--embedded .el-drawer__body) {
+  overflow-x: hidden;
+}
+
+.dataset-drawer--embedded :deep(.el-drawer__body) {
+  padding: 14px;
+  overflow-x: hidden;
+}
+
+.dataset-drawer--embedded :deep(.el-drawer__footer) {
+  padding: 12px 14px;
+}
+
+.dataset-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 20px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  background: var(--app-surface);
-  box-shadow: var(--app-shadow-soft);
+  gap: 12px;
+  min-height: 36px;
+}
+
+.dataset-toolbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dataset-toolbar-title strong {
+  color: var(--app-text);
+  font-size: 16px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.dataset-toolbar-title span {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .eyebrow {
@@ -1787,55 +2459,23 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-.dataset-hero h2 {
-  margin: 0;
-  color: var(--app-text);
-  font-size: 24px;
-  line-height: 1.3;
-}
-
-.hero-copy {
-  max-width: 640px;
-  margin: 8px 0 0;
-  color: var(--app-text-muted);
-  line-height: 1.6;
-}
-
-.hero-actions {
+.dataset-toolbar-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.dataset-toolbar-actions .page-segmented-tabs {
+  flex-shrink: 0;
 }
 
 .search-input {
-  width: 260px;
+  width: 240px;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.summary-card {
-  min-height: 88px;
-  padding: 16px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius);
-  background: var(--app-surface);
-}
-
-.summary-card strong {
-  display: block;
-  margin-top: 8px;
-  color: var(--app-text);
-  font-size: 28px;
-  line-height: 1;
-}
-
-.summary-label,
 .muted,
 .panel-title small,
 .step-item small,
@@ -1899,6 +2539,64 @@ onMounted(async () => {
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 20px;
   min-height: calc(100vh - 190px);
+}
+
+.embedded-designer-shell {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-height: min(760px, calc(100vh - 170px));
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.embedded-designer-shell .step-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.embedded-designer-shell .designer-panel,
+.embedded-designer-shell .designer-section,
+.embedded-designer-shell .field-panel,
+.embedded-designer-shell .logic-panel,
+.embedded-designer-shell .preview-panel,
+.embedded-designer-shell .publish-panel,
+.embedded-designer-shell .summary-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.embedded-designer-shell .field-layout,
+.embedded-designer-shell .publish-layout,
+.embedded-designer-shell .field-config-controls,
+.embedded-designer-shell .advanced-builder-grid,
+.embedded-designer-shell .model-summary-grid,
+.embedded-designer-shell .join-sides,
+.embedded-designer-shell .filter-builder,
+.embedded-designer-shell .aggregation-builder,
+.embedded-designer-shell .join-meta-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.embedded-designer-shell .field-config-list,
+.embedded-designer-shell .field-token-panel,
+.embedded-designer-shell .selected-field-list.compact {
+  max-width: 100%;
+}
+
+.embedded-designer-shell .section-head,
+.embedded-designer-shell .fields-section-head,
+.embedded-designer-shell .field-panel-hero,
+.embedded-designer-shell .field-config-top,
+.embedded-designer-shell .fields-head-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.embedded-designer-shell .fields-head-actions,
+.embedded-designer-shell .fields-health-pill {
+  width: 100%;
 }
 
 .step-rail {
@@ -2494,6 +3192,126 @@ onMounted(async () => {
   background: var(--app-surface-muted);
 }
 
+.drill-config-card {
+  display: grid;
+  gap: 12px;
+}
+
+.drill-config-title {
+  align-items: flex-start;
+}
+
+.drill-config-title div:first-child span,
+.drill-config-title div:first-child small {
+  display: block;
+}
+
+.drill-config-title div:first-child small {
+  margin-top: 3px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.drill-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.drill-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.drill-summary-grid div {
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-surface);
+}
+
+.drill-summary-grid span,
+.drill-summary-grid strong {
+  display: block;
+}
+
+.drill-summary-grid span {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.drill-summary-grid strong {
+  margin-top: 7px;
+  color: var(--app-primary-dark);
+  font-size: 22px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.drill-path-builder {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 24px minmax(140px, 1fr) minmax(180px, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.drill-path-arrow {
+  color: var(--app-primary);
+  font-weight: 900;
+  text-align: center;
+}
+
+.drill-path-list {
+  display: grid;
+  gap: 8px;
+}
+
+.drill-path-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.85fr) minmax(180px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 9px 10px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-surface);
+}
+
+.drill-path-row.disabled {
+  opacity: 0.62;
+}
+
+.drill-path-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 12px;
+}
+
+.drill-path-flow strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drill-path-flow span {
+  color: var(--app-primary);
+  font-weight: 900;
+}
+
+.drill-path-label-input {
+  min-width: 0;
+}
+
 .model-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2704,6 +3522,34 @@ onMounted(async () => {
   gap: 6px;
 }
 
+.candidate-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.candidate-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.candidate-section-head span {
+  color: var(--app-text);
+  font-weight: 700;
+}
+
+.candidate-section-head small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .field-token-panel {
   grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   max-height: 96px;
@@ -2733,6 +3579,56 @@ onMounted(async () => {
 .field-token-panel button:hover {
   border-color: var(--app-primary);
   color: var(--app-primary);
+}
+
+.metric-token-panel {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  max-height: 132px;
+}
+
+.metric-token-panel button {
+  display: flex;
+  min-height: 50px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  text-align: left;
+  white-space: normal;
+}
+
+.metric-token-panel strong,
+.metric-token-panel small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-token-panel strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.metric-token-panel small {
+  color: var(--app-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.metric-token-empty {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-surface-muted);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .builder-primary {
@@ -2863,6 +3759,10 @@ onMounted(async () => {
   align-self: flex-start;
 }
 
+.visibility-approval-alert {
+  max-width: 560px;
+}
+
 .publish-check {
   margin-top: 4px;
 }
@@ -2880,34 +3780,41 @@ onMounted(async () => {
 }
 
 @media (max-width: 1100px) {
-  .dataset-hero,
   .section-head {
     flex-direction: column;
   }
 
-  .hero-actions,
+  .dataset-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dataset-toolbar-actions,
   .fields-head-actions,
   .search-input {
     width: 100%;
   }
 
+  .dataset-toolbar-actions,
   .fields-head-actions {
     justify-content: flex-start;
   }
 
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .dataset-toolbar-actions .page-segmented-tabs {
+    max-width: 100%;
   }
 
   .designer-shell,
   .field-layout,
   .publish-layout,
   .field-config-controls,
-  .advanced-builder-grid,
-  .model-summary-grid,
-  .join-sides {
-    grid-template-columns: 1fr;
-  }
+      .advanced-builder-grid,
+      .model-summary-grid,
+      .drill-path-builder,
+      .drill-path-row,
+      .join-sides {
+        grid-template-columns: 1fr;
+      }
 
   .step-rail {
     display: grid;
@@ -2916,11 +3823,19 @@ onMounted(async () => {
 }
 
 @media (max-width: 680px) {
-  .summary-grid,
   .field-mode-tabs,
   .model-overview,
   .step-rail {
     grid-template-columns: 1fr;
+  }
+
+  .dataset-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dataset-toolbar-actions :deep(.el-button) {
+    width: 100%;
   }
 
   .field-panel-hero,
@@ -2936,11 +3851,12 @@ onMounted(async () => {
     border-radius: var(--app-radius-sm);
   }
 
-  .aggregation-builder,
-  .filter-builder,
-  .join-meta-row {
-    grid-template-columns: 1fr;
-  }
+      .aggregation-builder,
+      .filter-builder,
+      .drill-summary-grid,
+      .join-meta-row {
+        grid-template-columns: 1fr;
+      }
 
   .join-link-symbol {
     justify-self: flex-start;

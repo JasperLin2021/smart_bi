@@ -37,6 +37,43 @@ class DemoSeedQuickstartTests(unittest.TestCase):
         self.assertIn("自动导入", readme)
         self.assertIn("automatically imports", readme)
 
+    def test_mock_data_covers_all_metric_calculation_models(self):
+        mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
+
+        for mode in ("aggregate", "ratio", "derived", "window"):
+            self.assertIn(f'"calculation_mode":"{mode}"', mock_sql)
+
+        self.assertIn('"statistical_scope"', mock_sql)
+        self.assertIn('"dependency_metrics"', mock_sql)
+        self.assertIn("指标计算模型样例", mock_sql)
+
+    def test_nexteer_production_metrics_bind_and_deprecate_duplicate_line_output(self):
+        mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
+
+        self.assertRegex(
+            mock_sql,
+            r"UPDATE metrics\s+SET[\s\S]+dataset_id\s*=\s*1[\s\S]+datasource_id\s*=\s*2[\s\S]+WHERE name IN \('产出','OEE'\)",
+        )
+        self.assertNotIn("某条线Final单元的产出", mock_sql)
+        self.assertIn("Final单元产出", mock_sql)
+        self.assertRegex(
+            mock_sql,
+            r"UPDATE metrics\s+SET[\s\S]+status\s*=\s*'archived'[\s\S]+certification_status\s*=\s*'deprecated'[\s\S]+is_active\s*=\s*0[\s\S]+WHERE name = '线产出'",
+        )
+        self.assertIn("该指标与“产出”口径重复", mock_sql)
+
+    def test_seeded_visual_etl_pipelines_are_executable_not_placeholder_cards(self):
+        mock_sql = (ROOT / "mock_data.sql").read_text(encoding="utf-8")
+
+        self.assertIn('"target_table":"etl_nexteer_production_daily"', mock_sql)
+        self.assertIn('"incremental_key":"班次开始时间"', mock_sql)
+        self.assertIn('"target_table":"etl_lantu_sales_incremental_orders"', mock_sql)
+        self.assertIn('"incremental_key":"下单日期"', mock_sql)
+        self.assertRegex(mock_sql, r"\(2, '蓝途销售增量同步',[\s\S]+?\n   3,\n")
+        self.assertIn("(3, 2, 3, '订单号唯一'", mock_sql)
+        self.assertIn("(4, 2, 3, '销售数据新鲜度'", mock_sql)
+        self.assertIn("pg_get_serial_sequence('data_pipeline_runs', 'id')", mock_sql)
+
 
 if __name__ == "__main__":
     unittest.main()

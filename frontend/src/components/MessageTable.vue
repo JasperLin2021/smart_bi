@@ -11,11 +11,24 @@
         </el-button>
       </div>
     </div>
-    <div v-if="selectedRow && drillActions.length" class="drill-bar">
+    <div v-if="selectedRow && (drillLoading || drillActions.length || drillAttempted)" class="drill-bar">
       <div class="drill-bar-title">
-        已选中：{{ selectedSummary }}
+        <span>已选中：{{ selectedSummary }}</span>
+        <span v-if="drillLoading" class="drill-status-chip">后台生成中</span>
       </div>
+      <div v-if="!drillLoading && !drillActions.length" class="drill-empty">当前记录没有可用的下钻建议</div>
       <div class="drill-actions">
+        <el-button
+          v-if="drillLoading && !drillActions.length"
+          class="drill-action-loading"
+          size="small"
+          type="primary"
+          plain
+          disabled
+          :loading="drillLoading"
+        >
+          下钻建议生成中
+        </el-button>
         <el-button
           v-for="action in drillActions"
           :key="action.id"
@@ -71,6 +84,9 @@ const expanded = ref(true)
 const currentPage = ref(1)
 const selectedRow = ref<Record<string, any> | null>(null)
 const drillActions = ref<DrillAction[]>([])
+const drillLoading = ref(false)
+const drillAttempted = ref(false)
+let drillRequestId = 0
 
 const displayRows = computed(() => {
   const start = (currentPage.value - 1) * 10
@@ -91,7 +107,11 @@ const toggleExpand = () => {
 }
 
 const handleRowClick = async (row: Record<string, any>) => {
+  const requestId = ++drillRequestId
   selectedRow.value = row
+  drillActions.value = []
+  drillAttempted.value = true
+  drillLoading.value = true
   try {
     if (!props.message.sqlQuery || !props.message.sourceQuestion || !props.columns.length) {
       drillActions.value = []
@@ -102,17 +122,23 @@ const handleRowClick = async (row: Record<string, any>) => {
       props.message.sqlQuery,
       props.columns[0],
       props.columns,
-      row
+      row,
+      props.message.semanticContext?.dataset?.id
     )
+    if (requestId !== drillRequestId) return
     drillActions.value = preview.actions
   } catch (error) {
+    if (requestId !== drillRequestId) return
     drillActions.value = []
     ElMessage.error("加载钻取动作失败")
+  } finally {
+    if (requestId !== drillRequestId) return
+    drillLoading.value = false
   }
 }
 
 const runDrill = async (action: DrillAction) => {
-  await queryStore.ask(action.question, "text2sql", {
+  await queryStore.ask(action.question, props.message.mode || "business", {
     pathLabel: action.label,
     sourceLabel: action.source_dimension_label,
     sourceValue: action.source_value,
@@ -167,15 +193,42 @@ const exportCsv = () => {
 }
 
 .drill-bar-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 12px;
   color: #64748b;
   margin-bottom: 8px;
+}
+
+.drill-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .drill-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.drill-empty {
+  margin-bottom: 8px;
+  color: #909399;
+  font-size: 13px;
+}
+
+.drill-action-loading {
+  cursor: progress;
 }
 
 .table-footer {

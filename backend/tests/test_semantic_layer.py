@@ -218,6 +218,7 @@ class SemanticLayerTests(unittest.TestCase):
                 ],
             )
             self.assertIn("GROUP BY", response["sql_query"])
+            self.assertIn("ORDER BY total_amount DESC", response["sql_query"])
             self.assertIn("sales.status", response["sql_query"])
         finally:
             os.unlink(source_path)

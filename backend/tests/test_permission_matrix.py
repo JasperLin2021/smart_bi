@@ -369,7 +369,7 @@ class PermissionMatrixTests(unittest.TestCase):
         all_users = list_users(db=db, current_user=data["root"])
         self.assertEqual(len(all_users), 6)
         self._assert_http(403, list_users, db=db, current_user=data["nova_analyst"])
-        self._assert_http(403, list_organizations, db=db, current_user=data["nova_admin"])
+        self.assertEqual({org.slug for org in list_organizations(db=db, current_user=data["nova_admin"])}, {"nova-mfg"})
         self.assertEqual({org.slug for org in list_organizations(db=db, current_user=data["root"])}, {"nova-mfg", "orion-retail"})
 
         payload = UserCreate(username="orion.shadow", password="x", role="user", org_id=2)

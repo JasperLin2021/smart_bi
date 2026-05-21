@@ -13,6 +13,8 @@ from app.core.config import settings
 from app.core.excel_executor import execute_excel_query, get_excel_tables
 from app.core.olap import execute_materialized_dataset_preview, write_dataset_to_olap
 from app.core.safe_delete import assert_dataset_can_delete, delete_catalog_asset
+from app.core.dataset_ai_config import suggest_dataset_ai_config as build_dataset_ai_config
+from app.core.drill_config import normalize_drill_config
 from app.core.semantic_layer import infer_semantic_model, normalize_semantic_model
 from app.db.session import get_db
 from app.db.session import get_datasource_engine
@@ -22,6 +24,8 @@ from app.models.datasource import DataSource
 from app.models.user import User
 from app.schemas.dataset import (
     DatasetCreate,
+    DatasetAIConfigSuggestRequest,
+    DatasetAIConfigSuggestResponse,
     DatasetDraftPreviewRequest,
     DatasetListResponse,
     DatasetMaterializeRequest,
@@ -38,7 +42,19 @@ from app.schemas.dataset import (
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
-VALID_DATASET_STATUSES = {"draft", "published", "archived"}
+DATASET_STATUS_DRAFT = "draft"
+DATASET_STATUS_PENDING_REVIEW = "pending_review"
+DATASET_STATUS_PUBLISHED = "published"
+DATASET_STATUS_ARCHIVED = "archived"
+DATASET_VISIBILITY_ORG = "org"
+DATASET_VISIBILITY_PRIVATE = "private"
+DATASET_APPROVER_ROLES = {"dept_admin", "org_admin", "super_admin"}
+VALID_DATASET_STATUSES = {
+    DATASET_STATUS_DRAFT,
+    DATASET_STATUS_PENDING_REVIEW,
+    DATASET_STATUS_PUBLISHED,
+    DATASET_STATUS_ARCHIVED,
+}
 VALID_VISIBILITIES = {"private", "org"}
 SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 FILTER_RE = re.compile(
@@ -55,7 +71,8 @@ JOIN_RE = re.compile(
     re.IGNORECASE,
 )
 AGGREGATION_RE = re.compile(
-    r"^\s*(?P<fn>SUM|AVG|COUNT|MIN|MAX)\s*\(\s*"
+    r"^\s*(?P<fn>SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(\s*"
+    r"(?:(?P<distinct>DISTINCT)\s+)?"
     r"(?P<field>\*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\)\s*$",
     re.IGNORECASE,
 )
@@ -84,6 +101,19 @@ def _ensure_values(status: str | None = None, visibility: str | None = None) -> 
         raise HTTPException(status_code=400, detail="无效可见范围")
 
 
+def _normalize_model_values(values: dict[str, Any], dataset: Dataset | None = None) -> None:
+    if "semantic_model_json" in values and values["semantic_model_json"] is not None:
+        try:
+            values["semantic_model_json"] = normalize_semantic_model(values["semantic_model_json"], dataset)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    if "drill_config_json" in values and values["drill_config_json"] is not None:
+        try:
+            values["drill_config_json"] = normalize_drill_config(values["drill_config_json"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
 def _get_datasource_for_user(db: Session, datasource_id: int, user: User) -> DataSource:
     datasource = db.query(DataSource).filter(DataSource.id == datasource_id).first()
     if not datasource:
@@ -101,13 +131,63 @@ def _can_manage_dataset(user: User, dataset: Dataset) -> bool:
     return dataset.owner_id == user.id
 
 
+def _can_approve_dataset(db: Session, user: User, dataset: Dataset) -> bool:
+    if user.role == "super_admin":
+        return True
+    if user.org_id != dataset.org_id:
+        return False
+    if user.role == "org_admin":
+        return True
+    if user.role != "dept_admin":
+        return False
+
+    owner = db.query(User).filter(User.id == dataset.owner_id).first() if dataset.owner_id else None
+    owner_department_id = getattr(owner, "department_id", None)
+    approver_department_id = getattr(user, "department_id", None)
+    if owner_department_id and approver_department_id:
+        return owner_department_id == approver_department_id
+    return True
+
+
+def _requires_org_visibility_approval(user: User, visibility: str | None, status: str | None) -> bool:
+    return (
+        visibility == DATASET_VISIBILITY_ORG
+        and status == DATASET_STATUS_PUBLISHED
+        and user.role not in DATASET_APPROVER_ROLES
+    )
+
+
+def _apply_dataset_publication_workflow(values: dict[str, Any], user: User, dataset: Dataset | None = None) -> bool:
+    next_visibility = values.get("visibility", dataset.visibility if dataset else DATASET_VISIBILITY_PRIVATE)
+    next_status = values.get("status", dataset.status if dataset else DATASET_STATUS_DRAFT)
+    if not _requires_org_visibility_approval(user, next_visibility, next_status):
+        return False
+    values["visibility"] = DATASET_VISIBILITY_ORG
+    values["status"] = DATASET_STATUS_PENDING_REVIEW
+    return True
+
+
+def _sync_dataset_publication_state(db: Session, dataset: Dataset) -> None:
+    if dataset.status == DATASET_STATUS_PUBLISHED:
+        _sync_dataset_asset(db, dataset)
+    else:
+        delete_catalog_asset(db, "dataset", dataset.id)
+
+
 def _apply_visibility(query, user: User):
     if user.role == "super_admin":
         return query
     query = query.filter(Dataset.org_id == user.org_id)
     if user.role == "org_admin":
         return query
-    return query.filter(or_(Dataset.status == "published", Dataset.owner_id == user.id))
+    if user.role == "dept_admin":
+        return query.filter(
+            or_(
+                Dataset.status.in_([DATASET_STATUS_PUBLISHED, DATASET_STATUS_PENDING_REVIEW]),
+                Dataset.owner_id == user.id,
+            )
+        )
+    return query.filter(or_(Dataset.status == DATASET_STATUS_PUBLISHED, Dataset.owner_id == user.id))
 
 
 def _get_dataset_for_user(db: Session, dataset_id: int, user: User) -> Dataset:
@@ -222,15 +302,20 @@ def _selected_fields(dataset: Dataset, table: str) -> list[str]:
     return [item["field"] for item in _dimension_specs(dataset, table)]
 
 
-def _dimension_specs(dataset: Dataset, table: str) -> list[dict[str, str | None]]:
+def _dimension_specs(dataset: Dataset, table: str) -> list[dict[str, Any]]:
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
-    raw_fields = _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields"))
+    raw_dimensions = _as_list(fields_json.get("dimensions"))
+    raw_plain_fields = _as_list(fields_json.get("fields"))
+    has_explicit_dimensions = bool(raw_dimensions) and (
+        raw_dimensions != raw_plain_fields or any(isinstance(item, dict) for item in raw_dimensions)
+    )
+    raw_fields = raw_dimensions or raw_plain_fields
     specs = [
-        {"field": _field_name(item), "alias": _field_alias_override(item)}
+        {"field": _field_name(item), "alias": _field_alias_override(item), "explicit_dimension": has_explicit_dimensions}
         for item in raw_fields
         if _field_name(item)
     ]
-    return specs or [{"field": f"{table}.*", "alias": None}]
+    return specs or [{"field": f"{table}.*", "alias": None, "explicit_dimension": False}]
 
 
 def _dataset_dimension_fields(dataset: Dataset) -> list[str]:
@@ -358,11 +443,17 @@ def _render_aggregation(engine, expression: str, default_table: str, alias_overr
     if not match:
         raise HTTPException(status_code=400, detail=f"聚合表达式不合法: {expression}")
     fn = match.group("fn").upper()
+    is_distinct = fn == "COUNT_DISTINCT" or bool(match.group("distinct"))
     field = match.group("field")
     if field == "*":
+        if is_distinct:
+            raise HTTPException(status_code=400, detail=f"聚合表达式不合法: {expression}")
         alias = alias_override or fn.lower()
         return f"{fn}(*) AS {_quote_output_alias(engine, alias)}"
     _, column = _split_field(field, default_table)
+    if is_distinct:
+        alias = alias_override or f"count_distinct_{column}"
+        return f"COUNT(DISTINCT {_quote_column_ref(engine, field, default_table)}) AS {_quote_output_alias(engine, alias)}"
     alias = alias_override or f"{fn.lower()}_{column}"
     return f"{fn}({_quote_column_ref(engine, field, default_table)}) AS {_quote_output_alias(engine, alias)}"
 
@@ -450,7 +541,7 @@ def _build_excel_dataset_sql(dataset: Dataset, datasource: DataSource, limit: in
                 continue
             select_parts.append("*")
             continue
-        if aggregations and _normalized_field_ref(field, table) in aggregation_fields:
+        if aggregations and _normalized_field_ref(field, table) in aggregation_fields and not spec.get("explicit_dimension"):
             continue
         alias = spec["alias"] or _field_alias(field, table)
         column_ref = _quote_column_ref(engine, field, table)
@@ -518,7 +609,7 @@ def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | No
                 continue
             select_parts.append("*")
             continue
-        if aggregations and _normalized_field_ref(field, table) in aggregation_fields:
+        if aggregations and _normalized_field_ref(field, table) in aggregation_fields and not spec.get("explicit_dimension"):
             continue
         alias = spec["alias"] or _field_alias(field, table)
         column_ref = _quote_column_ref(engine, field, table)
@@ -725,6 +816,8 @@ def create_dataset(
     org_id = payload.org_id if current_user.role == "super_admin" and payload.org_id else datasource.org_id
     values = payload.model_dump(exclude={"org_id", "owner_id"})
     values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
+    _normalize_model_values(values)
+    approval_required = _apply_dataset_publication_workflow(values, current_user)
     dataset = Dataset(
         **values,
         org_id=org_id,
@@ -732,8 +825,7 @@ def create_dataset(
     )
     db.add(dataset)
     db.flush()
-    if dataset.status == "published":
-        _sync_dataset_asset(db, dataset)
+    _sync_dataset_publication_state(db, dataset)
     db.commit()
     db.refresh(dataset)
     try_record_audit_log(
@@ -744,8 +836,13 @@ def create_dataset(
         resource_id=dataset.id,
         resource_name=dataset.name,
         org_id=dataset.org_id,
-        message="数据集已创建",
-        detail={"datasource_id": dataset.datasource_id, "status": dataset.status},
+        message="数据集已提交审批" if approval_required else "数据集已创建",
+        detail={
+            "datasource_id": dataset.datasource_id,
+            "status": dataset.status,
+            "visibility": dataset.visibility,
+            "approval_required": approval_required,
+        },
     )
     return dataset
 
@@ -826,6 +923,49 @@ def update_dataset_semantic_model(
         },
     )
     return {"dataset_id": dataset.id, "semantic_model": semantic_model}
+
+
+@router.post("/ai-config/suggest", response_model=DatasetAIConfigSuggestResponse)
+async def suggest_dataset_ai_config(
+    payload: DatasetAIConfigSuggestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = None
+    if payload.dataset_id:
+        dataset = _get_dataset_for_user(db, payload.dataset_id, current_user)
+        datasource = _get_datasource_for_user(db, dataset.datasource_id, current_user)
+    else:
+        if not payload.datasource_id:
+            raise HTTPException(status_code=400, detail="请选择数据源或数据集")
+        datasource = _get_datasource_for_user(db, payload.datasource_id, current_user)
+
+    response = await build_dataset_ai_config(
+        datasource=datasource,
+        dataset=dataset,
+        table=payload.table,
+        fields_json=payload.fields_json,
+        aggregations_json=payload.aggregations_json,
+        semantic_model_json=payload.semantic_model_json,
+        drill_config_json=payload.drill_config_json,
+    )
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dataset.ai_config.suggest",
+        resource_type="dataset" if dataset else "datasource",
+        resource_id=dataset.id if dataset else datasource.id,
+        resource_name=dataset.name if dataset else datasource.name,
+        org_id=dataset.org_id if dataset else datasource.org_id,
+        message="数据集 AI 建模草稿已生成",
+        detail={
+            "source": response.get("source"),
+            "dimensions": len(response.get("semantic_model", {}).get("dimensions", [])),
+            "metrics": len(response.get("semantic_model", {}).get("metrics", [])),
+            "paths": len(response.get("drill_config", {}).get("paths", [])),
+        },
+    )
+    return response
 
 
 @router.post("/{dataset_id}/preview", response_model=DatasetPreviewResponse)
@@ -1092,14 +1232,15 @@ def update_dataset(
     _ensure_values(values.get("status"), values.get("visibility"))
     if "fields_json" in values:
         values["fields_json"] = _normalize_fields_json(values.get("fields_json"))
+    _normalize_model_values(values, dataset)
     if "datasource_id" in values:
         datasource = _get_datasource_for_user(db, values["datasource_id"], current_user)
         if current_user.role != "super_admin":
             dataset.org_id = datasource.org_id
+    approval_required = _apply_dataset_publication_workflow(values, current_user, dataset)
     for key, value in values.items():
         setattr(dataset, key, value)
-    if dataset.status == "published":
-        _sync_dataset_asset(db, dataset)
+    _sync_dataset_publication_state(db, dataset)
     db.commit()
     db.refresh(dataset)
     try_record_audit_log(
@@ -1110,8 +1251,8 @@ def update_dataset(
         resource_id=dataset.id,
         resource_name=dataset.name,
         org_id=dataset.org_id,
-        message="数据集已更新",
-        detail={"fields": list(values.keys())},
+        message="数据集已提交审批" if approval_required else "数据集已更新",
+        detail={"fields": list(values.keys()), "approval_required": approval_required},
     )
     return dataset
 
@@ -1127,9 +1268,14 @@ def publish_dataset(
         raise HTTPException(status_code=404, detail="数据集不存在")
     if not _can_manage_dataset(current_user, dataset):
         raise HTTPException(status_code=403, detail="无权限")
-    dataset.status = "published"
-    dataset.visibility = "org"
-    _sync_dataset_asset(db, dataset)
+    dataset.visibility = DATASET_VISIBILITY_ORG
+    approval_required = _requires_org_visibility_approval(
+        current_user,
+        dataset.visibility,
+        DATASET_STATUS_PUBLISHED,
+    )
+    dataset.status = DATASET_STATUS_PENDING_REVIEW if approval_required else DATASET_STATUS_PUBLISHED
+    _sync_dataset_publication_state(db, dataset)
     db.commit()
     db.refresh(dataset)
     try_record_audit_log(
@@ -1140,7 +1286,40 @@ def publish_dataset(
         resource_id=dataset.id,
         resource_name=dataset.name,
         org_id=dataset.org_id,
-        message="数据集已发布",
+        message="数据集已提交审批" if approval_required else "数据集已发布",
+        detail={"approval_required": approval_required},
+    )
+    return dataset
+
+
+@router.post("/{dataset_id}/approve", response_model=DatasetOut)
+def approve_dataset(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not _can_approve_dataset(db, current_user, dataset):
+        raise HTTPException(status_code=403, detail="需要同部门部门管理员或以上权限")
+    if dataset.visibility != DATASET_VISIBILITY_ORG:
+        raise HTTPException(status_code=400, detail="仅组织内可见的数据集需要审批")
+
+    dataset.status = DATASET_STATUS_PUBLISHED
+    dataset.visibility = DATASET_VISIBILITY_ORG
+    _sync_dataset_publication_state(db, dataset)
+    db.commit()
+    db.refresh(dataset)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="dataset.approve",
+        resource_type="dataset",
+        resource_id=dataset.id,
+        resource_name=dataset.name,
+        org_id=dataset.org_id,
+        message="数据集已审批发布",
     )
     return dataset
 
