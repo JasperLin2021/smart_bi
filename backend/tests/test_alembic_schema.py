@@ -26,6 +26,30 @@ class AlembicSchemaTests(unittest.TestCase):
             re.compile(r'op\.create_index\(\s*["\']ix_metrics_dataset_id["\']\s*,\s*["\']metrics["\']', re.S),
         )
 
+    def test_drifted_production_migrations_are_idempotent(self):
+        versions_dir = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+        metric_cleanup = (versions_dir / "20260508_0024_metric_remove_redundant_fields.py").read_text()
+        user_department = (versions_dir / "20260508_0025_user_department_dept_admin.py").read_text()
+
+        for column_name in ("table_name", "lineage_json"):
+            self.assertRegex(
+                metric_cleanup,
+                re.compile(
+                    rf'if\s+_has_column\(\s*["\']metrics["\']\s*,\s*["\']{column_name}["\']\s*\):\s*'
+                    rf'op\.drop_column\(\s*["\']metrics["\']\s*,\s*["\']{column_name}["\']\s*\)',
+                    re.S,
+                ),
+            )
+
+        self.assertRegex(
+            user_department,
+            re.compile(
+                r'if\s+_has_table\(\s*["\']users["\']\s*\)\s+and\s+not\s+_has_column\(\s*["\']users["\']\s*,\s*["\']department["\']\s*\):\s*'
+                r'op\.add_column\(\s*["\']users["\']',
+                re.S,
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

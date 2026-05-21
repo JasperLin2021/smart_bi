@@ -13,9 +13,21 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(table_name: str) -> bool:
+    return sa.inspect(op.get_bind()).has_table(table_name)
+
+
+def _has_column(table_name: str, column_name: str) -> bool:
+    if not _has_table(table_name):
+        return False
+    return any(column["name"] == column_name for column in sa.inspect(op.get_bind()).get_columns(table_name))
+
+
 def upgrade():
-    op.add_column("users", sa.Column("department", sa.String(64), nullable=True))
+    if _has_table("users") and not _has_column("users", "department"):
+        op.add_column("users", sa.Column("department", sa.String(64), nullable=True))
 
 
 def downgrade():
-    op.drop_column("users", "department")
+    if _has_column("users", "department"):
+        op.drop_column("users", "department")
