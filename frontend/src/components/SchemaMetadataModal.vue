@@ -197,14 +197,30 @@
                   </div>
 
                   <el-table :data="schema.relationships" size="small" border>
-                    <el-table-column label="来源表" width="150">
+                    <el-table-column label="状态" width="118">
+                      <template #default="{ row }">
+                        <el-select v-model="row.status" size="small" style="width: 100%">
+                          <el-option label="已确认" value="confirmed" />
+                          <el-option label="候选" value="inferred" />
+                          <el-option label="忽略" value="ignored" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="置信度" width="96" align="center">
+                      <template #default="{ row }">
+                        <el-tag size="small" :type="relationshipStatusType(row.status)" effect="plain">
+                          {{ confidencePercent(row.confidence) }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="来源表" width="140">
                       <template #default="{ row }">
                         <el-select v-model="row.from_table" size="small" style="width: 100%">
                           <el-option v-for="t in schema.tables" :key="t.name" :label="t.name" :value="t.name" />
                         </el-select>
                       </template>
                     </el-table-column>
-                    <el-table-column label="来源列" width="150">
+                    <el-table-column label="来源列" width="140">
                       <template #default="{ row }">
                         <el-select v-model="row.from_column" size="small" style="width: 100%">
                           <el-option
@@ -219,14 +235,14 @@
                     <el-table-column label="" width="50" align="center">
                       <template #default>→</template>
                     </el-table-column>
-                    <el-table-column label="目标表" width="150">
+                    <el-table-column label="目标表" width="140">
                       <template #default="{ row }">
                         <el-select v-model="row.to_table" size="small" style="width: 100%">
                           <el-option v-for="t in schema.tables" :key="t.name" :label="t.name" :value="t.name" />
                         </el-select>
                       </template>
                     </el-table-column>
-                    <el-table-column label="目标列" width="150">
+                    <el-table-column label="目标列" width="140">
                       <template #default="{ row }">
                         <el-select v-model="row.to_column" size="small" style="width: 100%">
                           <el-option
@@ -238,11 +254,47 @@
                         </el-select>
                       </template>
                     </el-table-column>
-                    <el-table-column label="操作" width="80" align="center">
-                      <template #default="{ $index }">
-                        <el-button type="danger" size="small" text @click="removeRelationship($index)">
-                          <el-icon><Delete /></el-icon>
-                        </el-button>
+                    <el-table-column label="证据" min-width="220">
+                      <template #default="{ row }">
+                        <el-tooltip
+                          v-if="relationshipEvidence(row)"
+                          placement="top"
+                          :content="relationshipEvidence(row)"
+                        >
+                          <span class="relationship-evidence">{{ relationshipEvidence(row) }}</span>
+                        </el-tooltip>
+                        <span v-else class="relationship-evidence is-empty">暂无证据</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="132" align="center" fixed="right">
+                      <template #default="{ row, $index }">
+                        <el-tooltip content="确认关系" placement="top">
+                          <el-button
+                            type="success"
+                            size="small"
+                            text
+                            :disabled="row.status === 'confirmed'"
+                            @click="confirmRelationship(row)"
+                          >
+                            <el-icon><Check /></el-icon>
+                          </el-button>
+                        </el-tooltip>
+                        <el-tooltip content="忽略关系" placement="top">
+                          <el-button
+                            type="warning"
+                            size="small"
+                            text
+                            :disabled="row.status === 'ignored'"
+                            @click="ignoreRelationship(row)"
+                          >
+                            <el-icon><CloseBold /></el-icon>
+                          </el-button>
+                        </el-tooltip>
+                        <el-tooltip content="删除关系" placement="top">
+                          <el-button type="danger" size="small" text @click="removeRelationship($index)">
+                            <el-icon><Delete /></el-icon>
+                          </el-button>
+                        </el-tooltip>
                       </template>
                     </el-table-column>
                   </el-table>
@@ -275,7 +327,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { RefreshRight, Plus, Delete, Grid, Connection, MagicStick } from '@element-plus/icons-vue'
+import { RefreshRight, Plus, Delete, Grid, Connection, MagicStick, Check, CloseBold } from '@element-plus/icons-vue'
 import axios from 'axios'
 
 interface Column {
@@ -295,6 +347,10 @@ interface Relationship {
   from_column: string
   to_table: string
   to_column: string
+  status?: "confirmed" | "inferred" | "ignored"
+  confidence?: number | null
+  source?: string | null
+  evidence?: string[]
 }
 
 interface Schema {
@@ -334,11 +390,20 @@ const totalColumns = computed(() =>
   schema.tables.reduce((sum, table) => sum + table.columns.length, 0)
 )
 
+const normalizeRelationships = (relationships: Relationship[] = []) =>
+  relationships.map(item => ({
+    ...item,
+    status: item.status || 'confirmed',
+    confidence: item.confidence ?? null,
+    source: item.source || null,
+    evidence: item.evidence || []
+  }))
+
 // Initialize schema from props
 watch(() => props.initialSchema, (newVal) => {
   if (newVal) {
     schema.tables = JSON.parse(JSON.stringify(newVal.tables || []))
-    schema.relationships = JSON.parse(JSON.stringify(newVal.relationships || []))
+    schema.relationships = normalizeRelationships(JSON.parse(JSON.stringify(newVal.relationships || [])))
     selectedTableIndex.value = schema.tables.length > 0 ? 0 : -1
   } else {
     schema.tables = []
@@ -357,7 +422,7 @@ const detectSchema = async () => {
   try {
     const response = await axios.post(`/api/datasources/${props.datasourceId}/detect-schema`)
     schema.tables = response.data.tables || []
-    schema.relationships = response.data.relationships || []
+    schema.relationships = normalizeRelationships(response.data.relationships || [])
     selectedTableIndex.value = schema.tables.length > 0 ? 0 : -1
     activeEditorTab.value = "columns"
     ElMessage.success(`检测到 ${schema.tables.length} 个表`)
@@ -423,12 +488,46 @@ const addRelationship = () => {
     from_table: schema.tables[0]?.name || '',
     from_column: '',
     to_table: schema.tables[1]?.name || '',
-    to_column: ''
+    to_column: '',
+    status: 'confirmed',
+    confidence: 1,
+    source: 'manual',
+    evidence: ['人工添加']
   })
 }
 
 const removeRelationship = (index: number) => {
   schema.relationships.splice(index, 1)
+}
+
+const confirmRelationship = (relationship: Relationship) => {
+  relationship.status = 'confirmed'
+  relationship.confidence = 1
+  relationship.source = relationship.source || 'manual'
+  relationship.evidence = relationship.evidence?.length ? relationship.evidence : ['人工确认']
+}
+
+const ignoreRelationship = (relationship: Relationship) => {
+  relationship.status = 'ignored'
+}
+
+const relationshipStatusType = (status?: string) => {
+  if (status === 'confirmed') return 'success'
+  if (status === 'ignored') return 'info'
+  return 'warning'
+}
+
+const confidencePercent = (confidence?: number | null) => {
+  if (confidence === null || confidence === undefined || Number.isNaN(Number(confidence))) {
+    return '待确认'
+  }
+  return `${Math.round(Number(confidence) * 100)}%`
+}
+
+const relationshipEvidence = (relationship: Relationship) => {
+  const evidence = relationship.evidence || []
+  if (!evidence.length) return ''
+  return evidence.join('；')
 }
 
 const selectTable = (index: number) => {
@@ -753,6 +852,20 @@ const handleClose = () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.relationship-evidence {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relationship-evidence.is-empty {
+  color: var(--app-text-muted);
 }
 
 .section-title {

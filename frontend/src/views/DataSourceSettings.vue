@@ -491,6 +491,10 @@ interface SchemaRelationship {
   from_column: string
   to_table: string
   to_column: string
+  status?: "confirmed" | "inferred" | "ignored"
+  confidence?: number | null
+  source?: string | null
+  evidence?: string[]
 }
 
 interface SchemaMetadata {

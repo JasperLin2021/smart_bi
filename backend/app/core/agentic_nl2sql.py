@@ -137,10 +137,48 @@ def _build_datasource_context(datasource: Any) -> str:
     if metadata_prompt:
         parts.append(f"元数据提示：\n{metadata_prompt}")
     if schema_metadata:
-        parts.append(f"结构化 Schema：\n{_compact_json(schema_metadata)}")
+        compact_schema, relationship_hint = _agentic_schema_context(schema_metadata)
+        parts.append(f"结构化 Schema：\n{_compact_json(compact_schema)}")
+        if relationship_hint:
+            parts.append(relationship_hint)
     if metrics_prompt:
         parts.append(f"指标口径：\n{metrics_prompt}")
     return "\n\n".join(parts)
+
+
+def _agentic_schema_context(schema_metadata: Any) -> tuple[Any, str]:
+    try:
+        schema = json.loads(schema_metadata) if isinstance(schema_metadata, str) else dict(schema_metadata)
+    except Exception:
+        return schema_metadata, ""
+    if not isinstance(schema, dict):
+        return schema_metadata, ""
+
+    relationships = schema.get("relationships")
+    if not isinstance(relationships, list):
+        return schema, ""
+
+    usable_relationships = []
+    for item in relationships:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "confirmed").lower()
+        confidence = item.get("confidence")
+        try:
+            confidence_value = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence_value = None
+        if status == "ignored":
+            continue
+        if status == "confirmed" or confidence_value is None or confidence_value >= 0.7:
+            usable_relationships.append(item)
+
+    schema = {**schema, "relationships": usable_relationships}
+    hint = (
+        "表关联规则：只优先使用 confirmed 或 confidence >= 0.70 的关系；"
+        "status=ignored 的关系必须忽略。若主表已有所需字段，不要为了同名字段额外 JOIN。"
+    )
+    return schema, hint
 
 
 def _normalize_text_list(value: Any) -> list[str]:

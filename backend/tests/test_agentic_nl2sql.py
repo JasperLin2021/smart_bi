@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -132,6 +133,48 @@ class AgenticNl2SqlTests(unittest.TestCase):
             trace_by_stage["sql_fix"]["detail"]["sql"],
             "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
         )
+
+    def test_agentic_context_filters_ignored_relationships_and_mentions_confidence_rule(self):
+        from app.core.agentic_nl2sql import _build_datasource_context
+
+        datasource = SimpleNamespace(
+            name="Sales DS",
+            source_type="database",
+            metadata_prompt="",
+            schema_metadata=json.dumps({
+                "tables": [
+                    {"name": "orders", "columns": [{"name": "customer_id", "type": "INTEGER"}]},
+                    {"name": "customers", "columns": [{"name": "id", "type": "INTEGER"}]},
+                    {"name": "wrong_table", "columns": [{"name": "id", "type": "INTEGER"}]},
+                ],
+                "relationships": [
+                    {
+                        "from_table": "orders",
+                        "from_column": "customer_id",
+                        "to_table": "customers",
+                        "to_column": "id",
+                        "status": "confirmed",
+                        "confidence": 0.99,
+                    },
+                    {
+                        "from_table": "orders",
+                        "from_column": "customer_id",
+                        "to_table": "ignored_target",
+                        "to_column": "id",
+                        "status": "ignored",
+                        "confidence": 0.95,
+                    },
+                ],
+            }),
+            metrics_prompt="",
+            database_url="sqlite:///:memory:",
+        )
+
+        context = _build_datasource_context(datasource)
+
+        self.assertIn("只优先使用 confirmed", context)
+        self.assertIn("customers", context)
+        self.assertNotIn("ignored_target", context)
 
     def test_agentic_nl2sql_emits_trace_callback_in_order(self):
         from app.core.agentic_nl2sql import build_agentic_nl2sql

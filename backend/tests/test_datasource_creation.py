@@ -120,6 +120,40 @@ class DataSourceCreationTests(unittest.TestCase):
             "SELECT TOP 2 * FROM [agentic_orders]",
         )
 
+    def test_detect_database_schema_infers_relationships_without_foreign_keys(self):
+        from app.core.schema_detector import detect_database_schema
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            source_engine = create_engine(f"sqlite:///{path}")
+            with source_engine.begin() as conn:
+                conn.execute(text("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)"))
+                conn.execute(text("CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, amount INTEGER)"))
+                conn.execute(text("INSERT INTO customers (id, name) VALUES (1, 'A'), (2, 'B')"))
+                conn.execute(text("INSERT INTO orders (customer_id, amount) VALUES (1, 10), (1, 20), (2, 30)"))
+            source_engine.dispose()
+
+            schema = detect_database_schema(f"sqlite:///{path}")
+
+            relation = next(
+                (
+                    item for item in schema.relationships
+                    if item.from_table == "orders"
+                    and item.from_column == "customer_id"
+                    and item.to_table == "customers"
+                    and item.to_column == "id"
+                ),
+                None,
+            )
+            self.assertIsNotNone(relation)
+            self.assertEqual(relation.status, "inferred")
+            self.assertGreaterEqual(relation.confidence or 0, 0.8)
+            self.assertTrue(any("命名" in item for item in relation.evidence))
+            self.assertTrue(any("覆盖率" in item for item in relation.evidence))
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()

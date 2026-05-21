@@ -19,6 +19,10 @@ class RelationshipSchema(BaseModel):
     from_column: str
     to_table: str
     to_column: str
+    status: str = "confirmed"  # confirmed | inferred | ignored
+    confidence: Optional[float] = None
+    source: Optional[str] = None
+    evidence: List[str] = []
 
 
 class SchemaMetadata(BaseModel):
