@@ -62,6 +62,15 @@ def _database_table_exists(engine, table: str) -> bool:
     return table in inspector.get_table_names()
 
 
+def _database_preview_sql(engine, quoted_table: str, limit: int) -> str:
+    dialect_name = str(getattr(engine.dialect, "name", "") or "").lower()
+    if dialect_name == "mssql":
+        return f"SELECT TOP {limit} * FROM {quoted_table}"
+    if dialect_name == "oracle":
+        return f"SELECT * FROM {quoted_table} FETCH FIRST {limit} ROWS ONLY"
+    return f"SELECT * FROM {quoted_table} LIMIT {limit}"
+
+
 def _fetch_database_preview(database_url: str, table: str, limit: int) -> dict:
     engine = get_datasource_engine(database_url)
     if not _database_table_exists(engine, table):
@@ -69,7 +78,7 @@ def _fetch_database_preview(database_url: str, table: str, limit: int) -> dict:
 
     quoted_table = _quote_table_name(engine, table)
     with engine.connect() as conn:
-        result = conn.execute(text(f"SELECT * FROM {quoted_table} LIMIT {limit}"))
+        result = conn.execute(text(_database_preview_sql(engine, quoted_table, limit)))
         columns = list(result.keys())
         rows = [dict(row._mapping) for row in result.fetchall()]
     return {"columns": columns, "rows": rows}

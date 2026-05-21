@@ -15,3 +15,4 @@ python-multipart>=0.0.20
 pymysql>=1.1.0
 pymssql>=2.3.0
 clickhouse-sqlalchemy>=0.3.0
+cryptography>=42.0.0

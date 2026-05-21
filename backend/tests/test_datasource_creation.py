@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import create_engine, text
@@ -108,6 +109,16 @@ class DataSourceCreationTests(unittest.TestCase):
             self.assertEqual(json.loads(saved.recommend_questions), expected_questions)
         finally:
             os.unlink(path)
+
+    def test_database_preview_sql_uses_sql_server_top_syntax(self):
+        from app.api.datasource import _database_preview_sql
+
+        engine = SimpleNamespace(dialect=SimpleNamespace(name="mssql"))
+
+        self.assertEqual(
+            _database_preview_sql(engine, "[agentic_orders]", 2),
+            "SELECT TOP 2 * FROM [agentic_orders]",
+        )
 
 
 if __name__ == "__main__":
