@@ -82,6 +82,41 @@ class LlmSettingsTests(unittest.TestCase):
         self.assertEqual(config["base_url"], "http://localhost:8001/v1")
         self.assertEqual(config["model"], "pi/pi-mono")
 
+    def test_gemma4_normalization_uses_gemini_api_with_gemma4_model(self):
+        from app.core.llm import normalize_llm_config
+
+        config = normalize_llm_config(
+            {
+                "provider": "gemma4",
+                "base_url": "",
+                "api_key": "demo-key",
+                "model": "",
+                "temperature": 0.3,
+            }
+        )
+
+        self.assertEqual(config["provider"], "gemini")
+        self.assertEqual(config["base_url"], "https://generativelanguage.googleapis.com/v1beta")
+        self.assertEqual(config["model"], "gemma-4-31b-it")
+
+    def test_llm_http_timeout_allows_slow_gemma_generation(self):
+        from app.core.llm import _llm_http_timeout, normalize_llm_config
+
+        config = normalize_llm_config(
+            {
+                "provider": "gemma4",
+                "base_url": "",
+                "api_key": "demo-key",
+                "model": "",
+                "temperature": 0.3,
+            }
+        )
+
+        timeout = _llm_http_timeout(config)
+
+        self.assertGreaterEqual(timeout.read, 120)
+        self.assertLessEqual(timeout.connect, 15)
+
     def test_update_llm_setting_preserves_saved_gemini_model_name(self):
         from app.api.settings import update_llm_setting
         from app.schemas.settings import LlmConfigUpdate

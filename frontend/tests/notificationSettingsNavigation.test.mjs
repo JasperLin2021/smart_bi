@@ -36,3 +36,11 @@ test("llm settings includes pi mono openai compatible preset", () => {
   assert.match(llmSettings, /label="Pi \/ pi-mono"\s+value="pi"/)
   assert.match(llmSettings, /pi:\s*\{\s*base_url:\s*"http:\/\/localhost:8001\/v1",\s*model:\s*"pi\/pi-mono"/)
 })
+
+test("llm settings includes google gemma 4 gemini api preset", () => {
+  const llmSettings = read("src/views/LlmSettings.vue")
+
+  assert.match(llmSettings, /label="Google Gemma 4（Gemini API）"\s+value="gemma4"/)
+  assert.match(llmSettings, /gemma4:\s*\{\s*base_url:\s*"https:\/\/generativelanguage\.googleapis\.com\/v1beta",\s*model:\s*"gemma-4-31b-it"/)
+  assert.doesNotMatch(llmSettings, /AIza[0-9A-Za-z_-]{20,}/)
+})

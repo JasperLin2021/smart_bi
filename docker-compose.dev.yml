@@ -35,6 +35,8 @@ services:
       LLM_DASHSCOPE_BASE: ${LLM_DASHSCOPE_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       LLM_DASHSCOPE_KEY: ${LLM_DASHSCOPE_KEY:-change_me_for_dashscope}
       LLM_DASHSCOPE_MODEL: ${LLM_DASHSCOPE_MODEL:-qwen3.6-35b-a3b}
+      LLM_CONNECT_TIMEOUT_SECONDS: ${LLM_CONNECT_TIMEOUT_SECONDS:-10}
+      LLM_READ_TIMEOUT_SECONDS: ${LLM_READ_TIMEOUT_SECONDS:-120}
       CUBE_API_URL: ${CUBE_API_URL:-http://host.docker.internal:4000/cubejs-api/v1}
       CUBE_API_TOKEN: ${CUBE_API_TOKEN:-change_me}
       DORIS_ENABLED: ${DORIS_ENABLED:-false}

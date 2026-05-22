@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     llm_gemini_base: str = "https://generativelanguage.googleapis.com/v1beta"
     llm_gemini_key: str = "change_me"
     llm_gemini_model: str = "gemini-1.5-flash"
+    llm_connect_timeout_seconds: float = 10.0
+    llm_read_timeout_seconds: float = 120.0
     jwt_secret: str = "change_me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480

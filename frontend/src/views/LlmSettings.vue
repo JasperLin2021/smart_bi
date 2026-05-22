@@ -18,6 +18,7 @@
               <el-option label="阿里云百炼（DashScope）" value="dashscope" />
               <el-option label="Pi / pi-mono" value="pi" />
               <el-option label="Gemini" value="gemini" />
+              <el-option label="Google Gemma 4（Gemini API）" value="gemma4" />
               <el-option label="自定义" value="custom" />
             </el-select>
             <el-button class="inline-button" @click="applyPreset">
@@ -105,6 +106,10 @@ const presets: Record<string, { base_url: string; model: string }> = {
     base_url: "https://generativelanguage.googleapis.com/v1beta",
     model: "gemini-2.5-flash-lite"
   },
+  gemma4: {
+    base_url: "https://generativelanguage.googleapis.com/v1beta",
+    model: "gemma-4-31b-it"
+  },
   custom: { base_url: "", model: "" }
 }
 
@@ -122,7 +127,9 @@ const applyPreset = () => {
 
 const loadConfig = async () => {
   const response = await axios.get("/api/settings/llm")
-  form.provider = response.data.provider
+  form.provider = response.data.provider === "gemini" && response.data.model?.startsWith("gemma-4-")
+    ? "gemma4"
+    : response.data.provider
   form.base_url = response.data.base_url
   form.model = response.data.model
   form.temperature = response.data.temperature

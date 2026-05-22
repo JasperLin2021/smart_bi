@@ -1,15 +1,14 @@
-import asyncio
 import json
 import re
 import shutil
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text, create_engine
 from typing import List
 
 from app.api.auth import get_current_user
-from app.db.session import get_db, get_datasource_engine
+from app.db.session import SessionLocal, get_db, get_datasource_engine
 from app.models.datasource import DataSource
 from app.models.user import User
 from app.schemas.datasource import (
@@ -110,6 +109,75 @@ def _clean_recommend_questions(questions: list[str] | None, limit: int | None = 
     return cleaned
 
 
+def _schema_from_datasource(ds: DataSource) -> SchemaMetadata | None:
+    if not ds.schema_metadata:
+        return None
+    try:
+        return SchemaMetadata.model_validate(json.loads(ds.schema_metadata))
+    except Exception:
+        return None
+
+
+async def _generate_recommend_questions_for_datasource_background(
+    datasource_id: int,
+    actor_user_id: int | None = None,
+):
+    db = SessionLocal()
+    try:
+        ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+        if not ds or ds.recommend_questions:
+            return
+
+        schema = _schema_from_datasource(ds)
+        questions = _clean_recommend_questions(
+            await generate_recommend_questions(
+                datasource_name=ds.name,
+                source_type=ds.source_type,
+                metadata_prompt=ds.metadata_prompt,
+                metrics_prompt=ds.metrics_prompt,
+                schema=schema,
+                limit=3,
+            ),
+            limit=3,
+        )
+        if questions:
+            ds.recommend_questions = json.dumps(questions, ensure_ascii=False)
+
+        actor = db.query(User).filter(User.id == actor_user_id).first() if actor_user_id else None
+        try_record_audit_log(
+            db,
+            actor=actor,
+            action="datasource.generate_recommend_questions",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="success" if questions else "warning",
+            message="推荐问题后台生成完成" if questions else "推荐问题后台生成未返回有效结果",
+            detail={"question_count": len(questions), "has_schema": schema is not None, "background": True},
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+        actor = db.query(User).filter(User.id == actor_user_id).first() if actor_user_id else None
+        try_record_audit_log(
+            db,
+            actor=actor,
+            action="datasource.generate_recommend_questions",
+            resource_type="datasource",
+            resource_id=datasource_id,
+            resource_name=ds.name if ds else None,
+            org_id=ds.org_id if ds else None,
+            status="error",
+            message=f"推荐问题后台生成失败: {exc}",
+            detail={"background": True},
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.get("", response_model=List[DataSourceListItem])
 def list_datasources(
     db: Session = Depends(get_db),
@@ -121,11 +189,11 @@ def list_datasources(
     return query.all()
 
 
-@router.post("", response_model=DataSourceOut)
 def create_datasource(
     payload: DataSourceCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks | None = None,
 ):
     existing = db.query(DataSource).filter(
         (DataSource.slug == payload.slug) | (DataSource.name == payload.name)
@@ -158,25 +226,6 @@ def create_datasource(
         org_id = payload.org_id
 
     recommend_questions = _clean_recommend_questions(payload.recommend_questions)
-    recommend_generation_error = None
-    if not recommend_questions:
-        try:
-            recommend_questions = _clean_recommend_questions(
-                asyncio.run(
-                    generate_recommend_questions(
-                        datasource_name=payload.name,
-                        source_type=source_type,
-                        metadata_prompt=metadata_prompt,
-                        metrics_prompt=payload.metrics_prompt,
-                        schema=schema_metadata,
-                        limit=3,
-                    )
-                ),
-                limit=3,
-            )
-        except Exception as exc:
-            recommend_generation_error = str(exc)
-            recommend_questions = []
 
     ds = DataSource(
         name=payload.name,
@@ -200,6 +249,12 @@ def create_datasource(
     db.add(ds)
     db.commit()
     db.refresh(ds)
+    if not recommend_questions and background_tasks:
+        background_tasks.add_task(
+            _generate_recommend_questions_for_datasource_background,
+            ds.id,
+            current_user.id,
+        )
     try_record_audit_log(
         db,
         actor=current_user,
@@ -216,10 +271,27 @@ def create_datasource(
             "table_count": len(schema_metadata.tables) if schema_metadata else 0,
             "recommend_question_count": len(recommend_questions),
             "recommend_questions_auto_generated": not _clean_recommend_questions(payload.recommend_questions),
-            "recommend_generation_error": recommend_generation_error,
+            "recommend_questions_generation_status": "scheduled"
+            if not recommend_questions and background_tasks
+            else "provided",
         },
     )
     return _to_out(ds)
+
+
+@router.post("", response_model=DataSourceOut)
+def create_datasource_endpoint(
+    payload: DataSourceCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return create_datasource(
+        payload,
+        db=db,
+        current_user=current_user,
+        background_tasks=background_tasks,
+    )
 
 
 @router.post("/upload-excel")

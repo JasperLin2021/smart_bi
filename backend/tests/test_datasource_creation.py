@@ -58,7 +58,7 @@ class DataSourceCreationTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_create_datasource_generates_three_recommend_questions_when_missing(self):
+    def test_create_datasource_schedules_recommend_questions_without_blocking(self):
         from app.api.datasource import create_datasource
         from app.models.datasource import DataSource
         from app.models.user import User
@@ -77,16 +77,17 @@ class DataSourceCreationTests(unittest.TestCase):
             db.add(current_user)
             db.commit()
 
-            generated_questions = [
-                "最近 7 天报警次数趋势",
-                "各报警码发生次数 Top10",
-                "按日期统计报警发生次数",
-                "查看报警设备分布",
-            ]
-            expected_questions = generated_questions[:3]
+            class FakeBackgroundTasks:
+                def __init__(self):
+                    self.tasks = []
+
+                def add_task(self, func, *args, **kwargs):
+                    self.tasks.append((func, args, kwargs))
+
+            background_tasks = FakeBackgroundTasks()
             with patch(
                 "app.api.datasource.generate_recommend_questions",
-                new=AsyncMock(return_value=generated_questions),
+                new=AsyncMock(side_effect=AssertionError("recommend question generation should run after response")),
             ) as mocked:
                 created = create_datasource(
                     DataSourceCreate(
@@ -99,14 +100,16 @@ class DataSourceCreationTests(unittest.TestCase):
                     ),
                     db=db,
                     current_user=current_user,
+                    background_tasks=background_tasks,
                 )
 
-            mocked.assert_awaited_once()
-            self.assertEqual(mocked.await_args.kwargs["limit"], 3)
-            self.assertEqual(created["recommend_questions"], expected_questions)
+            mocked.assert_not_awaited()
+            self.assertIsNone(created["recommend_questions"])
+            self.assertEqual(len(background_tasks.tasks), 1)
+            self.assertEqual(background_tasks.tasks[0][1][0], created["id"])
 
             saved = db.query(DataSource).filter(DataSource.id == created["id"]).one()
-            self.assertEqual(json.loads(saved.recommend_questions), expected_questions)
+            self.assertIsNone(saved.recommend_questions)
         finally:
             os.unlink(path)
 

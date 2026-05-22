@@ -900,6 +900,11 @@ def _duration_ms(start: float) -> float:
 
 def _format_agentic_generation_error(exc: Exception, llm_config: dict | None = None) -> str:
     message = _format_exception(exc)
+    if isinstance(exc, httpx.ReadTimeout):
+        config = llm_config or {}
+        model = config.get("model") or "未配置模型"
+        base_url = config.get("base_url") or "未配置"
+        return f"探索模式底层大模型响应超时: {model} 服务 {base_url} 未在配置的等待时间内返回 ({message})"
     if isinstance(exc, httpx.RequestError):
         config = llm_config or {}
         model = config.get("model") or "未配置模型"
@@ -1304,10 +1309,11 @@ async def ask(
 
     # 生成摘要
     try:
-        summary = await generate_summary(question, result)
+        summary = await generate_summary(question, result, chart_spec=chart_spec) if mode == "agentic" else await generate_summary(question, result)
     except Exception:
-        summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
-    summary = _normalize_summary(question, result, summary)
+        summary = "分析总结生成失败，请查看图表和明细数据。"
+    if mode != "agentic":
+        summary = _normalize_summary(question, result, summary)
 
     recommendations = _get_recommendations(datasource)
     trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)
@@ -1528,10 +1534,9 @@ async def ask_stream(
                 )
 
             try:
-                summary = await generate_summary(question, result)
+                summary = await generate_summary(question, result, chart_spec=chart_spec)
             except Exception:
-                summary = f"已生成SQL查询结果，共{len(rows)}条记录。"
-            summary = _normalize_summary(question, result, summary)
+                summary = "分析总结生成失败，请查看图表和明细数据。"
 
             recommendations = _get_recommendations(datasource)
             trust_signals = _query_metric_trust_signals(db, datasource, question, sql_query, metric_match)

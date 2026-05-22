@@ -29,6 +29,8 @@ test("new data sources auto detect schema on create", () => {
   const view = read("src/views/DataSourceSettings.vue")
 
   assert.match(view, /已自动检测表结构/)
+  assert.match(view, /推荐问题将在后台生成/)
+  assert.doesNotMatch(view, /已自动检测表结构并生成/)
   assert.doesNotMatch(view, /请点击「表结构」按钮配置表结构/)
 })
 

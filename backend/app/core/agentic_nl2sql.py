@@ -15,6 +15,20 @@ TraceCallback = Callable[[dict[str, Any]], Awaitable[None]]
 CHART_TYPES = {"line", "bar", "horizontal_bar", "area", "pie", "donut", "scatter", "table", "kpi", "combo"}
 CHART_LAYOUTS = {"single", "tabs_by_field"}
 CHART_SORT_ORDERS = {"none", "asc", "desc"}
+IDENTIFIER_SUFFIXES = ("identifier", "equipment", "machine", "station", "customer", "product", "region")
+SEMANTIC_GENERIC_TOKENS = {
+    "id",
+    "code",
+    "no",
+    "num",
+    "number",
+    "name",
+    "type",
+    "txt",
+    "text",
+    "desc",
+    "description",
+}
 
 
 def _duration_ms(start: float) -> float:
@@ -104,6 +118,249 @@ def _compact_json(value: Any, limit: int = 4000) -> str:
     else:
         text = json.dumps(value, ensure_ascii=False, default=str)
     return text if len(text) <= limit else f"{text[:limit]}\n...(已截断)"
+
+
+def _normalize_identifier(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _split_identifier_words(value: str) -> list[str]:
+    text = str(value or "")
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    words: list[str] = []
+    for raw in re.split(r"[^A-Za-z0-9]+", text.lower()):
+        if not raw:
+            continue
+        pending = [raw]
+        changed = True
+        while changed:
+            changed = False
+            next_pending: list[str] = []
+            for item in pending:
+                split_done = False
+                for suffix in (*IDENTIFIER_SUFFIXES, *SEMANTIC_GENERIC_TOKENS):
+                    if item.endswith(suffix) and len(item) > len(suffix) + 1:
+                        next_pending.extend([item[: -len(suffix)], suffix])
+                        changed = True
+                        split_done = True
+                        break
+                if not split_done:
+                    next_pending.append(item)
+            pending = next_pending
+        words.extend(pending)
+    return [word for index, word in enumerate(words) if word and word not in words[:index]]
+
+
+def _expanded_identifier_words(value: str) -> set[str]:
+    words = set(_split_identifier_words(value))
+    if words.intersection({"id", "code", "no", "num", "number"}):
+        words.update({"id", "code", "identifier"})
+    if words.intersection({"txt", "text", "name", "desc", "description"}):
+        words.update({"txt", "text", "name", "label", "description"})
+    return words
+
+
+def _important_identifier_words(value: str) -> set[str]:
+    return _expanded_identifier_words(value) - SEMANTIC_GENERIC_TOKENS - {"identifier", "label"}
+
+
+def _is_time_like_column_name(column: str) -> bool:
+    lower = column.lower()
+    return any(token in lower for token in ("date", "time", "day", "month", "week", "year", "datetime"))
+
+
+def _is_semantic_dimension_name(column: str) -> bool:
+    return not _is_time_like_column_name(column) and not _is_measure_like_column(column)
+
+
+def _datasource_column_names(datasource: Any) -> list[str]:
+    columns: list[str] = []
+    schema_metadata = getattr(datasource, "schema_metadata", None)
+    try:
+        schema = json.loads(schema_metadata) if isinstance(schema_metadata, str) else schema_metadata
+    except Exception:
+        schema = None
+    if isinstance(schema, dict):
+        for table in schema.get("tables") or []:
+            if not isinstance(table, dict):
+                continue
+            for column in table.get("columns") or []:
+                name = column.get("name") if isinstance(column, dict) else column
+                if name:
+                    text = str(name).strip()
+                    if text and text not in columns:
+                        columns.append(text)
+
+    metadata_prompt = getattr(datasource, "metadata_prompt", "") or ""
+    for match in re.finditer(r"\(([^()]+)\)", metadata_prompt):
+        for raw in match.group(1).split(","):
+            name = raw.strip().split()[0] if raw.strip() else ""
+            if name and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name) and name not in columns:
+                columns.append(name)
+    return columns
+
+
+def _sql_mentions_identifier(sql: str, column: str) -> bool:
+    return _normalize_identifier(column) in _normalize_identifier(_strip_sql_comments(sql))
+
+
+def _scan_top_level_keyword(sql: str, keyword: str, start: int = 0) -> list[int]:
+    lowered = sql.lower()
+    keyword = keyword.lower()
+    positions: list[int] = []
+    depth = 0
+    quote: str | None = None
+    index = start
+    while index < len(sql):
+        char = sql[index]
+        if quote:
+            if char == quote:
+                if quote == "'" and index + 1 < len(sql) and sql[index + 1] == "'":
+                    index += 2
+                    continue
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"', "`"}:
+            quote = char
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0 and lowered.startswith(keyword, index):
+            before = lowered[index - 1] if index > 0 else " "
+            after_index = index + len(keyword)
+            after = lowered[after_index] if after_index < len(lowered) else " "
+            if not (before.isalnum() or before == "_") and not (after.isalnum() or after == "_"):
+                positions.append(index)
+        index += 1
+    return positions
+
+
+def _final_select_projection(sql: str) -> str:
+    clean_sql = _strip_sql_comments(sql)
+    select_positions = _scan_top_level_keyword(clean_sql, "select")
+    if not select_positions:
+        return ""
+    select_index = select_positions[-1]
+    from_positions = _scan_top_level_keyword(clean_sql, "from", start=select_index + len("select"))
+    if not from_positions:
+        return ""
+    return clean_sql[select_index + len("select"): from_positions[0]].strip()
+
+
+def _split_sql_projection_items(projection: str) -> list[str]:
+    items: list[str] = []
+    depth = 0
+    quote: str | None = None
+    start = 0
+    index = 0
+    while index < len(projection):
+        char = projection[index]
+        if quote:
+            if char == quote:
+                if quote == "'" and index + 1 < len(projection) and projection[index + 1] == "'":
+                    index += 2
+                    continue
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"', "`"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            items.append(projection[start:index].strip())
+            start = index + 1
+        index += 1
+    tail = projection[start:].strip()
+    if tail:
+        items.append(tail)
+    return items
+
+
+def _projection_identifiers(sql: str) -> set[str]:
+    projection = _final_select_projection(sql)
+    identifiers: set[str] = set()
+    for item in _split_sql_projection_items(projection):
+        without_literals = re.sub(r"'(?:''|[^'])*'", " ", item)
+        alias_match = re.search(r"\bas\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", without_literals, re.I)
+        if alias_match:
+            identifiers.add(alias_match.group(1))
+        elif re.search(r"\s", without_literals.strip()):
+            tail_match = re.search(r"\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", without_literals)
+            if tail_match:
+                identifiers.add(tail_match.group(1))
+        for match in re.finditer(r"(?:\b[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)", without_literals):
+            identifiers.add(match.group(1))
+    return identifiers
+
+
+def _semantic_words_overlap(left: str, right: str) -> bool:
+    left_words = _important_identifier_words(left)
+    right_words = _important_identifier_words(right)
+    if left_words and right_words and left_words.intersection(right_words):
+        return True
+    expanded_left = _expanded_identifier_words(left)
+    expanded_right = _expanded_identifier_words(right)
+    return bool(expanded_left.intersection(expanded_right) - SEMANTIC_GENERIC_TOKENS - {"identifier", "label"})
+
+
+def _column_relevant_to_context(column: str, context: str) -> bool:
+    normalized_context = _normalize_identifier(context)
+    if _normalize_identifier(column) in normalized_context:
+        return True
+    context_words = _expanded_identifier_words(context)
+    important = _important_identifier_words(column)
+    return bool(important and important.intersection(context_words))
+
+
+def _projection_has_semantic_dimension(column: str, projection_identifiers: set[str], schema_columns: list[str]) -> bool:
+    normalized_projection = {_normalize_identifier(item) for item in projection_identifiers}
+    if _normalize_identifier(column) in normalized_projection:
+        return True
+    for item in projection_identifiers:
+        if _semantic_words_overlap(column, item):
+            return True
+    selected_schema_columns = [
+        schema_column
+        for schema_column in schema_columns
+        if _normalize_identifier(schema_column) in normalized_projection
+    ]
+    return any(_semantic_words_overlap(column, selected) for selected in selected_schema_columns)
+
+
+def _plan_context_text(question: str | None, plan: dict[str, Any] | None) -> str:
+    plan_text = json.dumps(plan or {}, ensure_ascii=False, default=str)
+    return f"{question or ''}\n{plan_text}"
+
+
+def _projection_semantic_risks(datasource: Any, sql: str, question: str | None, plan: dict[str, Any] | None) -> list[str]:
+    if not question and not plan:
+        return []
+    context = _plan_context_text(question, plan)
+    if any(token in context.lower() for token in ("整体", "合计", "总计", "汇总到一起", "overall", "combined")):
+        return []
+    schema_columns = _datasource_column_names(datasource)
+    if not schema_columns:
+        return []
+    projection_identifiers = _projection_identifiers(sql)
+    missing: list[str] = []
+    for column in schema_columns:
+        if not _is_semantic_dimension_name(column):
+            continue
+        if not _column_relevant_to_context(column, context):
+            continue
+        if not _sql_mentions_identifier(sql, column):
+            continue
+        if _projection_has_semantic_dimension(column, projection_identifiers, schema_columns):
+            continue
+        missing.append(column)
+    return missing
 
 
 def infer_sql_dialect(datasource: Any) -> str:
@@ -675,6 +932,9 @@ async def _generate_sql(
                     "你是谨慎的 NL2SQL Agent。只能生成单条只读 SELECT SQL。"
                     "必须遵循数据源上下文中的 SQL 方言。"
                     "不得输出 INSERT、UPDATE、DELETE、DROP、ALTER、CREATE、TRUNCATE、CALL 等语句。"
+                    "如果某个分类维度用于 TOP N、筛选、分组、分面或用户要求展示的层级，"
+                    "最终 SELECT 必须保留该维度，并在聚合查询中同步放入 GROUP BY；"
+                    "不要把用户关心的分类维度提前聚合掉。"
                     "不要使用 markdown，不要解释。"
                 ),
             },
@@ -692,12 +952,24 @@ async def _generate_sql(
     return _extract_sql(raw)
 
 
-def _validate_agentic_sql(datasource: Any, sql: str) -> str:
+def _validate_agentic_sql(
+    datasource: Any,
+    sql: str,
+    question: str | None = None,
+    plan: dict[str, Any] | None = None,
+) -> str:
     safe_sql = assert_read_only_sql(sql)
     if getattr(datasource, "source_type", "") == "excel":
         risk = detect_excel_join_risk(getattr(datasource, "database_url", ""), safe_sql)
         if risk:
             raise ValueError(f"{risk['message']} {risk['hint']}")
+    missing_dimensions = _projection_semantic_risks(datasource, safe_sql, question, plan)
+    if missing_dimensions:
+        dimension_list = "、".join(missing_dimensions[:5])
+        raise ValueError(
+            f"SQL 使用了问题相关维度 {dimension_list} 做筛选、TOP N 或分组，但最终 SELECT 没有输出该维度，"
+            "会把多个分类合并，导致图表无法按该维度分面或切换。请在最终 SELECT 和 GROUP BY 中保留这些维度。"
+        )
     return safe_sql
 
 
@@ -765,7 +1037,7 @@ async def build_agentic_nl2sql(
             llm_config=llm_config,
         )
         try:
-            safe_sql = _validate_agentic_sql(datasource, sql)
+            safe_sql = _validate_agentic_sql(datasource, sql, question=question, plan=plan)
             await _append_trace(
                 trace,
                 _trace(stage, "success", "已生成安全 SQL", {"sql": safe_sql}, duration_ms=_duration_ms(step_start)),
@@ -830,7 +1102,7 @@ async def repair_agentic_sql_after_execution_error(
         if llm_model:
             detail["model"] = llm_model
         try:
-            safe_sql = _validate_agentic_sql(datasource, sql)
+            safe_sql = _validate_agentic_sql(datasource, sql, question=question, plan=plan)
             detail["sql"] = safe_sql
             await _append_trace(
                 trace,

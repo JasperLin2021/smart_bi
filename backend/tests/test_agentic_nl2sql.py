@@ -134,6 +134,136 @@ class AgenticNl2SqlTests(unittest.TestCase):
             "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
         )
 
+    def test_agentic_nl2sql_repairs_when_top_dimension_is_filtered_but_not_returned(self):
+        from app.core.agentic_nl2sql import build_agentic_nl2sql
+
+        datasource = SimpleNamespace(
+            name="Alarm DS",
+            source_type="database",
+            metadata_prompt="",
+            schema_metadata={
+                "tables": [
+                    {
+                        "name": "sheet1",
+                        "columns": [
+                            {"name": "ALARMID", "type": "INTEGER"},
+                            {"name": "ALARMTXT", "type": "VARCHAR"},
+                            {"name": "EQUIPMENTID", "type": "VARCHAR"},
+                            {"name": "SUMDATETIME", "type": "TIMESTAMP"},
+                            {"name": "TOTALTIMES", "type": "INTEGER"},
+                        ],
+                    }
+                ]
+            },
+            metrics_prompt="",
+            database_url="sqlite:///:memory:",
+        )
+        bad_sql = """
+WITH top3_alarm AS (
+    SELECT ALARMID
+    FROM sheet1
+    GROUP BY ALARMID
+    ORDER BY SUM(TOTALTIMES) DESC
+    LIMIT 3
+)
+SELECT CAST(SUMDATETIME AS DATE) AS date, EQUIPMENTID, SUM(TOTALTIMES) AS total_times
+FROM sheet1
+WHERE ALARMID IN (SELECT ALARMID FROM top3_alarm)
+GROUP BY date, EQUIPMENTID
+ORDER BY date, EQUIPMENTID
+"""
+        fixed_sql = """
+WITH top3_alarm AS (
+    SELECT ALARMID
+    FROM sheet1
+    GROUP BY ALARMID
+    ORDER BY SUM(TOTALTIMES) DESC
+    LIMIT 3
+)
+SELECT ALARMID, CAST(SUMDATETIME AS DATE) AS date, EQUIPMENTID, SUM(TOTALTIMES) AS total_times
+FROM sheet1
+WHERE ALARMID IN (SELECT ALARMID FROM top3_alarm)
+GROUP BY ALARMID, date, EQUIPMENTID
+ORDER BY ALARMID, date, EQUIPMENTID
+"""
+
+        with patch(
+            "app.core.agentic_nl2sql.chat_completion",
+            new=AsyncMock(
+                side_effect=[
+                    '{"objective":"TOP3 alarmcode 中 TOP10 设备趋势",'
+                    '"steps":["统计 TOP3 alarmcode","按 alarmcode 和 equipment 分组生成趋势"],'
+                    '"expected_output":"alarmcode、设备、日期、次数"}',
+                    bad_sql,
+                    fixed_sql,
+                ]
+            ),
+        ) as mocked_chat:
+            result = asyncio.run(
+                build_agentic_nl2sql(
+                    "TOP3的 alarmcode中发生次数最多的设备的趋势图 也取 TOP10",
+                    datasource,
+                )
+            )
+
+        self.assertEqual(mocked_chat.await_count, 3)
+        self.assertIn("ALARMID", result["sql_query"])
+        self.assertIn("GROUP BY ALARMID", result["sql_query"])
+        self.assertEqual([item["stage"] for item in result["trace"]], ["context", "plan", "sql_generate", "sql_fix"])
+        self.assertEqual(result["trace"][2]["status"], "error")
+        self.assertIn("ALARMID", result["trace"][2]["message"])
+
+    def test_agentic_sql_semantic_guard_rejects_collapsed_requested_dimension(self):
+        from app.core.agentic_nl2sql import _validate_agentic_sql
+
+        datasource = SimpleNamespace(
+            name="Alarm DS",
+            source_type="database",
+            metadata_prompt="",
+            schema_metadata={
+                "tables": [
+                    {
+                        "name": "sheet1",
+                        "columns": [
+                            {"name": "ALARMID", "type": "INTEGER"},
+                            {"name": "EQUIPMENTID", "type": "VARCHAR"},
+                            {"name": "SUMDATETIME", "type": "TIMESTAMP"},
+                            {"name": "TOTALTIMES", "type": "INTEGER"},
+                        ],
+                    }
+                ]
+            },
+            metrics_prompt="",
+            database_url="sqlite:///:memory:",
+        )
+        sql = """
+WITH top3_alarm AS (
+    SELECT ALARMID
+    FROM sheet1
+    GROUP BY ALARMID
+    ORDER BY SUM(TOTALTIMES) DESC
+    LIMIT 3
+)
+SELECT CAST(SUMDATETIME AS DATE) AS date, EQUIPMENTID, SUM(TOTALTIMES) AS total_times
+FROM sheet1
+WHERE ALARMID IN (SELECT ALARMID FROM top3_alarm)
+GROUP BY date, EQUIPMENTID
+"""
+
+        with self.assertRaises(ValueError) as ctx:
+            _validate_agentic_sql(
+                datasource,
+                sql,
+                question="TOP3的 alarmcode中发生次数最多的设备的趋势图 也取 TOP10",
+                plan={
+                    "objective": "TOP3 alarmcode 中 TOP10 设备趋势",
+                    "steps": ["统计 TOP3 alarmcode", "输出 alarmcode、设备和日期趋势"],
+                },
+            )
+
+        self.assertIn("ALARMID", str(ctx.exception))
+        self.assertIn("最终 SELECT", str(ctx.exception))
+
     def test_agentic_context_filters_ignored_relationships_and_mentions_confidence_rule(self):
         from app.core.agentic_nl2sql import _build_datasource_context
 
@@ -469,6 +599,24 @@ class AgenticNl2SqlTests(unittest.TestCase):
         self.assertIn("探索模式底层大模型连接失败", message)
         self.assertIn("gemini-3.1-flash-lite", message)
         self.assertIn("https://generativelanguage.googleapis.com/v1beta", message)
+
+    def test_agentic_generation_error_reports_read_timeout_separately(self):
+        from app.api.query import _format_agentic_generation_error
+
+        request = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta")
+        exc = httpx.ReadTimeout("ReadTimeout", request=request)
+        message = _format_agentic_generation_error(
+            exc,
+            {
+                "provider": "gemini",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                "model": "gemma-4-31b-it",
+            },
+        )
+
+        self.assertIn("探索模式底层大模型响应超时", message)
+        self.assertIn("gemma-4-31b-it", message)
+        self.assertNotIn("无法连接", message)
 
     def test_agentic_nl2sql_repairs_sql_after_execution_error(self):
         from app.core.agentic_nl2sql import repair_agentic_sql_after_execution_error

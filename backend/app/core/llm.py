@@ -9,6 +9,10 @@ from app.models.llm_setting import LlmSetting
 _llm_config_cache: dict | None = None
 DASHSCOPE_PROVIDER_ALIASES = {"dashscope", "aliyun_bailian", "bailian", "aliyun"}
 PI_PROVIDER_ALIASES = {"pi", "pi_mono", "pi-mono", "pimono"}
+GEMMA4_PROVIDER_ALIASES = {"gemma4", "gemma-4", "google_gemma4", "google-gemma4"}
+GEMMA4_DEFAULT_MODEL = "gemma-4-31b-it"
+SUMMARY_CHART_SAMPLE_LIMIT = 120
+SUMMARY_FIELD_VALUE_LIMIT = 60
 
 DEFAULT_TEXT2SQL_PROMPT = """你是SQL专家，根据用户问题生成标准SQL查询语句。
 
@@ -116,6 +120,15 @@ def get_default_llm_config() -> dict:
             "temperature": 0.3,
             "agent_planner_mode": "llm_only",
         }
+    if provider in GEMMA4_PROVIDER_ALIASES:
+        return {
+            "provider": "gemma4",
+            "base_url": settings.llm_gemini_base,
+            "api_key": settings.llm_gemini_key,
+            "model": GEMMA4_DEFAULT_MODEL,
+            "temperature": 0.3,
+            "agent_planner_mode": "llm_only",
+        }
     if provider == "gemini":
         return {
             "provider": "gemini",
@@ -142,11 +155,14 @@ def set_llm_config_cache(config: dict):
 
 def normalize_llm_config(config: dict) -> dict:
     normalized = dict(config)
-    provider = str(normalized.get("provider") or "").lower()
+    raw_provider = str(normalized.get("provider") or "").lower()
+    provider = raw_provider
     if provider in DASHSCOPE_PROVIDER_ALIASES:
         provider = "dashscope"
     if provider in PI_PROVIDER_ALIASES:
         provider = "pi"
+    if provider in GEMMA4_PROVIDER_ALIASES:
+        provider = "gemini"
     normalized["provider"] = provider
     normalized["base_url"] = str(normalized.get("base_url") or "").rstrip("/")
     normalized["model"] = str(normalized.get("model") or "").strip()
@@ -158,8 +174,22 @@ def normalize_llm_config(config: dict) -> dict:
         normalized["model"] = normalized["model"] or settings.llm_pi_model
     if provider == "gemini":
         normalized["base_url"] = normalized["base_url"] or settings.llm_gemini_base
-        normalized["model"] = normalized["model"] or settings.llm_gemini_model
+        normalized["model"] = normalized["model"] or (
+            GEMMA4_DEFAULT_MODEL if raw_provider in GEMMA4_PROVIDER_ALIASES else settings.llm_gemini_model
+        )
     return normalized
+
+
+def _llm_http_timeout(config: dict | None = None) -> httpx.Timeout:
+    read_timeout = float(getattr(settings, "llm_read_timeout_seconds", 120.0) or 120.0)
+    connect_timeout = float(getattr(settings, "llm_connect_timeout_seconds", 10.0) or 10.0)
+    return httpx.Timeout(
+        timeout=read_timeout,
+        connect=min(connect_timeout, read_timeout),
+        read=read_timeout,
+        write=min(30.0, read_timeout),
+        pool=min(connect_timeout, read_timeout),
+    )
 
 
 async def get_llm_config() -> dict:
@@ -189,7 +219,7 @@ async def chat_completion(
 ) -> str:
     config = normalize_llm_config(config_override or await get_llm_config())
     actual_temperature = config.get("temperature", 0.3) if temperature is None else temperature
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=_llm_http_timeout(config)) as client:
         if config["provider"] == "gemini":
             combined = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
             payload = {
@@ -299,7 +329,161 @@ async def generate_sql_query(
     return {"raw": content, "sql": sql}
 
 
-async def generate_summary(question: str, result: dict) -> str:
+def _compact_summary_row(row, selected_fields: list[str]):
+    if not isinstance(row, dict):
+        return row
+    return {field: row.get(field) for field in selected_fields if field in row}
+
+
+def _evenly_sample_rows(rows: list, limit: int) -> list:
+    if len(rows) <= limit:
+        return rows
+    if limit <= 1:
+        return rows[:1]
+    indexes: list[int] = []
+    seen = set()
+    step = (len(rows) - 1) / (limit - 1)
+    for index in range(limit):
+        row_index = int(round(index * step))
+        if row_index not in seen:
+            seen.add(row_index)
+            indexes.append(row_index)
+    cursor = 0
+    while len(indexes) < limit and cursor < len(rows):
+        if cursor not in seen:
+            indexes.append(cursor)
+            seen.add(cursor)
+        cursor += 1
+    indexes.sort()
+    return [rows[index] for index in indexes[:limit]]
+
+
+def _summary_field_key(value) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str, sort_keys=True)
+
+
+def _group_rows_by_field(rows: list, field: str) -> list[list]:
+    grouped: dict[str, list] = {}
+    for row in rows:
+        value = row.get(field) if isinstance(row, dict) else None
+        grouped.setdefault(_summary_field_key(value), []).append(row)
+    return list(grouped.values())
+
+
+def _stratified_chart_sample(rows: list, chart_spec: dict | None, limit: int) -> list:
+    if len(rows) <= limit:
+        return rows
+    if not chart_spec:
+        return _evenly_sample_rows(rows, limit)
+    primary_field = str(chart_spec.get("facet_field") or "").strip()
+    series_fields = [str(field).strip() for field in chart_spec.get("series_fields") or [] if str(field).strip()]
+    if not primary_field and series_fields:
+        primary_field = series_fields[0]
+    if not primary_field:
+        return _evenly_sample_rows(rows, limit)
+
+    groups = _group_rows_by_field(rows, primary_field)
+    sampled: list = []
+    remaining = limit
+    for index, group_rows in enumerate(groups):
+        groups_left = len(groups) - index
+        allocation = max(1, remaining // groups_left)
+        sampled.extend(_evenly_sample_rows(group_rows, min(allocation, len(group_rows))))
+        remaining = limit - len(sampled)
+        if remaining <= 0:
+            break
+    return sampled
+
+
+def _summary_field_coverage(rows: list, fields: list[str]) -> list[dict]:
+    coverage = []
+    for field in fields:
+        seen = set()
+        values = []
+        for row in rows:
+            if not isinstance(row, dict) or field not in row:
+                continue
+            value = row.get(field)
+            key = _summary_field_key(value)
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(values) < SUMMARY_FIELD_VALUE_LIMIT:
+                values.append(value)
+        coverage.append(
+            {
+                "field": field,
+                "distinct_count": len(seen),
+                "values": values,
+                "truncated": len(seen) > len(values),
+            }
+        )
+    return coverage
+
+
+def _summary_chart_context(result: dict, chart_spec: dict | None = None) -> dict:
+    rows = result.get("rows", []) if isinstance(result, dict) and isinstance(result.get("rows"), list) else []
+    columns = result.get("columns", []) if isinstance(result, dict) and isinstance(result.get("columns"), list) else []
+    chart_fields: list[str] = []
+    if chart_spec:
+        for key in ["x_field", "y_field", "facet_field"]:
+            value = chart_spec.get(key)
+            if value:
+                chart_fields.append(str(value))
+        for value in chart_spec.get("series_fields") or []:
+            if value:
+                chart_fields.append(str(value))
+    chart_fields = [field for index, field in enumerate(chart_fields) if field and field not in chart_fields[:index]]
+    selected_fields = chart_fields or [str(column) for column in columns]
+    sampled_rows = [
+        _compact_summary_row(row, selected_fields)
+        for row in _stratified_chart_sample(rows, chart_spec, SUMMARY_CHART_SAMPLE_LIMIT)
+    ]
+    coverage_fields = []
+    if chart_spec:
+        for field in [chart_spec.get("facet_field"), *(chart_spec.get("series_fields") or [])]:
+            if field:
+                coverage_fields.append(str(field))
+    coverage_fields = [field for index, field in enumerate(coverage_fields) if field and field not in coverage_fields[:index]]
+    return {
+        "chart_spec": chart_spec or {},
+        "chart_data": {
+            "columns": selected_fields,
+            "row_count": len(rows),
+            "sampled_row_count": len(sampled_rows),
+            "sample_strategy": "facet_or_series_stratified",
+            "field_coverage": _summary_field_coverage(rows, coverage_fields),
+            "rows": sampled_rows,
+        },
+    }
+
+
+async def generate_summary(question: str, result: dict, chart_spec: dict | None = None) -> str:
+    if chart_spec:
+        payload = {
+            "original_question": question,
+            **_summary_chart_context(result, chart_spec),
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是数据分析助手。请先理解原始问题的分析目标，再像分析图表的人一样，"
+                    "只基于用户最终看到的图表数据、图表配置和原始问题输出中文分析总结。"
+                    "图表上下文中的 rows 是抽样数据，必须结合 field_coverage 判断主要分面和系列覆盖范围；"
+                    "如果原始问题要求 TOP N 或多个分组，不能遗漏 field_coverage 中已经出现的主要分组。"
+                    "重点说明主要趋势、峰值/低谷、"
+                    "分组之间的差异和最值得关注的业务现象。不要只复述字段名或 SQL 结果结构，"
+                    "不要使用固定模板，不要编造图表数据之外的原因、建议或结论。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"图表上下文:{json.dumps(payload, ensure_ascii=False, default=str)}",
+            },
+        ]
+        return await chat_completion(messages, temperature=0.3)
+
     messages = [
         {
             "role": "system",
