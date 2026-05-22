@@ -14,6 +14,15 @@ test("login page exposes WeChat Work login entry", () => {
   assert.match(view, /window\.location\.href = data\.login_url/)
 })
 
+test("login page does not expose test account shortcuts", () => {
+  const view = read("src/views/Login.vue")
+
+  assert.doesNotMatch(view, /测试账号/)
+  assert.doesNotMatch(view, /fillAccount\(/)
+  assert.doesNotMatch(view, /admin123|carsem123|carsem_admin/)
+  assert.doesNotMatch(view, /account-chip|account-chips|login-hint/)
+})
+
 test("WeChat Work integration has system-admin route and menu", () => {
   const router = read("src/router/index.ts")
   const layout = read("src/layouts/MainLayout.vue")

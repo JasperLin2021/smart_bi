@@ -31,3 +31,12 @@ test("new data sources auto detect schema on create", () => {
   assert.match(view, /已自动检测表结构/)
   assert.doesNotMatch(view, /请点击「表结构」按钮配置表结构/)
 })
+
+test("data source editor does not expose dataset metric descriptions", () => {
+  const view = read("src/views/DataSourceSettings.vue")
+
+  assert.doesNotMatch(view, /指标描述/)
+  assert.doesNotMatch(view, /未维护指标描述/)
+  assert.doesNotMatch(view, /metrics_prompt/)
+  assert.match(view, /推荐问题/)
+})

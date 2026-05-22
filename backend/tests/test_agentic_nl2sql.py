@@ -208,6 +208,35 @@ class AgenticNl2SqlTests(unittest.TestCase):
         self.assertEqual(emitted, result["trace"])
         self.assertEqual([item["stage"] for item in emitted], ["context", "plan", "sql_generate"])
 
+    def test_agentic_nl2sql_trace_steps_include_duration_ms(self):
+        from app.core.agentic_nl2sql import build_agentic_nl2sql
+
+        datasource = SimpleNamespace(
+            name="Sales DS",
+            source_type="database",
+            metadata_prompt="sales(region, amount)",
+            schema_metadata=None,
+            metrics_prompt="",
+            database_url="sqlite:///:memory:",
+        )
+
+        with patch(
+            "app.core.agentic_nl2sql.chat_completion",
+            new=AsyncMock(
+                side_effect=[
+                    '{"objective":"sum sales","steps":["aggregate"],"expected_output":"table"}',
+                    "SELECT region, SUM(amount) AS total_amount FROM sales GROUP BY region",
+                ]
+            ),
+        ):
+            result = asyncio.run(build_agentic_nl2sql("按区域统计销售额", datasource))
+
+        self.assertEqual([item["stage"] for item in result["trace"]], ["context", "plan", "sql_generate"])
+        for item in result["trace"]:
+            self.assertIn("duration_ms", item)
+            self.assertIsInstance(item["duration_ms"], (int, float))
+            self.assertGreaterEqual(item["duration_ms"], 0)
+
     def test_agentic_nl2sql_includes_value_probe_context_in_planning_prompt(self):
         from app.core.agentic_nl2sql import build_agentic_nl2sql
 
@@ -390,6 +419,38 @@ class AgenticNl2SqlTests(unittest.TestCase):
         self.assertEqual(spec["layout"], "tabs_by_field")
         self.assertEqual(spec["facet_field"], "ALARMID")
         self.assertEqual(spec["series_fields"], ["EQUIPMENTID"])
+
+    def test_agentic_chart_spec_rejects_numeric_measure_as_series_field(self):
+        from app.core.agentic_nl2sql import build_agentic_chart_spec
+
+        result = {
+            "columns": ["region", "total_sales", "order_count", "paid_amount"],
+            "rows": [
+                {"region": "华东", "total_sales": 136934, "order_count": 4, "paid_amount": 129000},
+                {"region": "华南", "total_sales": 56309, "order_count": 2, "paid_amount": 51000},
+            ],
+        }
+
+        with patch(
+            "app.core.agentic_nl2sql.chat_completion",
+            new=AsyncMock(
+                return_value=(
+                    '{"chart_type":"bar","x_field":"region","y_field":"total_sales",'
+                    '"series_fields":["order_count","paid_amount"],"layout":"single","sort_order":"desc"}'
+                )
+            ),
+        ):
+            planned = asyncio.run(
+                build_agentic_chart_spec(
+                    "最近30天各地区已完成订单的销售额和订单数TOP5",
+                    result,
+                )
+            )
+
+        spec = planned["chart_spec"]
+        self.assertEqual(spec["x_field"], "region")
+        self.assertEqual(spec["y_field"], "total_sales")
+        self.assertEqual(spec["series_fields"], [])
 
     def test_agentic_generation_error_mentions_system_llm_endpoint_when_connection_fails(self):
         from app.api.query import _format_agentic_generation_error

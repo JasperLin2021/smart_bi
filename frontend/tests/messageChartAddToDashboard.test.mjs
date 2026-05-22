@@ -54,7 +54,25 @@ test("message chart can render agentic chart specs with facet tabs", () => {
   assert.match(component, /chartRows/)
   assert.match(component, /facetValues/)
   assert.match(component, /layout === "tabs_by_field"/)
-  assert.match(component, /selectedGroupFields\.value = validSeriesFields/)
+  assert.match(component, /selectedGroupFields\.value = validGroupFields/)
+})
+
+test("message chart treats numeric chart spec series fields as metrics with dual axes", () => {
+  const component = read("src/components/MessageChart.vue")
+
+  assert.match(component, /selectedMetricSeriesFields/)
+  assert.match(component, /validMetricSeriesFields/)
+  assert.match(component, /validGroupFields/)
+  assert.match(component, /numericColumns\.value\.includes\(field\)/)
+  assert.match(component, /isMultiMetric/)
+  assert.match(component, /buildMultiMetricOption/)
+  assert.match(component, /useDualAxisForMetricSeries/)
+  assert.match(component, /const metricFields = \[selectedYField\.value, \.\.\.selectedMetricSeriesFields\.value\]/)
+  assert.match(component, /yAxis: useDualAxis[\s\S]*name: metricFields\[0\][\s\S]*name: "辅助指标"/)
+  assert.match(component, /yAxisIndex: useDualAxis && index > 0 \? 1 : 0/)
+  assert.match(component, /type: useDualAxis && index > 0 \? "line" : chartType\.value/)
+  assert.match(component, /if \(isMultiMetric\.value && chartType\.value !== "pie"\)[\s\S]*return buildMultiMetricOption\(\)/)
+  assert.doesNotMatch(component, /selectedGroupFields\.value = validSeriesFields/)
 })
 
 test("message chart replaces high-cardinality facet tabs with top n explorer", () => {

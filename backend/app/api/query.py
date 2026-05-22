@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import time
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -423,6 +424,7 @@ async def _append_agentic_value_probe(
     agent_trace: list[dict],
     on_trace=None,
 ) -> tuple[dict | None, str]:
+    step_start = time.perf_counter()
     terms = _extract_agentic_value_probe_terms(question)
     if not terms:
         return None, ""
@@ -477,6 +479,7 @@ async def _append_agentic_value_probe(
             "stage": "value_probe",
             "status": status,
             "message": message,
+            "duration_ms": _duration_ms(step_start),
             "detail": probe,
         },
         on_trace,
@@ -891,6 +894,10 @@ def _format_exception(exc: Exception) -> str:
     return message or exc.__class__.__name__
 
 
+def _duration_ms(start: float) -> float:
+    return round(max(0.0, (time.perf_counter() - start) * 1000), 2)
+
+
 def _format_agentic_generation_error(exc: Exception, llm_config: dict | None = None) -> str:
     message = _format_exception(exc)
     if isinstance(exc, httpx.RequestError):
@@ -907,6 +914,8 @@ def _resolve_agentic_llm_config(runtime_llm_config: dict) -> tuple[dict, str | N
 
 
 async def _append_agent_trace(agent_trace: list[dict], item: dict, on_trace=None) -> None:
+    if "duration_ms" not in item:
+        item["duration_ms"] = 0
     agent_trace.append(item)
     if on_trace:
         await on_trace(item)
@@ -926,6 +935,7 @@ async def _execute_agentic_sql_with_repair(
 ) -> tuple[str, dict, list[dict]]:
     candidate_sql = sql_query
     for attempt in range(max_execution_repairs + 1):
+        step_start = time.perf_counter()
         executable_sql = apply_rls_to_sql(candidate_sql, rls_clauses) if rls_clauses else candidate_sql
         try:
             result, rows = _execute_datasource_sql(datasource, executable_sql)
@@ -933,6 +943,7 @@ async def _execute_agentic_sql_with_repair(
                 "stage": "execute",
                 "status": "success",
                 "message": f"已执行查询，返回 {len(rows)} 条记录",
+                "duration_ms": _duration_ms(step_start),
                 "detail": {"attempt": attempt + 1, "sql": executable_sql},
             }
             await _append_agent_trace(agent_trace, trace_item, on_trace)
@@ -944,6 +955,7 @@ async def _execute_agentic_sql_with_repair(
                 "stage": "execute",
                 "status": "error",
                 "message": "SQL 执行失败，已回传错误给 Agent 修复" if can_retry else "SQL 执行失败，已达到最大修复次数",
+                "duration_ms": _duration_ms(step_start),
                 "detail": {
                     "attempt": attempt + 1,
                     "sql": executable_sql,
@@ -958,6 +970,7 @@ async def _execute_agentic_sql_with_repair(
                 "stage": "sql_execute_fix",
                 "status": "pending",
                 "message": "正在根据执行错误修复 SQL",
+                "duration_ms": 0,
                 "detail": {
                     "attempt": attempt + 1,
                     "failed_sql": candidate_sql,
@@ -965,6 +978,7 @@ async def _execute_agentic_sql_with_repair(
                 },
             }
             await _append_agent_trace(agent_trace, repair_started, on_trace)
+            repair_start = time.perf_counter()
             try:
                 repaired = await repair_agentic_sql_after_execution_error(
                     question,
@@ -982,6 +996,7 @@ async def _execute_agentic_sql_with_repair(
                     "stage": "sql_execute_fix",
                     "status": "error",
                     "message": f"SQL 修复失败: {repair_error}",
+                    "duration_ms": _duration_ms(repair_start),
                     "detail": {
                         "attempt": attempt + 1,
                         "failed_sql": candidate_sql,
@@ -1047,6 +1062,7 @@ def _build_agentic_stream_unhandled_error_detail(
         "stage": "stream_finalize",
         "status": "error",
         "message": message,
+        "duration_ms": 0,
         "detail": {
             "error": _format_exception(exc),
             "error_type": exc.__class__.__name__,
@@ -1101,6 +1117,7 @@ async def _append_agentic_empty_diagnostics(
     agent_trace: list[dict],
     on_trace=None,
 ) -> dict:
+    step_start = time.perf_counter()
     diagnostics = _build_agentic_empty_diagnostics(question, sql_query, result)
     await _append_agent_trace(
         agent_trace,
@@ -1108,6 +1125,7 @@ async def _append_agentic_empty_diagnostics(
             "stage": "empty_diagnostics",
             "status": "warning",
             "message": "查询结果为空，已生成排查建议",
+            "duration_ms": _duration_ms(step_start),
             "detail": diagnostics,
         },
         on_trace,

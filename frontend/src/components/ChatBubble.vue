@@ -315,7 +315,8 @@
       
       <!-- 时间戳 -->
       <div class="chat-time">
-        {{ formatTime(message.timestamp) }}
+        <span>{{ formatTime(message.timestamp) }}</span>
+        <span v-if="messageDurationText" class="chat-duration">{{ messageDurationText }}</span>
       </div>
     </div>
 
@@ -487,6 +488,7 @@
                 <span class="trace-summary-chip">{{ completedTraceCount }}/{{ agentTraceSteps.length }} 完成</span>
                 <span v-if="warningTraceCount" class="trace-summary-chip trace-summary-chip--warning">{{ warningTraceCount }} 警告</span>
                 <span v-if="failedTraceCount" class="trace-summary-chip trace-summary-chip--error">{{ failedTraceCount }} 失败</span>
+                <span v-if="agentTraceTotalDurationMs > 0" class="trace-summary-chip trace-summary-chip--duration">总用时 {{ formatDurationMs(agentTraceTotalDurationMs) }}</span>
                 <span class="trace-summary-chip trace-summary-chip--status">{{ traceRunningText }}</span>
               </div>
             </div>
@@ -518,7 +520,7 @@
                   <span class="trace-step-dot" :class="`trace-step-dot--${step.status}`"></span>
                 </span>
                 <span class="trace-stepper-label">{{ traceStageLabel(step.stage) }}</span>
-                <small>{{ traceStatusLabel(step.status) }}</small>
+                <small>{{ traceStatusLabel(step.status) }} · {{ traceStepDurationText(step) }}</small>
               </button>
             </div>
 
@@ -533,6 +535,7 @@
                 <span class="trace-summary-chip trace-summary-chip--status">
                   {{ selectedTraceStepIndex === latestTraceIndex ? "最新" : "已选" }} · {{ traceStatusLabel(selectedTraceStep.status) }}
                 </span>
+                <span class="trace-summary-chip trace-summary-chip--duration">耗时 {{ traceStepDurationText(selectedTraceStep) }}</span>
               </div>
               <div class="trace-row-message">
                 <strong>{{ selectedTraceStep.message }}</strong>
@@ -1518,6 +1521,32 @@ const agentTracePanelTouched = ref(false)
 const traceStepperTouched = ref(false)
 const activeTraceStepIndex = ref(0)
 const agentTraceSteps = computed(() => props.message.agentTrace || [])
+const traceDurationMs = (step?: AgentTraceStep | null) => {
+  const value = Number(step?.duration_ms)
+  return Number.isFinite(value) && value >= 0 ? value : 0
+}
+const agentTraceTotalDurationMs = computed(() =>
+  agentTraceSteps.value.reduce((sum, step) => sum + traceDurationMs(step), 0)
+)
+const formatDurationMs = (durationMs: number) => {
+  const value = Number(durationMs)
+  if (!Number.isFinite(value) || value <= 0) return "0ms"
+  if (value < 1000) {
+    const digits = value < 10 ? 2 : value < 100 ? 1 : 0
+    return `${value.toFixed(digits)}ms`
+  }
+  const seconds = value / 1000
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`
+  const minutes = Math.floor(seconds / 60)
+  const restSeconds = Math.round(seconds % 60)
+  return `${minutes}m ${restSeconds}s`
+}
+const messageDurationText = computed(() =>
+  props.message.role === "assistant" && agentTraceSteps.value.length
+    ? `总用时 ${formatDurationMs(agentTraceTotalDurationMs.value)}`
+    : ""
+)
+const traceStepDurationText = (step?: AgentTraceStep | null) => formatDurationMs(traceDurationMs(step))
 const latestTraceIndex = computed(() => agentTraceSteps.value.length - 1)
 const latestTraceStep = computed((): AgentTraceStep | null => (
   latestTraceIndex.value >= 0 ? agentTraceSteps.value[latestTraceIndex.value] : null
@@ -1559,10 +1588,11 @@ const traceCurrentStatusClass = computed(() => (
 const traceSummary = computed(() => {
   const total = agentTraceSteps.value.length
   if (!total) return "0 步"
-  if (failedTraceCount.value) return `${total} 步 · ${failedTraceCount.value} 个失败`
-  if (pendingTraceCount.value) return `${total} 步 · 执行中`
-  if (warningTraceCount.value) return `${total} 步 · 有警告`
-  return `${total} 步 · 已完成`
+  const durationText = agentTraceTotalDurationMs.value > 0 ? ` · 总用时 ${formatDurationMs(agentTraceTotalDurationMs.value)}` : ""
+  if (failedTraceCount.value) return `${total} 步 · ${failedTraceCount.value} 个失败${durationText}`
+  if (pendingTraceCount.value) return `${total} 步 · 执行中${durationText}`
+  if (warningTraceCount.value) return `${total} 步 · 有警告${durationText}`
+  return `${total} 步 · 已完成${durationText}`
 })
 
 const buildBreadcrumb = (context?: DrillContext): string[] => {
@@ -2122,8 +2152,24 @@ const formatTime = (date: Date) => {
 }
 
 .chat-time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 11px;
   color: var(--app-text-light);
+}
+
+.chat-duration {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border: 1px solid #ccfbf1;
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-weight: 800;
 }
 
 .assistant-content {

@@ -692,6 +692,13 @@ const refreshHistoryForScope = () => {
   queryStore.fetchHistory()
 }
 
+const restoreConversationForScope = () => {
+  if (isRestoringHistory.value) return
+  queryStore.restoreConversationForCurrentScope()
+  closeResultDock()
+  activeHistoryId.value = null
+}
+
 watch(() => queryStore.messages.length, () => {
   if (
     selectedResultMessageId.value &&
@@ -704,17 +711,20 @@ watch(() => queryStore.messages.length, () => {
 
 watch(() => queryStore.scopeMode, () => {
   ensureScopeDefaults()
+  restoreConversationForScope()
   refreshHistoryForScope()
 })
 
 watch(() => queryStore.mode, () => {
   ensureScopeDefaults()
+  restoreConversationForScope()
   refreshHistoryForScope()
 })
 
 watch(() => queryStore.selectedDatasourceId, (id) => {
   if (id) datasourceStore.switchDatasource(id)
   if (queryStore.mode === "agentic") {
+    restoreConversationForScope()
     refreshHistoryForScope()
   }
 })
@@ -725,12 +735,14 @@ watch(() => queryStore.selectedDatasetId, () => {
     datasourceStore.switchDatasource(selectedDataset.value.datasource_id)
   }
   if (queryStore.mode === "business") {
+    restoreConversationForScope()
     refreshHistoryForScope()
   }
 })
 
 watch(() => authStore.profile?.role, () => {
   ensureScopeDefaults(true)
+  restoreConversationForScope()
   refreshHistoryForScope()
 })
 
@@ -738,6 +750,7 @@ onMounted(async () => {
   await datasourceStore.fetchDatasources()
   await fetchDatasets()
   ensureScopeDefaults(true)
+  queryStore.restoreConversationForCurrentScope()
   queryStore.fetchHistory()
 })
 </script>

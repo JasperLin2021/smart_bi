@@ -66,23 +66,6 @@
             </el-button>
           </el-form-item>
         </el-form>
-        
-        <div class="login-hint">
-          <el-divider>
-            <span class="hint-text">测试账号</span>
-          </el-divider>
-          <div class="account-chips">
-            <el-tag @click="fillAccount('admin', 'admin123')" effect="plain" class="account-chip">
-              超级管理员
-            </el-tag>
-            <el-tag @click="fillAccount('carsem_admin', 'carsem123')" effect="plain" class="account-chip">
-              企业管理员
-            </el-tag>
-            <el-tag @click="fillAccount('carsem', 'carsem123')" effect="plain" class="account-chip">
-              普通用户
-            </el-tag>
-          </div>
-        </div>
       </el-card>
       
       <p class="login-footer">© 2026 Smart BI - Powered by Chinatelecom</p>
@@ -102,11 +85,6 @@ const authStore = useAuthStore()
 const loading = ref(false)
 const wechatLoading = ref(false)
 const form = reactive({ username: "", password: "" })
-
-const fillAccount = (username: string, password: string) => {
-  form.username = username
-  form.password = password
-}
 
 const submit = async () => {
   if (!form.username || !form.password) return
@@ -241,32 +219,6 @@ const loginWithWechatWork = async () => {
   color: #0b5f59;
   border-color: #0f766e;
   background: #ecfdf5;
-}
-
-.login-hint {
-  margin-top: 24px;
-}
-
-.hint-text {
-  color: #9ca3af;
-  font-size: 12px;
-}
-
-.account-chips {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.account-chip {
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.account-chip:hover {
-  transform: none;
-  background: var(--app-surface-muted);
 }
 
 .login-footer {

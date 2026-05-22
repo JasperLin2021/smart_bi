@@ -52,6 +52,7 @@ class AgentTraceStep(BaseModel):
     stage: str
     status: str
     message: str
+    duration_ms: Optional[float] = None
     detail: Optional[Dict[str, Any]] = None
 
 

@@ -98,6 +98,7 @@ export interface AgentTraceStep {
   stage: string
   status: string
   message: string
+  duration_ms?: number | null
   detail?: Record<string, unknown> | null
 }
 
@@ -186,6 +187,11 @@ export interface ChatMessage {
   fromHistory?: boolean
 }
 
+interface ConversationDraft {
+  messages: ChatMessage[]
+  rootHistoryId: number | null
+}
+
 export interface QueryHistoryItem {
   id: number
   question: string
@@ -226,14 +232,66 @@ export const useQueryStore = defineStore("query", {
     selectedDatasetId: null as number | null,
     currentConversationRootHistoryId: null as number | null,
     currentConversationContextKey: null as string | null,
+    conversationDrafts: {} as Record<string, ConversationDraft>,
   }),
   actions: {
     generateId() {
       return Date.now().toString(36) + Math.random().toString(36).substr(2)
     },
 
-    buildConversationContextKey(mode: QueryMode, datasourceId?: number | null) {
-      return `${mode}:${datasourceId || "none"}`
+    buildConversationContextKey(mode: QueryMode, datasourceId?: number | null, datasetId?: number | null) {
+      if (mode === "business") return `business:dataset:${datasetId || "none"}`
+      return `agentic:datasource:${datasourceId || "none"}`
+    },
+
+    activeConversationContextKey() {
+      const dsStore = useDatasourceStore()
+      const datasourceId = this.selectedDatasourceId || dsStore.currentId || null
+      const datasetId = this.mode === "business" ? this.selectedDatasetId : null
+      return this.buildConversationContextKey(this.mode, datasourceId, datasetId)
+    },
+
+    persistCurrentConversationDraft() {
+      if (!this.currentConversationContextKey) return
+      this.conversationDrafts[this.currentConversationContextKey] = {
+        messages: this.messages.map(message => ({ ...message })),
+        rootHistoryId: this.currentConversationRootHistoryId,
+      }
+    },
+
+    restoreConversationForCurrentScope() {
+      const nextKey = this.activeConversationContextKey()
+      if (this.currentConversationContextKey === nextKey) return
+      this.persistCurrentConversationDraft()
+      const draft = this.conversationDrafts[nextKey]
+      this.messages = draft ? draft.messages.map(message => ({ ...message })) : []
+      this.currentConversationRootHistoryId = draft?.rootHistoryId || null
+      this.currentConversationContextKey = nextKey
+    },
+
+    updateConversationDraftRoot(conversationContextKey: string, historyId?: number | null) {
+      if (!historyId) return
+      const draft = this.conversationDrafts[conversationContextKey] || {
+        messages: [],
+        rootHistoryId: null,
+      }
+      this.conversationDrafts[conversationContextKey] = {
+        ...draft,
+        rootHistoryId: draft.rootHistoryId || Number(historyId),
+      }
+      if (this.currentConversationContextKey === conversationContextKey && !this.currentConversationRootHistoryId) {
+        this.currentConversationRootHistoryId = Number(historyId)
+      }
+    },
+
+    findConversationMessage(id: string) {
+      const current = this.messages.find(m => m.id === id)
+      if (current) return current
+      for (const draft of Object.values(this.conversationDrafts)) {
+        const message = draft.messages.find(m => m.id === id)
+        if (message) return message
+      }
+      return null
     },
 
     updateMessage(id: string, patch: Partial<ChatMessage>) {
@@ -244,6 +302,16 @@ export const useQueryStore = defineStore("query", {
           ...patch,
         }
       }
+      Object.keys(this.conversationDrafts).forEach((key) => {
+        const draftIdx = this.conversationDrafts[key].messages.findIndex(m => m.id === id)
+        if (draftIdx !== -1) {
+          this.conversationDrafts[key].messages[draftIdx] = {
+            ...this.conversationDrafts[key].messages[draftIdx],
+            ...patch,
+          }
+        }
+      })
+      if (idx !== -1) this.persistCurrentConversationDraft()
     },
 
     parseStreamEvent(block: string) {
@@ -293,19 +361,13 @@ export const useQueryStore = defineStore("query", {
         if (!block.trim()) return true
         const { eventName, payload } = this.parseStreamEvent(block)
         if (eventName === "trace") {
-          const current = this.messages.find(m => m.id === assistantMessage.id)
+          const current = this.findConversationMessage(assistantMessage.id)
           this.updateMessage(assistantMessage.id, {
             agentTrace: [...(current?.agentTrace || []), payload as AgentTraceStep],
           })
         } else if (eventName === "final") {
           completed = true
-          if (
-            payload.history_id &&
-            (!this.currentConversationRootHistoryId || this.currentConversationContextKey !== conversationContextKey)
-          ) {
-            this.currentConversationRootHistoryId = Number(payload.history_id)
-            this.currentConversationContextKey = conversationContextKey
-          }
+          this.updateConversationDraftRoot(conversationContextKey, payload.history_id)
           this.updateMessage(assistantMessage.id, {
             content: payload.answer || payload.summary || "查询完成",
             status: "success",
@@ -320,13 +382,13 @@ export const useQueryStore = defineStore("query", {
             chartSpec: payload.chart_spec || null,
             agentNotes: payload.agent_notes || null,
             emptyDiagnostics: payload.empty_diagnostics || null,
-            agentTrace: payload.agent_trace || this.messages.find(m => m.id === assistantMessage.id)?.agentTrace || [],
+            agentTrace: payload.agent_trace || this.findConversationMessage(assistantMessage.id)?.agentTrace || [],
             sourceQuestion: question,
             datasourceId: assistantMessage.datasourceId || null,
             drillContext,
           })
         } else if (eventName === "error") {
-          const current = this.messages.find(m => m.id === assistantMessage.id)
+          const current = this.findConversationMessage(assistantMessage.id)
           const payloadTrace = Array.isArray(payload.agent_trace) ? payload.agent_trace : []
           this.updateMessage(assistantMessage.id, {
             content: "查询失败",
@@ -374,6 +436,17 @@ export const useQueryStore = defineStore("query", {
       parentHistoryId?: number | null
     ) {
       const mode = normalizeQueryMode(queryMode || this.mode)
+      const dsStore = useDatasourceStore()
+      const datasourceId: number | null = this.selectedDatasourceId || dsStore.currentId || null
+      const datasetId = mode === "business" ? this.selectedDatasetId : null
+      const conversationContextKey = this.buildConversationContextKey(mode, datasourceId, datasetId)
+      if (this.currentConversationContextKey !== conversationContextKey) {
+        this.persistCurrentConversationDraft()
+        const draft = this.conversationDrafts[conversationContextKey]
+        this.messages = draft ? draft.messages.map(message => ({ ...message })) : []
+        this.currentConversationRootHistoryId = draft?.rootHistoryId || null
+        this.currentConversationContextKey = conversationContextKey
+      }
       
       // 添加用户消息
       const userMessage: ChatMessage = {
@@ -397,14 +470,10 @@ export const useQueryStore = defineStore("query", {
         drillContext
       }
       this.messages.push(assistantMessage)
+      this.persistCurrentConversationDraft()
       this.loading = true
-      let datasourceId: number | null = null
       
       try {
-        const dsStore = useDatasourceStore()
-        datasourceId = this.selectedDatasourceId || dsStore.currentId || null
-        const datasetId = mode === "business" ? this.selectedDatasetId : null
-        const conversationContextKey = this.buildConversationContextKey(mode, datasourceId)
         assistantMessage.datasourceId = datasourceId || null
         const canContinueConversation = this.currentConversationContextKey === conversationContextKey
         const effectiveParentHistoryId = parentHistoryId ?? (canContinueConversation ? this.currentConversationRootHistoryId : null)
@@ -430,38 +499,28 @@ export const useQueryStore = defineStore("query", {
         }
 
         const response = await axios.post("/api/query/ask", requestPayload)
-        if (
-          response.data.history_id &&
-          (!this.currentConversationRootHistoryId || !canContinueConversation)
-        ) {
-          this.currentConversationRootHistoryId = Number(response.data.history_id)
-          this.currentConversationContextKey = conversationContextKey
-        }
+        this.updateConversationDraftRoot(conversationContextKey, response.data.history_id)
         
-        // 更新助手消息
-        const idx = this.messages.findIndex(m => m.id === assistantMessage.id)
-        if (idx !== -1) {
-          this.messages[idx] = {
-            ...assistantMessage,
-            content: response.data.answer || response.data.summary || "查询完成",
-            status: "success",
-            historyId: response.data.history_id,
-            sqlQuery: response.data.sql_query,
-            result: response.data.result,
-            summary: response.data.summary,
-            llmModel: response.data.llm_model,
-            recommendations: response.data.recommendations || [],
-            trustSignals: response.data.trust_signals || [],
-            semanticContext: response.data.semantic_context || null,
-            chartSpec: response.data.chart_spec || null,
-            agentNotes: response.data.agent_notes || null,
-            emptyDiagnostics: response.data.empty_diagnostics || null,
-            agentTrace: response.data.agent_trace || [],
-            sourceQuestion: question,
-            datasourceId: datasourceId || null,
-            drillContext
-          }
-        }
+        this.updateMessage(assistantMessage.id, {
+          ...assistantMessage,
+          content: response.data.answer || response.data.summary || "查询完成",
+          status: "success",
+          historyId: response.data.history_id,
+          sqlQuery: response.data.sql_query,
+          result: response.data.result,
+          summary: response.data.summary,
+          llmModel: response.data.llm_model,
+          recommendations: response.data.recommendations || [],
+          trustSignals: response.data.trust_signals || [],
+          semanticContext: response.data.semantic_context || null,
+          chartSpec: response.data.chart_spec || null,
+          agentNotes: response.data.agent_notes || null,
+          emptyDiagnostics: response.data.empty_diagnostics || null,
+          agentTrace: response.data.agent_trace || [],
+          sourceQuestion: question,
+          datasourceId: datasourceId || null,
+          drillContext
+        })
         
         await this.fetchHistory()
       } catch (error: any) {
@@ -473,32 +532,32 @@ export const useQueryStore = defineStore("query", {
         const errorMessage = typeof errorDetail === "string"
           ? errorDetail
           : structuredError?.message || error.message || "请稍后重试"
-        // 更新助手消息为错误状态
-        const idx = this.messages.findIndex(m => m.id === assistantMessage.id)
-        if (idx !== -1) {
-          this.messages[idx] = {
-            ...assistantMessage,
-            content: "查询失败",
-            status: "error",
-            error: errorMessage,
-            sqlQuery: structuredError?.sql_query,
-            llmModel: structuredError?.llm_model,
-            agentTrace: errorAgentTrace,
-            sourceQuestion: question,
-            datasourceId: datasourceId || null,
-            drillContext
-          }
-        }
+        this.updateMessage(assistantMessage.id, {
+          ...assistantMessage,
+          content: "查询失败",
+          status: "error",
+          error: errorMessage,
+          sqlQuery: structuredError?.sql_query,
+          llmModel: structuredError?.llm_model,
+          agentTrace: errorAgentTrace,
+          sourceQuestion: question,
+          datasourceId: datasourceId || null,
+          drillContext
+        })
         ElMessage.error("查询失败，请稍后重试")
       } finally {
         this.loading = false
+        this.persistCurrentConversationDraft()
       }
     },
     
     clearMessages() {
+      if (this.currentConversationContextKey) {
+        delete this.conversationDrafts[this.currentConversationContextKey]
+      }
       this.messages = []
       this.currentConversationRootHistoryId = null
-      this.currentConversationContextKey = null
+      this.currentConversationContextKey = this.activeConversationContextKey()
     },
 
     resetConversationContext() {
@@ -551,9 +610,7 @@ export const useQueryStore = defineStore("query", {
         params.mode = this.mode
         await axios.delete("/api/query/history", { params })
         this.history = []
-        this.messages = []
-        this.currentConversationRootHistoryId = null
-        this.currentConversationContextKey = null
+        this.clearMessages()
         ElMessage.success("历史记录已清空")
       } catch (error) {
         ElMessage.error("清空失败")
@@ -563,6 +620,7 @@ export const useQueryStore = defineStore("query", {
     async loadHistoryDetail(id: number) {
       this.loading = true
       try {
+        this.persistCurrentConversationDraft()
         const response = await axios.get(`/api/query/history/${id}`)
         const data = response.data
         const conversation = Array.isArray(data.conversation) && data.conversation.length
@@ -613,7 +671,11 @@ export const useQueryStore = defineStore("query", {
         })
 
         this.mode = loadedMode
-        this.currentConversationContextKey = this.buildConversationContextKey(loadedMode, conversationDatasourceId)
+        this.currentConversationContextKey = this.buildConversationContextKey(loadedMode, conversationDatasourceId, this.selectedDatasetId)
+        this.conversationDrafts[this.currentConversationContextKey] = {
+          messages: this.messages.map(message => ({ ...message })),
+          rootHistoryId: this.currentConversationRootHistoryId,
+        }
       } catch (error) {
         ElMessage.error("加载历史记录失败")
       } finally {

@@ -52,6 +52,19 @@
         </el-select>
       </div>
       <div class="dimension-item">
+        <span class="dimension-label">辅助指标:</span>
+        <el-select
+          v-model="selectedMetricSeriesFields"
+          size="small"
+          placeholder="无辅助指标"
+          clearable
+          multiple
+          collapse-tags
+        >
+          <el-option v-for="col in metricSeriesOptions" :key="col" :label="col" :value="col" />
+        </el-select>
+      </div>
+      <div class="dimension-item">
         <span class="dimension-label">分组:</span>
         <el-select v-model="selectedGroupFields" size="small" placeholder="无分组" clearable multiple collapse-tags>
           <el-option v-for="col in groupableColumns" :key="col" :label="col" :value="col" />
@@ -346,6 +359,7 @@ let drillRequestId = 0
 const selectedXField = ref("")
 const selectedYField = ref("")
 const selectedGroupFields = ref<string[]>([])
+const selectedMetricSeriesFields = ref<string[]>([])
 const selectedFacet = ref("")
 const facetViewMode = ref<FacetViewMode>("overall")
 const selectedFacetValues = ref<string[]>([])
@@ -407,6 +421,8 @@ const normalizeSortOrder = (value?: string | null): "none" | "desc" | "asc" => {
   if (value === "desc" || value === "asc") return value
   return "none"
 }
+
+const isNumericColumn = (field: string) => numericColumns.value.includes(field)
 
 const resolveColumn = (value?: string | null) => {
   if (!value) return ""
@@ -513,6 +529,10 @@ const groupableColumns = computed(() => {
   })
 })
 
+const metricSeriesOptions = computed(() =>
+  numericColumns.value.filter(col => col !== selectedYField.value)
+)
+
 // 自动识别默认字段并智能配置图表
 const autoDetectFields = () => {
   if (!props.rows?.length || !props.columns?.length) return
@@ -571,6 +591,7 @@ const autoDetectFields = () => {
   // 7. 设置选择的字段
   selectedXField.value = detectedXField
   selectedYField.value = detectedYField
+  selectedMetricSeriesFields.value = []
   selectedGroupFields.value = finalGroupFields
 }
 
@@ -584,17 +605,31 @@ const applyChartSpec = () => {
   const validSeriesFields = rawSeriesFields
     .map(field => resolveColumn(field))
     .filter((field): field is string => Boolean(field) && field !== xField && field !== yField && field !== facetField.value)
+  const validMetricSeriesFields = validSeriesFields.filter(field => numericColumns.value.includes(field))
+  const validGroupFields = validSeriesFields.filter(field => !numericColumns.value.includes(field))
 
   chartType.value = normalizeChartType(spec.chart_type)
   sortOrder.value = normalizeSortOrder(spec.sort_order)
   if (xField) selectedXField.value = xField
   if (yField) selectedYField.value = yField
-  selectedGroupFields.value = validSeriesFields
+  selectedMetricSeriesFields.value = validMetricSeriesFields
+  selectedGroupFields.value = validGroupFields
 
   if (spec.layout === "tabs_by_field" && facetValues.value.length > 0 && !facetValues.value.includes(selectedFacet.value)) {
     selectedFacet.value = facetValues.value[0]
   }
   return Boolean(xField && yField)
+}
+
+const normalizeMetricSeriesSelection = () => {
+  const normalizedFields = selectedMetricSeriesFields.value
+    .filter((field, index, fields) => field !== selectedYField.value && isNumericColumn(field) && fields.indexOf(field) === index)
+  if (
+    normalizedFields.length !== selectedMetricSeriesFields.value.length ||
+    normalizedFields.some((field, index) => field !== selectedMetricSeriesFields.value[index])
+  ) {
+    selectedMetricSeriesFields.value = normalizedFields
+  }
 }
 
 const syncFacetSelectionDefaults = () => {
@@ -611,8 +646,14 @@ const configureChartFields = () => {
   if (!applyChartSpec()) {
     autoDetectFields()
   }
+  normalizeMetricSeriesSelection()
   syncFacetSelectionDefaults()
 }
+
+const isMultiMetric = computed(() => {
+  return selectedMetricSeriesFields.value.some(field => field !== selectedYField.value && isNumericColumn(field)) &&
+    Boolean(selectedXField.value && selectedYField.value && chartRows.value.length > 0)
+})
 
 // 判断是否为多系列数据
 const isMultiSeries = computed(() => {
@@ -691,6 +732,82 @@ const orderChartGroups = (groups: string[]) => {
     return selectedFacetValues.value.filter(value => groups.includes(value))
   }
   return groups
+}
+
+const useDualAxisForMetricSeries = (metricFields: string[], rows: Array<Record<string, any>>) => {
+  const maxValues = metricFields
+    .map(field => Math.max(...rows.map(row => Math.abs(Number(row[field]) || 0))))
+    .filter(value => value > 0)
+  if (maxValues.length < 2) return false
+  const largest = Math.max(...maxValues)
+  const smallest = Math.min(...maxValues)
+  return largest / Math.max(smallest, 1) >= 20
+}
+
+const buildMultiMetricOption = () => {
+  const xField = selectedXField.value
+  const metricFields = [selectedYField.value, ...selectedMetricSeriesFields.value]
+    .filter((field, index, fields) => Boolean(field) && isNumericColumn(field) && fields.indexOf(field) === index)
+  const rows = chartRows.value
+  if (!xField || metricFields.length < 2 || !rows.length) return null
+
+  const xValues = [...new Set(rows.map(row => String(row[xField] ?? "").trim()).filter(Boolean))]
+  const aggregateByMetric = new Map<string, Map<string, number>>()
+  metricFields.forEach((field) => aggregateByMetric.set(field, new Map()))
+  rows.forEach((row) => {
+    const x = String(row[xField] ?? "").trim()
+    if (!x) return
+    metricFields.forEach((field) => {
+      const metricMap = aggregateByMetric.get(field)!
+      metricMap.set(x, (metricMap.get(x) || 0) + (Number(row[field]) || 0))
+    })
+  })
+
+  const primaryMap = aggregateByMetric.get(metricFields[0])!
+  if (sortOrder.value === "desc") xValues.sort((a, b) => (primaryMap.get(b) || 0) - (primaryMap.get(a) || 0))
+  else if (sortOrder.value === "asc") xValues.sort((a, b) => (primaryMap.get(a) || 0) - (primaryMap.get(b) || 0))
+  else xValues.sort()
+
+  const useDualAxis = useDualAxisForMetricSeries(metricFields, rows)
+  const series = metricFields.map((field, index) => {
+    const metricMap = aggregateByMetric.get(field)!
+    const color = chartColorAt(index)
+    return {
+      name: field,
+      type: useDualAxis && index > 0 ? "line" : chartType.value,
+      yAxisIndex: useDualAxis && index > 0 ? 1 : 0,
+      data: xValues.map(x => metricMap.get(x) || 0),
+      smooth: chartType.value === "line" || (useDualAxis && index > 0),
+      itemStyle: { color },
+      lineStyle: useDualAxis && index > 0 ? { color, width: 2 } : undefined,
+    }
+  })
+
+  return {
+    color: CHART_COLOR_PALETTE,
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "cross" },
+    },
+    legend: {
+      type: "scroll",
+      top: 0,
+      data: metricFields,
+    },
+    grid: { top: 42, bottom: 58, left: 64, right: useDualAxis ? 64 : 24 },
+    xAxis: {
+      type: "category",
+      data: xValues,
+      axisLabel: { rotate: xValues.length > 8 ? 45 : 0, fontSize: 11 },
+    },
+    yAxis: useDualAxis
+      ? [
+          { type: "value", name: metricFields[0] },
+          { type: "value", name: "辅助指标" },
+        ]
+      : { type: "value", name: metricFields.join(" / ") },
+    series,
+  }
 }
 
 // 构建多系列图表配置
@@ -810,6 +927,9 @@ const buildSingleSeriesOption = () => {
 
 // 构建图表配置
 const buildOption = () => {
+  if (isMultiMetric.value && chartType.value !== "pie") {
+    return buildMultiMetricOption()
+  }
   // 多系列数据使用多系列配置
   if (isMultiSeries.value && chartType.value !== "pie") {
     return buildMultiSeriesOption()
@@ -1054,7 +1174,8 @@ const savePinChartToDashboard = async () => {
   }
 }
 
-watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields], () => {
+watch([chartType, sortOrder, selectedXField, selectedYField, selectedGroupFields, selectedMetricSeriesFields], () => {
+  normalizeMetricSeriesSelection()
   syncFacetSelectionDefaults()
   resetDrillState()
   renderChart()

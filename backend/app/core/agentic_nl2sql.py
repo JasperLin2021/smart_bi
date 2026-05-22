@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from typing import Any, Awaitable, Callable
 
 from app.core.llm import chat_completion
@@ -16,8 +17,19 @@ CHART_LAYOUTS = {"single", "tabs_by_field"}
 CHART_SORT_ORDERS = {"none", "asc", "desc"}
 
 
-def _trace(stage: str, status: str, message: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:
+def _duration_ms(start: float) -> float:
+    return round(max(0.0, (time.perf_counter() - start) * 1000), 2)
+
+
+def _trace(
+    stage: str,
+    status: str,
+    message: str,
+    detail: dict[str, Any] | None = None,
+    duration_ms: float | None = None,
+) -> dict[str, Any]:
     item: dict[str, Any] = {"stage": stage, "status": status, "message": message}
+    item["duration_ms"] = round(float(duration_ms or 0), 2)
     if detail:
         item["detail"] = detail
     return item
@@ -28,6 +40,8 @@ async def _append_trace(
     item: dict[str, Any],
     on_trace: TraceCallback | None = None,
 ) -> None:
+    if "duration_ms" not in item:
+        item["duration_ms"] = 0
     trace.append(item)
     if on_trace:
         await on_trace(item)
@@ -317,9 +331,71 @@ def _preferred_series_field(columns: list[str]) -> str | None:
 
 
 def _is_identifier_like_column(column: str) -> bool:
-    identifier_tokens = ("id", "code", "type", "name", "alarm", "error", "equipment", "device", "machine")
+    identifier_tokens = (
+        "code",
+        "type",
+        "name",
+        "alarm",
+        "error",
+        "equipment",
+        "device",
+        "machine",
+        "station",
+        "line",
+        "region",
+        "customer",
+        "product",
+        "order",
+        "user",
+    )
     lower = column.lower()
+    parts = set(re.split(r"[^a-z0-9]+", lower))
+    if parts.intersection({"id", "code", "type", "name"}):
+        return True
     return any(token in lower for token in identifier_tokens)
+
+
+def _is_measure_like_column(column: str) -> bool:
+    measure_tokens = (
+        "count",
+        "total",
+        "sum",
+        "amount",
+        "num",
+        "qty",
+        "value",
+        "occurrence",
+        "rate",
+        "ratio",
+        "avg",
+        "average",
+        "min",
+        "max",
+        "sales",
+        "revenue",
+        "times",
+    )
+    lower = column.lower()
+    parts = [part for part in re.split(r"[^a-z0-9]+", lower) if part]
+    if any(part in measure_tokens for part in parts):
+        return True
+    return any(lower.startswith(token) or lower.endswith(token) for token in measure_tokens)
+
+
+def _numeric_columns(columns: list[str], rows: list[dict[str, Any]]) -> list[str]:
+    return [
+        column
+        for column in columns
+        if any(_is_numeric_value(row.get(column)) for row in rows[:20])
+    ]
+
+
+def _is_chart_dimension_column(column: str, numeric_columns: list[str]) -> bool:
+    if column not in numeric_columns:
+        return True
+    if _is_measure_like_column(column):
+        return False
+    return _is_identifier_like_column(column)
 
 
 def infer_agentic_chart_spec(question: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -338,11 +414,7 @@ def infer_agentic_chart_spec(question: str, result: dict[str, Any]) -> dict[str,
             "reason": "结果为空或缺少列信息，使用明细表兜底。",
         }
 
-    numeric_columns = [
-        column
-        for column in columns
-        if any(_is_numeric_value(row.get(column)) for row in rows[:20])
-    ]
+    numeric_columns = _numeric_columns(columns, rows)
     date_columns = [column for column in columns if _is_date_like_field(column, rows)]
     value_patterns = ("count", "total", "sum", "times", "amount", "num", "qty", "value", "occurrence")
     y_field = next(
@@ -354,7 +426,7 @@ def infer_agentic_chart_spec(question: str, result: dict[str, Any]) -> dict[str,
         column
         for column in columns
         if column not in {x_field, y_field}
-        and (column not in numeric_columns or _is_identifier_like_column(column))
+        and _is_chart_dimension_column(column, numeric_columns)
     ]
     question_lower = question.lower()
     wants_trend = bool(date_columns) or any(token in question_lower for token in ("趋势", "trend", "走势", "按天", "按月"))
@@ -424,15 +496,28 @@ def _normalize_chart_spec(raw: str, question: str, result: dict[str, Any]) -> di
 
     x_field = _resolve_column(parsed.get("x_field"), columns) or fallback.get("x_field")
     y_field = _resolve_column(parsed.get("y_field"), columns) or fallback.get("y_field")
+    numeric_columns = _numeric_columns(columns, rows)
     facet_field = _resolve_column(parsed.get("facet_field"), columns) or fallback.get("facet_field")
+    if facet_field and not _is_chart_dimension_column(facet_field, numeric_columns):
+        facet_field = None
     raw_series = parsed.get("series_fields") if isinstance(parsed.get("series_fields"), list) else []
     series_fields = []
     for item in raw_series:
         column = _resolve_column(item, columns)
-        if column and column not in {x_field, y_field, facet_field} and column not in series_fields:
+        if (
+            column
+            and column not in {x_field, y_field, facet_field}
+            and _is_chart_dimension_column(column, numeric_columns)
+            and column not in series_fields
+        ):
             series_fields.append(column)
     if not series_fields:
-        series_fields = list(fallback.get("series_fields") or [])
+        series_fields = [
+            column
+            for column in fallback.get("series_fields") or []
+            if column not in {x_field, y_field, facet_field}
+            and _is_chart_dimension_column(column, numeric_columns)
+        ]
 
     layout = str(parsed.get("layout") or fallback["layout"]).strip().lower()
     if layout not in CHART_LAYOUTS:
@@ -448,16 +533,11 @@ def _normalize_chart_spec(raw: str, question: str, result: dict[str, Any]) -> di
     if sort_order not in CHART_SORT_ORDERS:
         sort_order = fallback["sort_order"]
 
-    numeric_columns = [
-        column
-        for column in columns
-        if any(_is_numeric_value(row.get(column)) for row in rows[:20])
-    ]
     dimension_candidates = [
         column
         for column in columns
         if column not in {x_field, y_field}
-        and (column not in numeric_columns or _is_identifier_like_column(column))
+        and _is_chart_dimension_column(column, numeric_columns)
     ]
     if chart_type in {"line", "area"} and x_field and y_field and len(dimension_candidates) >= 2:
         if not facet_field:
@@ -497,6 +577,7 @@ async def build_agentic_chart_spec(
     if not llm_model and llm_config:
         llm_model = str(llm_config.get("model") or "").strip() or None
 
+    step_start = time.perf_counter()
     try:
         raw = await chat_completion(
             [
@@ -508,6 +589,8 @@ async def build_agentic_chart_spec(
                         "series_fields、layout、facet_field、sort_order、reason。"
                         "chart_type 只能是 line、bar、horizontal_bar、area、pie、scatter、table、kpi。"
                         "layout 只能是 single 或 tabs_by_field。"
+                        "series_fields 和 facet_field 只能填写分类维度字段，不能填写 count、total、sum、amount、"
+                        "order_count 等数值指标字段。"
                         "多维时间趋势优先使用 line；如果同时有 alarmcode 和 equipmentid 等多级维度，"
                         "优先用 tabs_by_field，让高层维度做 facet_field，设备等明细维度做 series_fields。"
                     ),
@@ -529,13 +612,21 @@ async def build_agentic_chart_spec(
         detail = {"chart_spec": chart_spec}
         if llm_model:
             detail["model"] = llm_model
-        await _append_trace(trace, _trace("chart_plan", "success", "已生成图表规划", detail), on_trace)
+        await _append_trace(
+            trace,
+            _trace("chart_plan", "success", "已生成图表规划", detail, duration_ms=_duration_ms(step_start)),
+            on_trace,
+        )
     except Exception as exc:
         chart_spec = infer_agentic_chart_spec(question, result)
         detail = {"chart_spec": chart_spec, "error": str(exc) or exc.__class__.__name__}
         if llm_model:
             detail["model"] = llm_model
-        await _append_trace(trace, _trace("chart_plan", "warning", "图表规划失败，已使用规则兜底", detail), on_trace)
+        await _append_trace(
+            trace,
+            _trace("chart_plan", "warning", "图表规划失败，已使用规则兜底", detail, duration_ms=_duration_ms(step_start)),
+            on_trace,
+        )
 
     return {"chart_spec": chart_spec, "trace": trace}
 
@@ -619,6 +710,7 @@ async def build_agentic_nl2sql(
     max_repairs: int = 2,
     on_trace: TraceCallback | None = None,
 ) -> dict[str, Any]:
+    context_start = time.perf_counter()
     trace: list[dict[str, Any]] = []
     datasource_context = _build_datasource_context(datasource)
     if extra_context:
@@ -632,15 +724,31 @@ async def build_agentic_nl2sql(
     }
     if llm_model:
         context_detail["model"] = llm_model
-    await _append_trace(trace, _trace("context", "success", "已读取数据源元数据", context_detail), on_trace)
+    await _append_trace(
+        trace,
+        _trace("context", "success", "已读取数据源元数据", context_detail, duration_ms=_duration_ms(context_start)),
+        on_trace,
+    )
 
+    step_start = time.perf_counter()
     plan = await _plan(question, datasource_context, llm_config=llm_config)
-    await _append_trace(trace, _trace("plan", "success", "已生成查询计划", {"plan": plan}), on_trace)
+    await _append_trace(
+        trace,
+        _trace("plan", "success", "已生成查询计划", {"plan": plan}, duration_ms=_duration_ms(step_start)),
+        on_trace,
+    )
+    step_start = time.perf_counter()
     agent_notes = _agent_notes_from_plan(plan)
     if agent_notes:
         await _append_trace(
             trace,
-            _trace("assumption", "warning", "问题信息不完整，已按默认假设继续查询", {"agent_notes": agent_notes}),
+            _trace(
+                "assumption",
+                "warning",
+                "问题信息不完整，已按默认假设继续查询",
+                {"agent_notes": agent_notes},
+                duration_ms=_duration_ms(step_start),
+            ),
             on_trace,
         )
 
@@ -648,6 +756,7 @@ async def build_agentic_nl2sql(
     feedback = ""
     for attempt in range(max_repairs + 1):
         stage = "sql_generate" if attempt == 0 else "sql_fix"
+        step_start = time.perf_counter()
         sql = await _generate_sql(
             question,
             datasource_context,
@@ -657,11 +766,19 @@ async def build_agentic_nl2sql(
         )
         try:
             safe_sql = _validate_agentic_sql(datasource, sql)
-            await _append_trace(trace, _trace(stage, "success", "已生成安全 SQL", {"sql": safe_sql}), on_trace)
+            await _append_trace(
+                trace,
+                _trace(stage, "success", "已生成安全 SQL", {"sql": safe_sql}, duration_ms=_duration_ms(step_start)),
+                on_trace,
+            )
             return {"sql_query": safe_sql, "plan": plan, "trace": trace, "agent_notes": agent_notes}
         except ValueError as exc:
             last_error = str(exc)
-            await _append_trace(trace, _trace(stage, "error", last_error, {"sql": sql}), on_trace)
+            await _append_trace(
+                trace,
+                _trace(stage, "error", last_error, {"sql": sql}, duration_ms=_duration_ms(step_start)),
+                on_trace,
+            )
             feedback = last_error
 
     raise ValueError(last_error or "探索模式 SQL 生成失败")
@@ -696,6 +813,7 @@ async def repair_agentic_sql_after_execution_error(
     feedback = base_feedback
     for attempt in range(max_repairs + 1):
         stage = "sql_execute_fix" if attempt == 0 else "sql_execute_fix_retry"
+        step_start = time.perf_counter()
         sql = await _generate_sql(
             question,
             datasource_context,
@@ -714,11 +832,19 @@ async def repair_agentic_sql_after_execution_error(
         try:
             safe_sql = _validate_agentic_sql(datasource, sql)
             detail["sql"] = safe_sql
-            await _append_trace(trace, _trace(stage, "success", "已根据执行错误修复 SQL", detail), on_trace)
+            await _append_trace(
+                trace,
+                _trace(stage, "success", "已根据执行错误修复 SQL", detail, duration_ms=_duration_ms(step_start)),
+                on_trace,
+            )
             return {"sql_query": safe_sql, "trace": trace}
         except ValueError as exc:
             last_error = str(exc)
-            await _append_trace(trace, _trace(stage, "error", last_error, detail), on_trace)
+            await _append_trace(
+                trace,
+                _trace(stage, "error", last_error, detail, duration_ms=_duration_ms(step_start)),
+                on_trace,
+            )
             feedback = f"{base_feedback}\n\n修复后的 SQL 仍未通过安全检查：{last_error}"
 
     raise ValueError(last_error or "探索模式 SQL 执行错误修复失败")

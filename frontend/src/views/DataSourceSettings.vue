@@ -94,11 +94,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="业务口径" min-width="260">
+        <el-table-column label="推荐问题" min-width="240">
           <template #default="{ row }">
             <div class="governance-table-name">
-              <span>{{ row.metrics_prompt ? row.metrics_prompt.substring(0, 96) : '未维护指标描述' }}</span>
-              <span>{{ recommendationCount(row) }} 个推荐问题</span>
+              <strong>{{ recommendationCount(row) }} 个推荐问题</strong>
+              <span>{{ recommendQuestionPreview(row) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -152,9 +152,6 @@
         </el-descriptions-item>
         <el-descriptions-item label="钻取规则">{{ detailRow.drill_config ? '已配置' : '未配置' }}</el-descriptions-item>
         <el-descriptions-item label="推荐问题">{{ recommendationCount(detailRow) }} 个</el-descriptions-item>
-        <el-descriptions-item v-if="detailRow.metrics_prompt" label="业务口径" :span="2">
-          <span class="detail-text-clamp">{{ detailRow.metrics_prompt }}</span>
-        </el-descriptions-item>
       </el-descriptions>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
@@ -253,12 +250,8 @@
             </div>
           </el-tab-pane>
 
-          <el-tab-pane label="业务语义" name="semantic">
+          <el-tab-pane label="推荐问题" name="semantic">
             <div class="modal-tab-content">
-              <el-form-item label="指标描述">
-                <el-input v-model="form.metrics_prompt" type="textarea" :rows="5" placeholder="可用的业务指标描述（可选）" />
-                <div class="governance-field-hint">填写核心指标口径，智能问数时会参考。</div>
-              </el-form-item>
               <el-form-item>
                 <template #label>
                   <div class="semantic-label-row">
@@ -544,7 +537,6 @@ interface DataSourceDetail {
   metadata_prompt: string
   schema_metadata: SchemaMetadata | null
   drill_config: DrillConfig | null
-  metrics_prompt: string | null
   text2sql_prompt: string | null
   recommend_questions: string[] | null
   is_active: number
@@ -690,7 +682,7 @@ const filteredDatasources = computed(() => {
       return false
     }
     if (!kw) return true
-    return [item.name, item.slug, item.metadata_prompt, item.metrics_prompt]
+    return [item.name, item.slug, item.metadata_prompt, ...(item.recommend_questions || [])]
       .filter(Boolean)
       .some(value => String(value).toLowerCase().includes(kw))
   })
@@ -734,7 +726,6 @@ const form = reactive({
   conn_sqlite_path: "",
   conn_advanced: false,
   database_url: "",
-  metrics_prompt: "",
 })
 
 const isDbConnector = computed(() => form.source_type !== "excel")
@@ -839,6 +830,13 @@ const schemaFieldsCount = (row: DataSourceDetail) =>
 const recommendationCount = (row: DataSourceDetail) =>
   Array.isArray(row.recommend_questions) ? row.recommend_questions.length : 0
 
+const recommendQuestionPreview = (row: DataSourceDetail) => {
+  const questions = Array.isArray(row.recommend_questions)
+    ? row.recommend_questions.map(item => String(item || "").trim()).filter(Boolean)
+    : []
+  return questions[0] || "暂无推荐问题"
+}
+
 const openCreate = () => {
   isEdit.value = false
   editId.value = null
@@ -854,7 +852,6 @@ const openCreate = () => {
   form.conn_sqlite_path = ""
   form.conn_advanced = false
   form.database_url = ""
-  form.metrics_prompt = ""
   selectedExcelFile.value = null
   selectedExcelName.value = ""
   recommendQuestionsText.value = ""
@@ -877,7 +874,6 @@ const openEdit = (row: DataSourceDetail) => {
   form.conn_sqlite_path = ""
   form.conn_advanced = false
   form.database_url = ""
-  form.metrics_prompt = row.metrics_prompt || ""
   selectedExcelFile.value = null
   selectedExcelName.value = ""
   recommendQuestionsText.value = (row.recommend_questions || []).join("\n")
@@ -945,7 +941,6 @@ const handleSave = async () => {
       name: form.name,
       slug: form.slug,
       source_type: form.source_type,
-      metrics_prompt: form.metrics_prompt || null,
       recommend_questions: questions.length > 0 ? questions : null,
     }
 
