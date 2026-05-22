@@ -42,3 +42,12 @@ test("agent store normalizes legacy routes to the current refactored navigation"
   assert.match(store, /case "create_action_item":/)
   assert.doesNotMatch(store, /await router\.push\(action\.params\.route\)/)
 })
+
+test("floating agent does not expose hidden analysis and report pages as navigation entries", () => {
+  const store = read("src/store/agent.ts")
+  const component = read("src/components/FloatingAgent.vue")
+
+  assert.doesNotMatch(store, /"自助分析":\s*"\/analysis-workbench"/)
+  assert.doesNotMatch(store, /"复杂报表":\s*"\/report-center"/)
+  assert.doesNotMatch(component, /进入自助分析/)
+})

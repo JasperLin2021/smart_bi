@@ -56,7 +56,7 @@
         <div class="agent-messages">
           <div v-if="!agentStore.messages.length" class="agent-empty">
             <div class="agent-empty-title">我可以帮你操作当前系统</div>
-            <div class="agent-empty-text">例如打开数据集开发、进入自助分析、切换数据源、发起问数或创建行动项。</div>
+            <div class="agent-empty-text">例如打开数据集开发、切换数据源、发起问数或创建行动项。</div>
           </div>
           <div v-for="message in agentStore.messages" :key="message.id" :class="['agent-message', `agent-message--${message.role}`]">
             <div class="agent-bubble">

@@ -294,8 +294,6 @@ const menuEntries: MenuEntry[] = [
     items: [
       { path: "/smart-query", label: "智能问数", icon: ChatDotRound },
       { path: "/dashboard", label: "仪表盘", icon: DataLine },
-      { path: "/analysis-workbench", label: "自助分析", icon: TrendCharts },
-      { path: "/report-center", label: "复杂报表", icon: Document },
       { path: "/action-items", label: "行动闭环", icon: Tickets },
     ],
   },
