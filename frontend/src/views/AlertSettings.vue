@@ -328,7 +328,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
 import { Plus, Edit, Delete, Close, Bell, Message, ChatDotRound, Phone, Search, MoreFilled, Refresh } from "@element-plus/icons-vue"
 import axios from "axios"
@@ -559,8 +559,8 @@ async function runAlert(row: any) {
   try {
     const { data } = await axios.post(`/api/alerts/${row.id}/run`)
     ElMessage.success(data.message || "已触发，请稍后查看历史记录")
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.detail || "触发失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     runningId.value = null
   }

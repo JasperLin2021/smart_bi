@@ -2359,7 +2359,8 @@ const deleteDataset = async (dataset: DatasetItem) => {
 
 onMounted(async () => {
   await datasourceStore.fetchDatasources().catch(() => undefined)
-  await fetchDatasourceDetails()
+  // 数据源详情（schema/drill_config 等重字段）改为在打开数据集表单时按需懒加载
+  // （见 ensureDatasourceReady），避免此处对每个数据源发一次详情请求造成 N+1。
   await fetchDatasets()
   if (embedded.value && props.autoCreate) {
     await openCreate(props.preferredDatasourceId)

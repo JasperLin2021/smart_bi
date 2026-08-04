@@ -162,7 +162,7 @@ type Overview = {
 
 const router = useRouter()
 const authStore = useAuthStore()
-const isAdmin = computed(() => ["super_admin", "org_admin"].includes(authStore.user?.role || ""))
+const isAdmin = computed(() => ["super_admin", "org_admin"].includes(authStore.profile?.role || ""))
 const loading = ref(false)
 const pendingRequests = ref<any[]>([])
 const requestDialogVisible = ref(false)

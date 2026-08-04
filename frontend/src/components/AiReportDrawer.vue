@@ -37,10 +37,10 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
-import { marked } from "marked"
 import { ElMessage } from "element-plus"
 import { MagicStick, CopyDocument } from "@element-plus/icons-vue"
 import axios from "axios"
+import { renderMarkdown } from "@/utils/markdown"
 
 const props = defineProps<{
   chartId?: number | null
@@ -59,7 +59,7 @@ const markdown = ref("")
 
 const renderedMarkdown = computed(() => {
   if (!markdown.value) return ""
-  return marked.parse(markdown.value) as string
+  return renderMarkdown(markdown.value)
 })
 
 async function generate() {

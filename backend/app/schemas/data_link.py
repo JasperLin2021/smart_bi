@@ -1,6 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Optional, List, Any
 from datetime import datetime
+
+# Keys in a connector config whose values must never be returned to clients.
+_SECRET_KEY_HINTS = ("secret", "password", "token", "key", "credential")
+
+
+def _mask_secrets(config: Optional[dict]) -> Optional[dict]:
+    if not config:
+        return config
+    masked = {}
+    for key, value in config.items():
+        if isinstance(value, str) and value and any(hint in key.lower() for hint in _SECRET_KEY_HINTS):
+            masked[key] = "********"
+        else:
+            masked[key] = value
+    return masked
 
 
 class DataLinkCreate(BaseModel):
@@ -30,6 +45,10 @@ class DataLinkOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("config_json")
+    def _serialize_config(self, value: Optional[dict]) -> Optional[dict]:
+        return _mask_secrets(value)
 
 
 class FieldMapping(BaseModel):

@@ -261,7 +261,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
 import { Plus, Edit, Delete, CaretRight, Search, MoreFilled, Refresh, Message, ChatDotRound, Phone } from "@element-plus/icons-vue"
 import axios from "axios"

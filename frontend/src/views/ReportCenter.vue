@@ -51,7 +51,7 @@
           <template #default="{ row }">
             <div class="name-cell">
               <strong>{{ row.name }}</strong>
-              <span>{{ datasetName(row.dataset_id) }} · {{ reportTypeLabel(row.report_type) }}</span>
+              <span>{{ row.dataset_id ? datasetName(row.dataset_id) : "AI 生成" }} · {{ reportTypeLabel(row.report_type) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -81,26 +81,44 @@
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <div class="icon-actions">
-              <el-tooltip content="预览设计器">
-                <el-button :icon="View" circle @click="openDesigner(row)" />
-              </el-tooltip>
-              <el-tooltip content="编辑模板">
-                <el-button :icon="Edit" circle @click="openDesigner(row)" />
-              </el-tooltip>
-              <el-tooltip content="导出 Excel">
-                <el-button :icon="Download" circle :loading="exportingId === `${row.id}:excel`" @click="exportTemplate(row, 'excel')" />
-              </el-tooltip>
-              <el-tooltip content="导出 PDF">
-                <el-button circle :loading="exportingId === `${row.id}:pdf`" @click="exportTemplate(row, 'pdf')">PDF</el-button>
-              </el-tooltip>
-              <el-tooltip content="导出 Word">
-                <el-button circle :loading="exportingId === `${row.id}:word`" @click="exportTemplate(row, 'word')">W</el-button>
-              </el-tooltip>
+              <template v-if="row.report_type === 'ai_html'">
+                <el-tooltip content="预览报表">
+                  <el-button :icon="View" circle :loading="previewLoadingId === row.id" @click="openAiPreview(row)" />
+                </el-tooltip>
+              </template>
+              <template v-else>
+                <el-tooltip content="预览设计器">
+                  <el-button :icon="View" circle @click="openDesigner(row)" />
+                </el-tooltip>
+                <el-tooltip content="编辑模板">
+                  <el-button :icon="Edit" circle @click="openDesigner(row)" />
+                </el-tooltip>
+                <el-tooltip content="导出 Excel">
+                  <el-button :icon="Download" circle :loading="exportingId === `${row.id}:excel`" @click="exportTemplate(row, 'excel')" />
+                </el-tooltip>
+                <el-tooltip content="导出 PDF">
+                  <el-button circle :loading="exportingId === `${row.id}:pdf`" @click="exportTemplate(row, 'pdf')">PDF</el-button>
+                </el-tooltip>
+                <el-tooltip content="导出 Word">
+                  <el-button circle :loading="exportingId === `${row.id}:word`" @click="exportTemplate(row, 'word')">W</el-button>
+                </el-tooltip>
+              </template>
             </div>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="previewVisible" :title="previewTitle || 'AI 报表预览'" width="min(1100px, calc(100vw - 32px))" destroy-on-close>
+      <iframe
+        v-if="previewHtml"
+        class="ai-html-preview-frame"
+        sandbox="allow-scripts"
+        :srcdoc="previewHtml"
+        title="AI 报表预览"
+      ></iframe>
+      <el-empty v-else description="该模板没有可预览的 HTML 内容" />
+    </el-dialog>
 
     <el-dialog v-model="dialogVisible" title="新建复杂报表" width="min(760px, calc(100vw - 32px))" destroy-on-close>
       <el-form label-position="top">
@@ -166,6 +184,7 @@ type ReportTemplate = {
   status: string
   visibility: string
   version: number
+  layout_json?: { kind?: string; html?: string } | null
   parameter_schema_json?: Record<string, unknown> | null
   binding_json?: Record<string, unknown> | null
   fill_schema_json?: Record<string, unknown> | null
@@ -215,6 +234,7 @@ const reportTypeLabel = (type: string) => {
     cross_tab: "交叉报表",
     fill_form: "填报报表",
     word: "Word 报告",
+    ai_html: "AI 报表",
   }
   return labels[type] || type
 }
@@ -236,8 +256,8 @@ const loadAll = async () => {
     ])
     reports.value = reportResp.data.items || []
     datasets.value = datasetResp.data.items || []
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "复杂报表加载失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     loading.value = false
   }
@@ -280,6 +300,25 @@ const saveTemplate = async () => {
 
 const openDesigner = (row: ReportTemplate) => {
   router.push(`/report-designer/${row.id}`)
+}
+
+const previewVisible = ref(false)
+const previewLoadingId = ref<number | null>(null)
+const previewTitle = ref("")
+const previewHtml = ref("")
+
+const openAiPreview = async (row: ReportTemplate) => {
+  previewLoadingId.value = row.id
+  try {
+    const { data } = await axios.get(`/api/report-templates/${row.id}`)
+    previewTitle.value = data.name || row.name
+    previewHtml.value = data.layout_json?.html || ""
+    previewVisible.value = true
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "加载预览失败")
+  } finally {
+    previewLoadingId.value = null
+  }
 }
 
 const exportTemplate = async (row: ReportTemplate, exportType: "excel" | "pdf" | "word") => {
@@ -396,6 +435,14 @@ onMounted(loadAll)
 .icon-actions :deep(.el-button) {
   width: 34px;
   height: 34px;
+}
+
+.ai-html-preview-frame {
+  width: 100%;
+  height: min(72vh, 760px);
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: #ffffff;
 }
 
 @media (max-width: 900px) {

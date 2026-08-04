@@ -766,7 +766,7 @@ const roleForm = reactive({
 // ── Computed ───────────────────────────────────────────────────────────────────
 
 const visibleTabs = computed(() => {
-  const tabs: { key: string; label: string; icon: Component; badge?: number }[] = []
+  const tabs: { key: "orgs" | "roles"; label: string; icon: Component; badge?: number }[] = []
   if (canManageEnterprise.value) {
     tabs.push({ key: "orgs", label: "企业管理", icon: OfficeBuilding, badge: organizationCount.value })
   }

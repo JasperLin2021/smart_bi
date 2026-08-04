@@ -7,7 +7,7 @@ from pydantic import BaseModel
 class ReportTemplateBase(BaseModel):
     name: str
     description: Optional[str] = None
-    dataset_id: int
+    dataset_id: Optional[int] = None
     report_type: str = "paginated"
     layout_json: Optional[dict[str, Any]] = None
     parameter_schema_json: Optional[dict[str, Any]] = None

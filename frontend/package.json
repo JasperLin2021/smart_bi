@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
     "test:static": "node --test tests/*.mjs",
     "test:ui": "node scripts/run-ui-audit.mjs"
@@ -20,6 +21,7 @@
     "@codemirror/view": "^6.42.0",
     "@vue-flow/core": "^1.48.2",
     "axios": "^1.7.7",
+    "dompurify": "^3.4.12",
     "echarts": "^5.5.1",
     "element-plus": "^2.7.8",
     "file-saver": "^2.0.5",

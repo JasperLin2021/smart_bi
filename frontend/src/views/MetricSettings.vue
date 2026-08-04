@@ -1326,7 +1326,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import {

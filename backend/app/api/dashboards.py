@@ -6,8 +6,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
+from app.api.embed import EmbedPublicData, resolve_dashboard_public_data
 from app.core.audit import try_record_audit_log
 from app.core.message_dispatcher import MessageEvent, dispatch_message_event
+from app.core.webhook_dispatcher import dispatch_event
 from app.core.safe_delete import assert_dashboard_can_delete, delete_catalog_asset
 from app.db.session import get_db
 from app.models.catalog import DataAsset
@@ -143,11 +145,7 @@ def create_dashboard(
     return dashboard
 
 
-@router.get("/public/{share_token}", response_model=DashboardOut)
-def get_public_dashboard(
-    share_token: str,
-    db: Session = Depends(get_db),
-):
+def _get_public_dashboard(db: Session, share_token: str) -> Dashboard:
     dashboard = (
         db.query(Dashboard)
         .filter(Dashboard.share_token == share_token, Dashboard.is_public == 1)
@@ -156,6 +154,27 @@ def get_public_dashboard(
     if not dashboard:
         raise HTTPException(status_code=404, detail="公开看板不存在")
     return dashboard
+
+
+@router.get("/public/{share_token}", response_model=DashboardOut)
+def get_public_dashboard(
+    share_token: str,
+    db: Session = Depends(get_db),
+):
+    return _get_public_dashboard(db, share_token)
+
+
+@router.get("/public/{share_token}/data", response_model=EmbedPublicData)
+def get_public_dashboard_data(
+    share_token: str,
+    db: Session = Depends(get_db),
+):
+    """公开分享页取数：按 share_token 解析看板并执行各图表 SQL，返回与 embed 一致的数据结构。
+
+    无需登录鉴权；仅 is_public=1 且 share_token 匹配的看板可访问。单图失败不阻断整板。
+    """
+    dashboard = _get_public_dashboard(db, share_token)
+    return resolve_dashboard_public_data(db, dashboard)
 
 
 @router.get("/{dashboard_id}", response_model=DashboardOut)
@@ -219,6 +238,7 @@ def share_dashboard(
     if not _can_manage_dashboard(current_user, dashboard):
         raise HTTPException(status_code=403, detail="无权限")
 
+    was_public = bool(dashboard.is_public)
     dashboard.is_public = 1 if payload.is_public else 0
     dashboard.shared_user_ids = payload.shared_user_ids or []
     if dashboard.is_public and not dashboard.share_token:
@@ -252,6 +272,19 @@ def share_dashboard(
             link_url=f"/dashboard-center?dashboard_id={dashboard.id}",
         ),
     )
+    if dashboard.is_public and not was_public:
+        dispatch_event(
+            db,
+            dashboard.org_id,
+            "dashboard.published",
+            {
+                "dashboard_id": dashboard.id,
+                "title": dashboard.title,
+                "version": dashboard.version,
+                "is_public": True,
+                "share_token": dashboard.share_token,
+            },
+        )
     return dashboard
 
 
@@ -280,6 +313,12 @@ def publish_dashboard(
         resource_name=dashboard.title,
         org_id=dashboard.org_id,
         message="看板已发布",
+    )
+    dispatch_event(
+        db,
+        dashboard.org_id,
+        "dashboard.published",
+        {"dashboard_id": dashboard.id, "title": dashboard.title, "version": dashboard.version},
     )
     return dashboard
 

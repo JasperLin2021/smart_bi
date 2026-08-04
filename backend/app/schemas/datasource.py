@@ -117,6 +117,7 @@ class DataSourceListItem(BaseModel):
     is_active: int
     org_id: Optional[int] = None
     source_type: Optional[str] = None
+    recommend_questions: Optional[List[str]] = None
 
     class Config:
         from_attributes = True

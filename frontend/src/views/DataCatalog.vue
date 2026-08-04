@@ -541,7 +541,7 @@
       append-to-body
       destroy-on-close
       class="catalog-dashboard-preview-dialog"
-      @opened="() => window.dispatchEvent(new Event('resize'))"
+      @opened="onDashboardPreviewOpened"
     >
       <template #header>
         <div class="dashboard-preview-head">
@@ -695,6 +695,9 @@ const dashboardPreviewVisible = ref(false)
 const dashboardPreviewLoading = ref(false)
 const dashboardPreview = ref<DashboardItem | null>(null)
 const dashboardPreviewCharts = ref<PinnedChartData[]>([])
+
+// 预览对话框打开后触发一次全局 resize，让内部 ECharts 实例按最终尺寸重排
+const onDashboardPreviewOpened = () => window.dispatchEvent(new Event("resize"))
 
 const searchScope = ref<"folder" | "global">("folder")
 const searchFocused = ref(false)

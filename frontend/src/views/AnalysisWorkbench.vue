@@ -313,7 +313,7 @@ import {
   Search,
   View,
 } from "@element-plus/icons-vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import * as XLSX from "xlsx"
 
 type RawField = string | Record<string, any>
@@ -522,8 +522,8 @@ const loadAll = async () => {
     views.value = viewResp.data.items || []
     dashboards.value = dashboardResp.data.items || []
     if (!form.dataset_id) form.dataset_id = datasets.value[0]?.id || null
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "自助分析加载失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     loading.value = false
   }

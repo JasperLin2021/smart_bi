@@ -445,7 +445,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { UploadFile } from "element-plus"
@@ -770,7 +770,7 @@ const generateRecommendQuestions = async () => {
   generatingRecommendQuestions.value = true
   try {
     const response = await axios.post(`/api/datasources/${editId.value}/generate-recommend-questions`)
-    const generated = Array.isArray(response.data?.recommend_questions)
+    const generated: string[] = Array.isArray(response.data?.recommend_questions)
       ? response.data.recommend_questions.map((item: unknown) => String(item || "").trim()).filter(Boolean)
       : []
     if (!generated.length) {

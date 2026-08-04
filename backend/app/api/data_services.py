@@ -4,11 +4,17 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
+from app.core.webhook_dispatcher import (
+    SUPPORTED_EVENTS,
+    build_event_payload,
+    deliver_subscription,
+)
 from app.db.session import get_db
 from app.models.dashboard_config import Dashboard
 from app.models.datasource import DataSource
 from app.models.metric import Metric
 from app.models.user import User
+from app.models.webhook_subscription import WebhookSubscription
 
 router = APIRouter(prefix="/data-services", tags=["data_services"])
 
@@ -16,6 +22,52 @@ router = APIRouter(prefix="/data-services", tags=["data_services"])
 class WebhookPayload(BaseModel):
     event: str
     payload: dict | None = None
+
+
+class WebhookSubscriptionCreate(BaseModel):
+    name: str
+    target_url: str
+    events: list[str]
+    secret: str | None = None
+    enabled: bool = True
+
+
+class WebhookSubscriptionUpdate(BaseModel):
+    name: str | None = None
+    target_url: str | None = None
+    events: list[str] | None = None
+    secret: str | None = None
+    enabled: bool | None = None
+
+
+def _validate_events(events: list[str]) -> list[str]:
+    invalid = [event for event in events if event not in SUPPORTED_EVENTS]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"不支持的事件类型: {', '.join(invalid)}")
+    return events
+
+
+def _subscription_for_user(db: Session, subscription_id: int, user: User) -> WebhookSubscription:
+    subscription = db.query(WebhookSubscription).filter(WebhookSubscription.id == subscription_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Webhook 订阅不存在")
+    if user.role != "super_admin" and subscription.org_id != user.org_id:
+        raise HTTPException(status_code=403, detail="无权访问此订阅")
+    return subscription
+
+
+def _subscription_contract(subscription: WebhookSubscription) -> dict:
+    return {
+        "id": subscription.id,
+        "org_id": subscription.org_id,
+        "name": subscription.name,
+        "target_url": subscription.target_url,
+        "events": subscription.events or [],
+        "secret_configured": bool(subscription.secret),
+        "enabled": bool(subscription.enabled),
+        "created_at": subscription.created_at.isoformat() if subscription.created_at else None,
+        "updated_at": subscription.updated_at.isoformat() if subscription.updated_at else None,
+    }
 
 
 def _metric_for_user(db: Session, metric_id: int, user: User) -> tuple[Metric, DataSource | None]:
@@ -118,6 +170,7 @@ def get_data_service_catalog(
             {
                 "name": "generic",
                 "endpoint": "/api/data-services/webhooks/{name}",
+                "subscriptions_endpoint": "/api/data-services/webhooks/subscriptions",
                 "events": ["metric.refreshed", "dashboard.published", "action_item.closed"],
             }
         ],
@@ -181,6 +234,131 @@ def get_dashboard_embed(
     if dashboard.status != "published" and dashboard.owner_id != current_user.id and current_user.role != "org_admin":
         raise HTTPException(status_code=403, detail="看板未发布")
     return _dashboard_embed_contract(dashboard)
+
+
+@router.get("/webhooks/subscriptions")
+def list_webhook_subscriptions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(WebhookSubscription)
+    if current_user.role != "super_admin":
+        query = query.filter(WebhookSubscription.org_id == current_user.org_id)
+    subscriptions = query.order_by(WebhookSubscription.id.asc()).all()
+    return [_subscription_contract(subscription) for subscription in subscriptions]
+
+
+@router.post("/webhooks/subscriptions")
+def create_webhook_subscription(
+    payload: WebhookSubscriptionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = WebhookSubscription(
+        org_id=current_user.org_id,
+        name=payload.name,
+        target_url=payload.target_url,
+        events=_validate_events(payload.events),
+        secret=payload.secret,
+        enabled=1 if payload.enabled else 0,
+        created_by=current_user.id,
+    )
+    db.add(subscription)
+    db.commit()
+    db.refresh(subscription)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="data_service.webhook_subscription.create",
+        resource_type="webhook_subscription",
+        resource_id=subscription.id,
+        resource_name=subscription.name,
+        org_id=current_user.org_id,
+        message="Webhook 订阅已创建",
+        detail={"events": subscription.events, "target_url": subscription.target_url},
+    )
+    return _subscription_contract(subscription)
+
+
+@router.put("/webhooks/subscriptions/{subscription_id}")
+def update_webhook_subscription(
+    subscription_id: int,
+    payload: WebhookSubscriptionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = _subscription_for_user(db, subscription_id, current_user)
+    values = payload.model_dump(exclude_unset=True)
+    if "events" in values and values["events"] is not None:
+        values["events"] = _validate_events(values["events"])
+    if "enabled" in values and values["enabled"] is not None:
+        values["enabled"] = 1 if values["enabled"] else 0
+    for key, value in values.items():
+        if value is not None:
+            setattr(subscription, key, value)
+    db.commit()
+    db.refresh(subscription)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="data_service.webhook_subscription.update",
+        resource_type="webhook_subscription",
+        resource_id=subscription.id,
+        resource_name=subscription.name,
+        org_id=subscription.org_id,
+        message="Webhook 订阅已更新",
+        detail={"fields": list(values.keys())},
+    )
+    return _subscription_contract(subscription)
+
+
+@router.delete("/webhooks/subscriptions/{subscription_id}")
+def delete_webhook_subscription(
+    subscription_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = _subscription_for_user(db, subscription_id, current_user)
+    resource_name = subscription.name
+    org_id = subscription.org_id
+    db.delete(subscription)
+    db.commit()
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="data_service.webhook_subscription.delete",
+        resource_type="webhook_subscription",
+        resource_id=subscription_id,
+        resource_name=resource_name,
+        org_id=org_id,
+        message="Webhook 订阅已删除",
+    )
+    return {"status": "ok"}
+
+
+@router.post("/webhooks/subscriptions/{subscription_id}/test")
+def test_webhook_subscription(
+    subscription_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = _subscription_for_user(db, subscription_id, current_user)
+    event_type = (subscription.events or [SUPPORTED_EVENTS[0]])[0]
+    payload = build_event_payload(event_type, {"test": True, "subscription_id": subscription.id})
+    success, status_code, error = deliver_subscription(subscription, event_type, payload)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="data_service.webhook_subscription.test",
+        resource_type="webhook_subscription",
+        resource_id=subscription.id,
+        resource_name=subscription.name,
+        org_id=subscription.org_id,
+        status="success" if success else "failed",
+        message="Webhook 测试投递成功" if success else "Webhook 测试投递失败",
+        detail={"event": event_type, "status_code": status_code, "error": error},
+    )
+    return {"status": "delivered" if success else "failed", "status_code": status_code, "error": error}
 
 
 @router.post("/webhooks/{name}")

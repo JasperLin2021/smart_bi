@@ -281,6 +281,8 @@ PY
 
 在任何共享环境或公网环境使用前，请修改所有默认密码。
 
+> 这些演示账号仅在 `ENVIRONMENT=development` 时自动创建。当 `ENVIRONMENT=production` 时，系统会拒绝使用占位符 `JWT_SECRET`、拒绝通配符 `CORS_ORIGINS`，并且**不会**创建任何演示账号；首个管理员通过 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` 环境变量创建。
+
 生产环境可选 OLAP 加速：
 
 ```bash

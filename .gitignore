@@ -10,6 +10,9 @@ venv/
 backend/.venv/
 backend/venv/
 frontend/dist/
+frontend/test-results/
+frontend/tmp-ui-audit/
+frontend/playwright-report/
 backend/uploads/
 ~$*.xlsx
 *.db
@@ -24,3 +27,4 @@ e()
 leep 2
 ycopg2
 ql -h *
+agent/dist/

@@ -181,8 +181,8 @@ const loadTemplate = async () => {
     }
     versions.value = versionResp.data || []
     selectCell(1, "A")
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "报表模板加载失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     loading.value = false
   }

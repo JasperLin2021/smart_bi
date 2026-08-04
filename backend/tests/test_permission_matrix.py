@@ -386,8 +386,8 @@ class PermissionMatrixTests(unittest.TestCase):
         db = self._db()
         data = self._seed_enterprise_matrix(db)
 
-        self.assertEqual({ds.slug for ds in list_datasources(db=db, current_user=data["nova_admin"])}, {"nova-erp", "nova-quality"})
-        self.assertEqual({ds.slug for ds in list_datasources(db=db, current_user=data["root"])}, {"nova-erp", "nova-quality", "orion-pos"})
+        self.assertEqual({ds["slug"] for ds in list_datasources(db=db, current_user=data["nova_admin"])}, {"nova-erp", "nova-quality"})
+        self.assertEqual({ds["slug"] for ds in list_datasources(db=db, current_user=data["root"])}, {"nova-erp", "nova-quality", "orion-pos"})
 
         analyst_datasets = list_datasets(db=db, current_user=data["nova_analyst"])["items"]
         self.assertEqual({dataset.name for dataset in analyst_datasets}, {"Nova Sales Fulfillment"})

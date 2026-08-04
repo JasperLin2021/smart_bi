@@ -21,13 +21,17 @@
           <el-empty v-else description="暂无数据" />
         </template>
 
-        <!-- Dashboard embed (simple card list) -->
+        <!-- Dashboard embed (grid of live charts) -->
         <template v-else-if="data.resource_type === 'dashboard'">
-          <div class="embed-dashboard-info">
-            <el-icon :size="48"><DataBoard /></el-icon>
-            <p>{{ data.title }}</p>
-            <p class="embed-sub">嵌入式看板 – 完整功能请在 Smart BI 中访问</p>
+          <div v-if="data.charts && data.charts.length" class="embed-dashboard-grid">
+            <div v-for="chart in data.charts" :key="chart.resource_id" class="embed-dashboard-cell">
+              <div class="embed-cell-title">{{ chart.title }}</div>
+              <div v-if="chart.error" class="embed-cell-error">{{ chart.error }}</div>
+              <el-empty v-else-if="!chart.rows || !chart.rows.length" description="暂无数据" :image-size="60" />
+              <div v-else class="embed-cell-chart" :ref="(el) => setChartRef(chart.resource_id, el)"></div>
+            </div>
           </div>
+          <el-empty v-else description="该看板暂无图表" />
         </template>
       </div>
     </template>
@@ -35,10 +39,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick } from "vue"
+import { onMounted, onBeforeUnmount, ref, nextTick } from "vue"
 import { useRoute } from "vue-router"
-import * as echarts from "echarts"
-import { Loading, Warning, DataBoard } from "@element-plus/icons-vue"
+import * as echarts from "@/utils/echarts"
+import { Loading, Warning } from "@element-plus/icons-vue"
 import axios from "axios"
 import {
   CHART_COLOR_PALETTE,
@@ -52,6 +56,15 @@ const route = useRoute()
 const token = route.params.token as string
 const noHeader = "no_header" in route.query
 
+interface ChartData {
+  resource_id: number
+  title: string
+  chart_type: string | null
+  columns: string[]
+  rows: Array<Record<string, any>>
+  error?: string | null
+}
+
 const loading = ref(true)
 const error = ref("")
 const data = ref<{
@@ -61,10 +74,40 @@ const data = ref<{
   chart_type: string | null
   columns: string[]
   rows: Array<Record<string, any>>
+  charts: ChartData[]
 } | null>(null)
 
 const chartRef = ref<HTMLDivElement | null>(null)
-let chartInstance: echarts.ECharts | null = null
+// Dashboard mode: collect each cell's container element by chart id.
+const dashboardChartEls = new Map<number, HTMLElement>()
+
+function setChartRef(resourceId: number, el: any) {
+  if (el) dashboardChartEls.set(resourceId, el as HTMLElement)
+  else dashboardChartEls.delete(resourceId)
+}
+
+// 跟踪所有 echarts 实例，容器尺寸变化时 resize，卸载时统一 dispose
+const chartInstances = new Map<HTMLElement, echarts.ECharts>()
+let resizeObserver: ResizeObserver | null = null
+
+function trackChartInstance(el: HTMLElement, instance: echarts.ECharts) {
+  chartInstances.set(el, instance)
+  if (!resizeObserver) {
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        chartInstances.get(entry.target as HTMLElement)?.resize()
+      }
+    })
+  }
+  resizeObserver.observe(el)
+}
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  for (const instance of chartInstances.values()) instance.dispose()
+  chartInstances.clear()
+})
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api"
 
@@ -74,7 +117,12 @@ onMounted(async () => {
     data.value = resp.data
     await nextTick()
     if (data.value?.resource_type === "chart" && data.value.rows.length) {
-      renderChart()
+      if (chartRef.value) renderChartInto(chartRef.value, data.value as ChartData)
+    } else if (data.value?.resource_type === "dashboard") {
+      for (const chart of data.value.charts || []) {
+        const el = dashboardChartEls.get(chart.resource_id)
+        if (el && chart.rows && chart.rows.length) renderChartInto(el, chart)
+      }
     }
   } catch (e: any) {
     error.value = e?.response?.data?.detail || "加载失败，embed token 可能无效或已过期"
@@ -83,20 +131,20 @@ onMounted(async () => {
   }
 })
 
-function renderChart() {
-  if (!chartRef.value || !data.value) return
-  chartInstance = echarts.init(chartRef.value)
+function renderChartInto(el: HTMLElement, source: ChartData) {
+  const chartInstanceLocal = echarts.init(el)
+  trackChartInstance(el, chartInstanceLocal)
 
-  const rows = data.value.rows
-  const columns = data.value.columns
-  const chartType = data.value.chart_type || "bar"
+  const rows = source.rows
+  const columns = source.columns
+  const chartType = source.chart_type || "bar"
 
   const isNumeric = (v: any) => typeof v === "number" || (!isNaN(Number(v)) && v !== null && v !== "")
 
   if (chartType === "pie" || chartType === "donut") {
     const nameCol = columns[0]
     const valCol = columns.find(c => c !== nameCol && isNumeric(rows[0]?.[c])) || columns[1]
-    chartInstance.setOption({
+    chartInstanceLocal.setOption({
       color: CHART_COLOR_PALETTE,
       tooltip: { trigger: "item" },
       series: [{
@@ -113,7 +161,7 @@ function renderChart() {
   const valCols = columns.slice(1).filter(c => isNumeric(rows[0]?.[c]))
   const seriesType = chartType === "line" || chartType === "area" ? "line" : "bar"
   const hasSingleValueSeries = valCols.length === 1
-  chartInstance.setOption({
+  chartInstanceLocal.setOption({
     color: CHART_COLOR_PALETTE,
     tooltip: { trigger: "axis" },
     grid: { left: 50, right: 20, top: 20, bottom: 40 },
@@ -161,14 +209,19 @@ function renderChart() {
 .embed-title { font-weight: 600; font-size: 15px; }
 .embed-body { flex: 1; padding: 16px; overflow: auto; }
 .embed-chart { width: 100%; height: calc(100vh - 120px); }
-.embed-dashboard-info {
+.embed-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+.embed-dashboard-cell {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #888;
-  gap: 12px;
 }
-.embed-sub { font-size: 12px; color: #aaa; }
+.embed-cell-title { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+.embed-cell-chart { width: 100%; height: 260px; }
+.embed-cell-error { color: #c0392b; font-size: 13px; padding: 24px 0; text-align: center; }
 </style>

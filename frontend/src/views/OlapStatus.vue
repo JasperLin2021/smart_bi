@@ -178,8 +178,8 @@ const fetchStatus = async () => {
   try {
     const response = await axios.get("/api/olap/status")
     status.value = response.data
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "Doris 状态加载失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     loadingStatus.value = false
   }
@@ -190,8 +190,8 @@ const fetchDatasets = async () => {
   try {
     const response = await axios.get("/api/datasets")
     datasets.value = response.data.items || []
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "数据集加载失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     loadingDatasets.value = false
   }
@@ -206,8 +206,8 @@ const materializeDataset = async (dataset: DatasetItem, mode: "full" | "incremen
     })
     ElMessage.success(mode === "full" ? "全量物化已完成" : "增量物化已完成")
     await fetchDatasets()
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "数据集物化失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     materializing.value = { ...materializing.value, [dataset.id]: false }
   }

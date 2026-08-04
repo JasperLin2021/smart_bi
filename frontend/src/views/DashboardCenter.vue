@@ -885,7 +885,7 @@ const selectedComponent = computed(() =>
 
 const shareLink = computed(() => {
   if (!shareTarget.value?.share_token) return ""
-  return `${window.location.origin}/api/dashboards/public/${shareTarget.value.share_token}`
+  return `${window.location.origin}/share/${shareTarget.value.share_token}`
 })
 
 const chartPreviewCard = computed<PinnedChartData>(() => ({

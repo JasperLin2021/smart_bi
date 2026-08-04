@@ -136,12 +136,17 @@ def can_access_pinned_chart(db: Session, user: User, chart: PinnedChart | None) 
 
 
 def _execute_chart_sql(datasource: DataSource, sql_query: str) -> dict:
+    # Defense in depth: this executor is reached from the unauthenticated public
+    # embed endpoint, so re-validate read-only even though the SQL was saved earlier.
+    from app.core.agentic_nl2sql import assert_read_only_sql
+
+    safe_sql = assert_read_only_sql(sql_query)
     if datasource.source_type == "excel":
-        return execute_excel_query(datasource.database_url, sql_query)
+        return execute_excel_query(datasource.database_url, safe_sql)
 
     ds_engine = get_datasource_engine(datasource.database_url)
     with ds_engine.connect() as conn:
-        result_proxy = conn.execute(text(sql_query))
+        result_proxy = conn.execute(text(safe_sql))
         columns = list(result_proxy.keys())
         rows = [dict(row._mapping) for row in result_proxy.fetchall()]
     return {"columns": columns, "rows": rows}

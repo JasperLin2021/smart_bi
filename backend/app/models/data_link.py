@@ -8,7 +8,7 @@ class DataLink(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(128), nullable=False)
     connector_type = Column(String(32), nullable=False, index=True)  # jushuitan | yicang | fenxiang
-    config_json = Column(JSON, nullable=True)   # credentials & endpoint config (stored encrypted-at-rest by PG)
+    config_json = Column(JSON, nullable=True)   # credentials & endpoint config — stored as plaintext JSON; never expose over the API unmasked
     status = Column(String(16), default="inactive")  # active | inactive | error
     last_test_at = Column(DateTime, nullable=True)
     last_test_message = Column(Text, nullable=True)

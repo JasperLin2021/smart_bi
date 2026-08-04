@@ -18,6 +18,7 @@ from app.core.llm import (
     normalize_llm_config,
 )
 from app.core.agentic_nl2sql import (
+    assert_read_only_sql,
     build_agentic_chart_spec,
     build_agentic_nl2sql,
     repair_agentic_sql_after_execution_error,
@@ -877,13 +878,17 @@ async def _generate_safe_sql(
 
 
 def _execute_datasource_sql(datasource: DataSource, sql_query: str) -> tuple[dict, list[dict]]:
+    # Single enforcement chokepoint: every code path that runs SQL against a
+    # business datasource goes through here, so read-only validation lives here
+    # rather than depending on each caller. LLM-generated SQL is never trusted.
+    safe_sql = assert_read_only_sql(sql_query)
     if datasource.source_type == "excel":
-        result = execute_excel_query(datasource.database_url, sql_query)
+        result = execute_excel_query(datasource.database_url, safe_sql)
         return result, result["rows"]
 
     ds_engine = get_datasource_engine(datasource.database_url)
     with ds_engine.connect() as conn:
-        result_proxy = conn.execute(text(sql_query))
+        result_proxy = conn.execute(text(safe_sql))
         columns = list(result_proxy.keys())
         rows = [dict(row._mapping) for row in result_proxy.fetchall()]
         return {"columns": columns, "rows": rows}, rows

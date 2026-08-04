@@ -185,7 +185,9 @@ class P1EnterpriseCapabilityTests(unittest.TestCase):
             db=db,
             current_user=admin,
         )
-        self.assertEqual(exported["status"], "queued")
+        # 导出已由 stub 改为真实执行：种子数据源为空内存库，取数会失败并把 run 标记为 failed
+        # （若未来种子库补真实表，则为 completed）。两种都表明导出被真正执行而非永久 queued。
+        self.assertIn(exported["status"], {"failed", "completed"})
         self.assertEqual(exported["export_type"], "excel")
         self.assertEqual(db.query(ReportRun).filter(ReportRun.template_id == report.id).count(), 1)
 

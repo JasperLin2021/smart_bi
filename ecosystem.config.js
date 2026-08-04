@@ -9,6 +9,8 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: "1",
         DATABASE_URL: "postgresql+psycopg2://user:password@localhost:15432/smart_bi",
+        JWT_SECRET: "dev_only_replace_if_shared",
+        INTERNAL_API_SECRET: "dev_only_internal_secret",
         GOVIEW_ENABLED: "true",
         GOVIEW_BASE_URL: "http://127.0.0.1:3000",
         GOVIEW_EMBED_BASE_URL: "",
@@ -39,6 +41,21 @@ module.exports = {
       interpreter: "none",
       env: {
         NODE_ENV: "development"
+      },
+      watch: false,
+      autorestart: true,
+      max_restarts: 10
+    },
+    {
+      name: "smart-bi-report-agent-8010",
+      cwd: "./agent",
+      script: "npm",
+      args: "run dev",
+      env: {
+        PORT: "8010",
+        BACKEND_URL: "http://localhost:8002",
+        JWT_SECRET: "dev_only_replace_if_shared",
+        INTERNAL_API_SECRET: "dev_only_internal_secret"
       },
       watch: false,
       autorestart: true,

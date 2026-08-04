@@ -17,6 +17,7 @@ const router = createRouter({
     { path: "/data-catalog", component: () => import("@/views/DataCatalog.vue") },
     { path: "/dataset-center", redirect: { path: "/data-development", query: { tab: "datasets" } } },
     { path: "/smart-query", component: () => import("@/views/SmartQuery.vue") },
+    { path: "/ai-report", component: () => import("@/views/AiReportLab.vue") },
     { path: "/action-items", component: () => import("@/views/ActionItems.vue") },
     { path: "/datasource-settings", redirect: { path: "/data-development", query: { tab: "datasources" } } },
     {
@@ -67,6 +68,20 @@ const router = createRouter({
       path: "/embed/:token",
       component: () => import("@/views/EmbedView.vue"),
       meta: { public: true },
+    },
+    {
+      path: "/share/:token",
+      component: () => import("@/views/ShareView.vue"),
+      meta: { public: true },
+    },
+    {
+      path: "/report-shared/:token",
+      component: () => import("@/views/SharedAiReport.vue"),
+      meta: { public: true },
+    },
+    {
+      path: "/:pathMatch(.*)*",
+      component: () => import("@/views/NotFound.vue"),
     },
   ]
 })

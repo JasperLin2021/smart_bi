@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import axios from "axios"
 
 const props = defineProps<{

@@ -294,7 +294,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, nextTick } 
 import { Loading, Star, Setting } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import axios from "axios"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import { useQueryStore, type ChartSpec, type ChatMessage, type DrillAction } from "@/store/query"
 import { useDatasourceStore } from "@/store/datasource"
 import PinnedChartCard from "@/components/PinnedChartCard.vue"

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.core.audit import try_record_audit_log
 from app.core.message_dispatcher import MessageEvent, dispatch_message_event
+from app.core.webhook_dispatcher import dispatch_event
 from app.db.session import get_db
 from app.models.action_item import ActionItem
 from app.models.dashboard_config import Dashboard
@@ -280,6 +281,18 @@ def update_action_item(
                 link_url="/action-items",
             ),
         )
+        if item.status in CLOSED_STATUSES:
+            dispatch_event(
+                db,
+                item.org_id,
+                "action_item.closed",
+                {
+                    "action_item_id": item.id,
+                    "title": item.title,
+                    "status": item.status,
+                    "closed_at": item.closed_at.isoformat() if item.closed_at else None,
+                },
+            )
     return item
 
 

@@ -22,6 +22,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env.production}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.production}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in .env.production}
       LLM_PROVIDER: ${LLM_PROVIDER:-custom}
       LLM_API_BASE: ${LLM_API_BASE:?set LLM_API_BASE in .env.production}
       LLM_API_KEY: ${LLM_API_KEY:?set LLM_API_KEY in .env.production}
@@ -61,6 +63,10 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env.production}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.production}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in .env.production}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
       LLM_PROVIDER: ${LLM_PROVIDER:-custom}
       LLM_API_BASE: ${LLM_API_BASE:?set LLM_API_BASE in .env.production}

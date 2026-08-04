@@ -11,6 +11,7 @@ from app.api.auth import get_current_user
 from app.core.llm import chat_completion, get_llm_config, normalize_llm_config
 from app.db.session import get_datasource_engine, get_db
 from app.core.audit import try_record_audit_log
+from app.core.webhook_dispatcher import dispatch_event
 from app.core.permissions import has_action_permission, require_org_admin_or_above
 from app.core.safe_delete import assert_metric_can_delete, delete_catalog_asset
 from app.models.catalog import DataAsset
@@ -1562,5 +1563,17 @@ def compute_metric(
     metric.data_updated_at = now
     db.commit()
     db.refresh(metric)
+
+    dispatch_event(
+        db,
+        datasource.org_id,
+        "metric.refreshed",
+        {
+            "metric_id": metric.id,
+            "metric_name": metric.name,
+            "last_value": val,
+            "computed_at": now.isoformat(),
+        },
+    )
 
     return {"last_value": val, "computed_at": now.isoformat()}

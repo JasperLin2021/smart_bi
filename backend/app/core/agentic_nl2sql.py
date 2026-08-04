@@ -339,6 +339,26 @@ def _plan_context_text(question: str | None, plan: dict[str, Any] | None) -> str
     return f"{question or ''}\n{plan_text}"
 
 
+def _plan_filter_columns(plan: dict[str, Any] | None) -> list[str]:
+    """提取 plan 中 filters 字段里出现的列名。
+
+    这些列是过滤条件（如 status='已完成'）而非用户请求展示的分面维度，
+    校验“维度是否缺失”时应排除它们，避免误杀合法的 WHERE 过滤查询。
+    """
+    if not isinstance(plan, dict):
+        return []
+    raw_filters = plan.get("filters")
+    if not isinstance(raw_filters, list):
+        return []
+    columns: list[str] = []
+    for item in raw_filters:
+        if isinstance(item, dict):
+            name = item.get("column") or item.get("field") or item.get("name")
+            if name:
+                columns.append(str(name))
+    return columns
+
+
 def _projection_semantic_risks(datasource: Any, sql: str, question: str | None, plan: dict[str, Any] | None) -> list[str]:
     if not question and not plan:
         return []
@@ -349,6 +369,9 @@ def _projection_semantic_risks(datasource: Any, sql: str, question: str | None, 
     if not schema_columns:
         return []
     projection_identifiers = _projection_identifiers(sql)
+    # plan 的 filters 里出现的列是过滤条件而非用户请求展示的分面维度，
+    # 不应因它们出现在 WHERE 子句就强制要求进 SELECT（否则会误杀 WHERE status='已完成'）。
+    filter_columns = _plan_filter_columns(plan)
     missing: list[str] = []
     for column in schema_columns:
         if not _is_semantic_dimension_name(column):
@@ -357,6 +380,10 @@ def _projection_semantic_risks(datasource: Any, sql: str, question: str | None, 
             continue
         if not _sql_mentions_identifier(sql, column):
             continue
+        if _normalize_identifier(column) in {_normalize_identifier(item) for item in filter_columns}:
+            # 仅作为过滤条件、未被投影输出的列不算缺失维度
+            if not _projection_has_semantic_dimension(column, projection_identifiers, schema_columns):
+                continue
         if _projection_has_semantic_dimension(column, projection_identifiers, schema_columns):
             continue
         missing.append(column)

@@ -54,7 +54,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import { InfoFilled, MoreFilled, Delete } from "@element-plus/icons-vue"
-import * as echarts from "echarts"
+import * as echarts from "@/utils/echarts"
 import {
   CHART_COLOR_PALETTE,
   PRIMARY_CHART_COLOR,

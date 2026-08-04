@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -57,7 +58,7 @@ app = FastAPI(title=settings.app_name, lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -286,6 +287,11 @@ def _startup():
         except Exception:
             pass
 
+    try:
+        _ensure_column(engine, "report_fill_records", "writeback_error TEXT")
+    except Exception:
+        pass
+
     init_cache()
     db: Session = SessionLocal()
 
@@ -305,42 +311,47 @@ def _startup():
         db.commit()
         db.refresh(org_carsem)
 
-    # Ensure admin user (super_admin)
+    # Ensure a super_admin exists.
     admin_user = db.query(User).filter(User.username == "admin").first()
     if not admin_user:
-        admin_user = User(
-            username="admin",
-            hashed_password=get_password_hash("admin123"),
-            role="super_admin",
-            org_id=None,
-        )
-        db.add(admin_user)
-        db.commit()
-    else:
-        # Update existing admin to super_admin
-        if admin_user.role != "super_admin":
-            admin_user.role = "super_admin"
-            admin_user.org_id = None
+        # In production, seed_demo_accounts is forced off (see config.py). Bootstrap
+        # the first admin from env vars if provided; otherwise skip and let the
+        # operator create it manually rather than shipping a known password.
+        bootstrap_pwd = "admin123" if settings.seed_demo_accounts else os.getenv("BOOTSTRAP_ADMIN_PASSWORD")
+        if bootstrap_pwd:
+            admin_user = User(
+                username=os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin"),
+                hashed_password=get_password_hash(bootstrap_pwd),
+                role="super_admin",
+                org_id=None,
+            )
+            db.add(admin_user)
             db.commit()
+    elif admin_user.role != "super_admin" and settings.seed_demo_accounts:
+        # Only re-promote in demo mode; in production, respect operator changes.
+        admin_user.role = "super_admin"
+        admin_user.org_id = None
+        db.commit()
 
-    # Create org users
-    seed_users = [
-        ("nexteer_admin", "nexteer123", "org_admin", org_nexteer.id),
-        ("nexteer_certifier", "certifier123", "org_admin", org_nexteer.id),
-        ("nexteer", "nexteer123", "user", org_nexteer.id),
-        ("carsem_admin", "carsem123", "org_admin", org_carsem.id),
-        ("carsem_certifier", "certifier123", "org_admin", org_carsem.id),
-        ("carsem", "carsem123", "user", org_carsem.id),
-    ]
-    for uname, pwd, role, oid in seed_users:
-        if not db.query(User).filter(User.username == uname).first():
-            db.add(User(
-                username=uname,
-                hashed_password=get_password_hash(pwd),
-                role=role,
-                org_id=oid,
-            ))
-    db.commit()
+    # Create demo org users (publicly known passwords — demo/dev only).
+    if settings.seed_demo_accounts:
+        seed_users = [
+            ("nexteer_admin", "nexteer123", "org_admin", org_nexteer.id),
+            ("nexteer_certifier", "certifier123", "org_admin", org_nexteer.id),
+            ("nexteer", "nexteer123", "user", org_nexteer.id),
+            ("carsem_admin", "carsem123", "org_admin", org_carsem.id),
+            ("carsem_certifier", "certifier123", "org_admin", org_carsem.id),
+            ("carsem", "carsem123", "user", org_carsem.id),
+        ]
+        for uname, pwd, role, oid in seed_users:
+            if not db.query(User).filter(User.username == uname).first():
+                db.add(User(
+                    username=uname,
+                    hashed_password=get_password_hash(pwd),
+                    role=role,
+                    org_id=oid,
+                ))
+        db.commit()
 
     def ensure_department(org_id: int, name: str, parent_id: int | None = None, sort_order: int = 0) -> Department:
         query = db.query(Department).filter(

@@ -24,6 +24,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://smart_bi:smart_bi_dev_password@postgres:5432/smart_bi_dev}
       JWT_SECRET: ${JWT_SECRET:-dev_only_replace_if_shared}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-dev_only_internal_secret}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
       LLM_PROVIDER: ${LLM_PROVIDER:-custom}
       LLM_API_BASE: ${LLM_API_BASE:-http://host.docker.internal:8001/v1}
@@ -76,6 +77,25 @@ services:
       retries: 5
       start_period: 20s
 
+  report-agent:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["sh", "-c", "npm ci && npm run dev"]
+    environment:
+      PORT: "8010"
+      JWT_SECRET: ${JWT_SECRET:-dev_only_replace_if_shared}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-dev_only_internal_secret}
+      BACKEND_URL: http://backend:8001
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "8010"
+    volumes:
+      - ./agent:/app
+      - agent_dev_node_modules:/app/node_modules
+
   frontend:
     image: node:20-alpine
     restart: unless-stopped
@@ -120,3 +140,4 @@ volumes:
   postgres_dev_data:
   backend_dev_uploads:
   frontend_dev_node_modules:
+  agent_dev_node_modules:

@@ -160,7 +160,7 @@ const loadNotification = async () => {
       smtp_use_ssl: data.smtp_use_ssl,
     })
   } catch {
-    ElMessage.error("加载通知配置失败")
+    // 错误提示由全局拦截器统一处理
   }
 }
 

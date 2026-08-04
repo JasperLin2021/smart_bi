@@ -380,8 +380,11 @@ const agenticExamples = [
 ]
 
 const examples = computed(() => {
+  // 优先使用当前数据源已配置的推荐问题；不足时用内置示例补齐，保证始终有引导
   if (queryStore.mode === "agentic") return agenticExamples
-  return businessExamples
+  const configured = activeDatasource.value?.recommend_questions?.filter((q: string) => q && q.trim()) || []
+  if (configured.length >= 3) return configured.slice(0, 6)
+  return [...configured, ...businessExamples].slice(0, 6)
 })
 
 const suggestionCards = computed(() => {

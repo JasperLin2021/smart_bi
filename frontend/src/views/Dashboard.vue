@@ -183,7 +183,7 @@ async function loadDashboards() {
     }
     if (selectedId.value) localStorage.setItem(STORAGE_KEY, String(selectedId.value))
   } catch {
-    ElMessage.error("看板列表加载失败")
+    // 错误提示由全局拦截器统一处理
   } finally {
     listLoading.value = false
   }

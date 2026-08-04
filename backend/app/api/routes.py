@@ -37,6 +37,8 @@ from app.api.data_links import router as data_links_router
 from app.api.report_templates import router as report_templates_router
 from app.api.pipelines import router as pipelines_router
 from app.api.analysis_views import router as analysis_views_router
+from app.api.ai_reports import router as ai_reports_router
+from app.api.internal import router as internal_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -77,3 +79,5 @@ api_router.include_router(data_links_router)
 api_router.include_router(report_templates_router)
 api_router.include_router(pipelines_router)
 api_router.include_router(analysis_views_router)
+api_router.include_router(ai_reports_router)
+api_router.include_router(internal_router)

@@ -1,6 +1,6 @@
 <template>
   <div class="app-root">
-    <router-view v-if="isLogin" />
+    <router-view v-if="isStandalone" />
     <MainLayout v-else />
   </div>
 </template>
@@ -11,5 +11,6 @@ import { useRoute } from "vue-router"
 import MainLayout from "@/layouts/MainLayout.vue"
 
 const route = useRoute()
-const isLogin = computed(() => route.path === "/login")
+// 登录页与公开页（embed/分享页）独立全屏渲染，不套主框架的鉴权 UI
+const isStandalone = computed(() => route.path === "/login" || Boolean(route.meta.public))
 </script>

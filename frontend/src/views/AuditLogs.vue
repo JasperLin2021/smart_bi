@@ -110,7 +110,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue"
 import axios from "axios"
-import { ElMessage } from "element-plus"
 import { Refresh } from "@element-plus/icons-vue"
 
 interface AuditLogItem {
@@ -213,8 +212,8 @@ const fetchLogs = async () => {
     const response = await axios.get("/api/audit-logs", { params })
     logs.value = response.data.items
     total.value = response.data.total
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "审计日志加载失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     loading.value = false
   }

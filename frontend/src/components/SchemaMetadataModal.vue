@@ -426,8 +426,8 @@ const detectSchema = async () => {
     selectedTableIndex.value = schema.tables.length > 0 ? 0 : -1
     activeEditorTab.value = "columns"
     ElMessage.success(`检测到 ${schema.tables.length} 个表`)
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || '检测失败')
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     detecting.value = false
   }
@@ -553,8 +553,8 @@ const fillColumnDescriptions = async () => {
     )
     schema.tables[selectedTableIndex.value] = response.data.table
     ElMessage.success(`已补全 ${response.data.filled_count || 0} 个字段说明`)
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || '生成字段说明失败')
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     generatingDescriptions.value = false
   }

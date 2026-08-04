@@ -10,7 +10,11 @@ from app.api.auth import get_current_user
 from app.db.session import get_db
 from app.models.pinned_chart import PinnedChart
 from app.models.user import User
-from app.api.pinned_charts import _execute_chart_sql, _get_chart_datasource
+from app.api.pinned_charts import (
+    _execute_chart_sql,
+    _get_accessible_chart_datasource,
+    can_access_pinned_chart,
+)
 
 router = APIRouter(prefix="/report-gen", tags=["report-gen"])
 
@@ -48,8 +52,6 @@ async def generate_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    del current_user
-
     title = payload.title
     columns = payload.columns
     rows = payload.rows
@@ -58,8 +60,11 @@ async def generate_report(
         chart = db.query(PinnedChart).filter(PinnedChart.id == payload.chart_id).first()
         if not chart:
             raise HTTPException(status_code=404, detail="图表不存在")
+        # 校验当前用户有权访问该图表（属主/同组织且有权访问其数据源），避免跨组织越权取数
+        if not can_access_pinned_chart(db, current_user, chart):
+            raise HTTPException(status_code=403, detail="无权访问此图表")
         title = title or chart.title
-        ds = _get_chart_datasource(db, chart.datasource_id)
+        ds = _get_accessible_chart_datasource(db, chart.datasource_id, current_user)
         if not ds:
             raise HTTPException(status_code=400, detail="数据源不存在")
         try:

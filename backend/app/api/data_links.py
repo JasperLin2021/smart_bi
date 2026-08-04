@@ -99,7 +99,18 @@ def update_link(
     user: User = Depends(get_current_user),
 ):
     link = _get_link(db, link_id, user)
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "config_json" in updates and isinstance(updates["config_json"], dict):
+        # Preserve existing secrets when the client sends back the masked sentinel
+        # (see DataLinkOut) instead of a real new value.
+        existing = dict(link.config_json or {})
+        merged = dict(existing)
+        for key, value in updates["config_json"].items():
+            if value == "********":
+                continue
+            merged[key] = value
+        updates["config_json"] = merged
+    for k, v in updates.items():
         setattr(link, k, v)
     db.commit()
     db.refresh(link)

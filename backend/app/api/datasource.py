@@ -178,6 +178,25 @@ async def _generate_recommend_questions_for_datasource_background(
         db.close()
 
 
+def _to_list_item(ds: DataSource) -> dict:
+    """构造列表项，把 recommend_questions 的 JSON 字符串解析为列表，供问数页直接使用。"""
+    recommend = None
+    if ds.recommend_questions:
+        try:
+            recommend = json.loads(ds.recommend_questions)
+        except (json.JSONDecodeError, TypeError):
+            recommend = None
+    return {
+        "id": ds.id,
+        "name": ds.name,
+        "slug": ds.slug,
+        "is_active": ds.is_active,
+        "org_id": ds.org_id,
+        "source_type": ds.source_type or "database",
+        "recommend_questions": recommend,
+    }
+
+
 @router.get("", response_model=List[DataSourceListItem])
 def list_datasources(
     db: Session = Depends(get_db),
@@ -186,7 +205,7 @@ def list_datasources(
     query = db.query(DataSource).filter(DataSource.is_active == 1)
     if current_user.role != "super_admin":
         query = query.filter(DataSource.org_id == current_user.org_id)
-    return query.all()
+    return [_to_list_item(ds) for ds in query.all()]
 
 
 def create_datasource(

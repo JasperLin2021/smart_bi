@@ -188,7 +188,7 @@ const fetchScreens = async () => {
     })
     screens.value = response.data.items
   } catch {
-    ElMessage.error("大屏列表加载失败")
+    // 错误提示由全局拦截器统一处理
   } finally {
     loading.value = false
   }

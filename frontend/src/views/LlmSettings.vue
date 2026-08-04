@@ -144,8 +144,8 @@ const saveConfig = async () => {
     await axios.put("/api/settings/llm", { ...form })
     ElMessage.success("配置已保存")
     await loadConfig()
-  } catch (error) {
-    ElMessage.error("保存失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     saving.value = false
   }
@@ -162,8 +162,8 @@ const testConfig = async () => {
       api_key: form.api_key,
     })
     ElMessage.success(response.data.message || "连接成功")
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "连接测试失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     testing.value = false
   }

@@ -7,6 +7,8 @@ export interface DataSourceItem {
   slug: string
   is_active: number
   source_type?: string
+  org_id?: number
+  recommend_questions?: string[]
 }
 
 export const useDatasourceStore = defineStore("datasource", {

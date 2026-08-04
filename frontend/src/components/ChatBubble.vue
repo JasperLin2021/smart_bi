@@ -885,7 +885,7 @@ import {
   TrendCharts,
   WarningFilled,
 } from "@element-plus/icons-vue"
-import { marked } from "marked"
+import { renderMarkdown } from "@/utils/markdown"
 import {
   useQueryStore,
   type AgenticRefinementAction,
@@ -1274,8 +1274,8 @@ const applySemanticContextQuery = async () => {
       chartSpec: null,
       semanticContext: nextSemanticContext,
     })
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "维度调整查询失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     semanticApplying.value = false
   }
@@ -1476,7 +1476,7 @@ const actionAssignableTree = computed(() => {
 // 渲染 Markdown
 const renderedSummary = computed(() => {
   if (!props.message.summary) return ""
-  return marked(props.message.summary, { breaks: true })
+  return renderMarkdown(props.message.summary, { breaks: true })
 })
 
 const canCreateAction = computed(() =>
@@ -1783,8 +1783,8 @@ const createActionItem = async () => {
     ElMessage.success("行动项已创建")
     actionDialogVisible.value = false
     router.push("/action-items")
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "行动项创建失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     actionSaving.value = false
   }
@@ -1840,8 +1840,8 @@ const runAttribution = async () => {
       analysis_mode: attributionAnalysisMode.value,
     })
     attributionResult.value = res.data
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || `${attributionPanelTitle.value}生成失败`)
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     attributionLoading.value = false
   }
@@ -1929,8 +1929,8 @@ const saveMetricDraft = async () => {
     })
     ElMessage.success("指标草稿已保存")
     metricDraftDrawerVisible.value = false
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "指标草稿保存失败")
+  } catch {
+    // 错误提示由全局拦截器统一处理
   } finally {
     metricDraftSaving.value = false
   }

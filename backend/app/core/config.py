@@ -1,4 +1,10 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# Placeholder values shipped in the example env files. They must never reach a
+# production process: a known jwt_secret lets anyone forge a token for any user.
+INSECURE_PLACEHOLDERS = {"", "change_me", "change_me_to_a_long_random_secret"}
+MIN_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -6,6 +12,9 @@ class Settings(BaseSettings):
     # Business data databases are configured per-datasource in the datasources table.
     app_name: str = "smart-bi"
     api_prefix: str = "/api"
+    # "development" | "production". Production applies fail-closed secret checks
+    # and disables the built-in demo account seeding.
+    environment: str = "development"
     database_url: str = "postgresql+psycopg2://user:password@localhost:5432/smart_bi"
     cube_api_url: str = "http://localhost:4000/cubejs-api/v1"
     cube_api_token: str = "change_me"
@@ -50,9 +59,50 @@ class Settings(BaseSettings):
     jwt_secret: str = "change_me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+    # Comma-separated allowlist, e.g. "https://bi.example.com,https://app.example.com".
+    # "*" is rejected in production.
+    cors_origins: str = "*"
+    # Seeds the built-in admin/demo accounts on startup. Forced off in production.
+    seed_demo_accounts: bool = True
+    # Directory for generated report export files. Relative paths resolve against backend/.
+    report_export_dir: str = "exports"
+    # Shared secret for internal service-to-service endpoints (/api/internal/*),
+    # e.g. the agent Node service fetching the LLM config. Empty disables them.
+    internal_api_secret: str = ""
 
     class Config:
         env_file = ".env"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() in {"production", "prod"}
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @model_validator(mode="after")
+    def _enforce_production_hardening(self) -> "Settings":
+        if not self.is_production:
+            return self
+
+        errors: list[str] = []
+        if self.jwt_secret.strip() in INSECURE_PLACEHOLDERS:
+            errors.append("JWT_SECRET is unset or still a placeholder value")
+        elif len(self.jwt_secret.strip()) < MIN_SECRET_LENGTH:
+            errors.append(f"JWT_SECRET must be at least {MIN_SECRET_LENGTH} characters")
+        if "*" in self.cors_origin_list:
+            errors.append("CORS_ORIGINS must be an explicit allowlist, not '*'")
+
+        if errors:
+            raise ValueError(
+                "Refusing to start with ENVIRONMENT=production:\n  - "
+                + "\n  - ".join(errors)
+                + "\nGenerate a secret with: python -c 'import secrets; print(secrets.token_urlsafe(48))'"
+            )
+        # Demo accounts use publicly known passwords; never seed them in production.
+        self.seed_demo_accounts = False
+        return self
 
 
 settings = Settings()

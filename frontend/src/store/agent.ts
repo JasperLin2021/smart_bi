@@ -59,6 +59,7 @@ const agentRouteAliases: Record<string, RouteLocationRaw> = {
   "连接器接入": "/data-link",
   "数据平台": "/olap-status",
   "OLAP 数据平台": "/olap-status",
+  "自助分析": "/analysis-workbench",
   "看板中心": "/dashboard-center",
   "大屏中心": "/big-screen-center",
   "行动闭环": "/action-items",

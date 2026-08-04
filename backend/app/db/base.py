@@ -33,6 +33,13 @@ from app.models.report_template import (  # noqa: F401
 )
 from app.models.data_pipeline import DataPipeline, DataPipelineRun, DataPipelineVersion, DataQualityRule  # noqa: F401
 from app.models.analysis_view import AnalysisView  # noqa: F401
+from app.models.ai_report import AiReport  # noqa: F401
+from app.models.webhook_subscription import WebhookSubscription  # noqa: F401
+from app.models.dashboard_comment import DashboardComment  # noqa: F401
+from app.models.embed_token import EmbedToken  # noqa: F401
+from app.models.pinned_chart import PinnedChart  # noqa: F401
+from app.models.agent_run import AgentRun  # noqa: F401
+from app.models.rls_rule import RLSRule  # noqa: F401
 
 __all__ = [
     "Base", "User", "QueryHistory", "LlmSetting", "Metric", "Organization", "Department", "Role",
@@ -42,4 +49,6 @@ __all__ = [
     "MessageDelivery", "AccessRequest", "ReportExecutionLog", "ReportTemplate",
     "ReportTemplateVersion", "ReportRun", "ReportFillRecord", "DataPipeline",
     "DataPipelineRun", "DataPipelineVersion", "DataQualityRule", "AnalysisView",
+    "WebhookSubscription", "DashboardComment", "EmbedToken", "PinnedChart",
+    "AgentRun", "RLSRule", "AiReport",
 ]

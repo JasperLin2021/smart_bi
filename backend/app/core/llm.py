@@ -1,10 +1,18 @@
+import asyncio
 import httpx
 import json
+import logging
 import re
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.llm_setting import LlmSetting
 
+
+logger = logging.getLogger(__name__)
+
+# Transient failures worth retrying: rate limits and upstream 5xx.
+_LLM_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_LLM_MAX_ATTEMPTS = 3
 
 _llm_config_cache: dict | None = None
 DASHSCOPE_PROVIDER_ALIASES = {"dashscope", "aliyun_bailian", "bailian", "aliyun"}
@@ -219,6 +227,32 @@ async def chat_completion(
 ) -> str:
     config = normalize_llm_config(config_override or await get_llm_config())
     actual_temperature = config.get("temperature", 0.3) if temperature is None else temperature
+
+    last_exc: Exception | None = None
+    for attempt in range(1, _LLM_MAX_ATTEMPTS + 1):
+        try:
+            return await _chat_completion_once(messages, actual_temperature, config)
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            # Never log response bodies — they can contain prompt/response content.
+            logger.warning("LLM API error %s (attempt %s/%s)", status_code, attempt, _LLM_MAX_ATTEMPTS)
+            if status_code not in _LLM_RETRYABLE_STATUS or attempt == _LLM_MAX_ATTEMPTS:
+                raise
+            last_exc = exc
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            logger.warning("LLM request failed (%s, attempt %s/%s)", type(exc).__name__, attempt, _LLM_MAX_ATTEMPTS)
+            if attempt == _LLM_MAX_ATTEMPTS:
+                raise
+            last_exc = exc
+        # Exponential backoff: 0.5s, 1s.
+        await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("LLM call failed without a captured error")
+
+
+async def _chat_completion_once(messages: list[dict], actual_temperature: float, config: dict) -> str:
     async with httpx.AsyncClient(timeout=_llm_http_timeout(config)) as client:
         if config["provider"] == "gemini":
             combined = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
@@ -248,8 +282,6 @@ async def chat_completion(
             json=payload,
             headers=headers,
         )
-        if response.status_code != 200:
-            print(f"LLM API Error: {response.status_code} - {response.text}")
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
