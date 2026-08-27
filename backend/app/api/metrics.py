@@ -176,11 +176,47 @@ def _dataset_field_items(fields_json: dict[str, Any]) -> list[dict[str, str]]:
     return fields
 
 
+_JOIN_TEXT_RE = re.compile(
+    r"^(?P<type>(?:(?:LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?|INNER\s+|CROSS\s+)?JOIN)\s+(?P<on>.+)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _parse_join_text(raw_text: str) -> tuple[str, str, str]:
+    """解析前端保存的 Join 字符串，如 "LEFT JOIN order_payments.payment_installments = orders.id"。
+    返回 (join_table, join_type, join_on)。"""
+    match = _JOIN_TEXT_RE.match(raw_text)
+    if not match:
+        return "", "", ""
+    join_on = match.group("on").strip()
+    join_type = re.sub(r"\s+", " ", match.group("type").strip().upper())
+    # 从等号右侧提取被关联的表名（如 "orders.id" 中的 orders）
+    table = ""
+    op_match = re.search(r"(?:!=|<>|=)\s*([A-Za-z_][\w]*)\.", join_on)
+    if op_match:
+        table = op_match.group(1)
+    return table, join_type, join_on
+
+
 def _dataset_join_items(dataset: Dataset | None, fields_json: dict[str, Any]) -> list[dict[str, str]]:
     raw_joins: list[Any] = []
     raw_joins.extend(_as_list(fields_json.get("joins")))
     if dataset is not None:
-        raw_joins.extend(_as_list(getattr(dataset, "joins_json", None)))
+        raw_config = getattr(dataset, "joins_json", None)
+        if isinstance(raw_config, dict):
+            # 前端保存结构：{"joins": [...]}
+            raw_joins.extend(_as_list(raw_config.get("joins")))
+        elif isinstance(raw_config, list):
+            raw_joins.extend(raw_config)
+        elif isinstance(raw_config, str):
+            try:
+                parsed = json.loads(raw_config)
+                if isinstance(parsed, dict):
+                    raw_joins.extend(_as_list(parsed.get("joins")))
+                elif isinstance(parsed, list):
+                    raw_joins.extend(parsed)
+            except (TypeError, ValueError):
+                pass
 
     joins: list[dict[str, str]] = []
     for item in raw_joins:
@@ -189,9 +225,7 @@ def _dataset_join_items(dataset: Dataset | None, fields_json: dict[str, Any]) ->
             join_type = str(item.get("type") or item.get("join_type") or "JOIN").strip()
             join_on = str(item.get("on") or item.get("condition") or item.get("join_on") or "").strip()
         else:
-            table = str(item or "").strip()
-            join_type = "JOIN"
-            join_on = ""
+            table, join_type, join_on = _parse_join_text(str(item or ""))
         if table:
             joins.append({"table": table, "join_type": join_type, "join_on": join_on})
     return joins

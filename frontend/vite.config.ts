@@ -2,7 +2,7 @@ import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
 import path from "node:path"
 
-const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:8001"
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:8002"
 const agentProxyTarget = process.env.VITE_AGENT_PROXY_TARGET || "http://localhost:8010"
 
 export default defineConfig({

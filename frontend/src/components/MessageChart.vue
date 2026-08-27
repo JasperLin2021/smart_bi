@@ -542,8 +542,14 @@ const autoDetectFields = () => {
   const detectedTimeField = props.columns.find(c => dateFields.some(d => c.toLowerCase().includes(d)))
   
   // 2. 识别数值字段（Y轴）
-  const valueFields = ["count", "total", "sum", "occurrence", "times", "amount", "num", "qty", "value"]
-  const detectedYField = numericColumns.value.find(c => valueFields.some(v => c.toLowerCase().includes(v))) || numericColumns.value[0] || ""
+  const valueFields = ["count", "total", "sum", "occurrence", "times", "amount", "num", "qty", "value", "gmv", "revenue", "income", "sales", "profit", "price", "fee", "cost", "spend"]
+  // 时序编号列（如 hour）通常应作为分组维度而非度量
+  const indexLikeFields = ["hour", "minute", "second", "weekday", "day_of_week", "quarter", "index", "seq"]
+  let detectedYField = numericColumns.value.find(c => valueFields.some(v => c.toLowerCase().includes(v)))
+  if (!detectedYField) {
+    const candidates = numericColumns.value.filter(c => !indexLikeFields.some(v => c.toLowerCase().includes(v)))
+    detectedYField = candidates[0] || numericColumns.value[0] || ""
+  }
   
   // 3. 识别分组字段
   const groupFieldPatterns = ["equipment_id", "equipmentid", "device_id", "alarm_id", "error_code", "device", "equipment", "alarm", "machine_id", "machine", "category", "type", "name"]

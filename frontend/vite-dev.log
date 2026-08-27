@@ -1,0 +1,11 @@
+
+> carsem-bi-frontend@0.1.0 dev
+> vite --host 0.0.0.0 --port 16006
+
+Re-optimizing dependencies because vite config has changed
+Port 16006 is in use, trying another one...
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m846[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m16007[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.10.20:[1m16007[22m/[39m

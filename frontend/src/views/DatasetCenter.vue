@@ -219,18 +219,56 @@
                 <el-button :loading="schemaLoading" @click="detectSchema">检测表结构</el-button>
               </el-empty>
               <el-empty v-else-if="!form.datasource_id" description="请选择数据源" />
-              <div v-else class="table-picker">
+              <div v-else class="table-picker" role="radiogroup" aria-label="主表">
                 <button
                   v-for="table in schemaTables"
                   :key="table.name"
                   type="button"
                   class="table-tile"
                   :class="{ active: form.table === table.name }"
+                  :aria-pressed="form.table === table.name"
                   @click="selectTable(table.name)"
                 >
                   <strong>{{ table.name }}</strong>
                   <span>{{ table.description || `${table.columns.length} 个字段` }}</span>
                 </button>
+              </div>
+            </div>
+
+            <div v-if="form.table" class="table-picker-wrap related-table-picker-wrap">
+              <div class="panel-title">
+                <span>关联表</span>
+                <small>
+                  {{ relatedTables.length ? `已关联 ${relatedTables.length} 张，自动生成 Join` : "可选，用于多表关联" }}
+                </small>
+              </div>
+              <div v-if="schemaTables.length <= 1" class="table-picker-empty">
+                <span>数据源仅一张表，无需关联</span>
+              </div>
+              <div v-else class="table-picker" role="group" aria-label="关联表">
+                <button
+                  v-for="table in schemaTables.filter((item) => item.name !== form.table)"
+                  :key="table.name"
+                  type="button"
+                  class="table-tile"
+                  :class="{ active: relatedTables.includes(table.name) }"
+                  :aria-pressed="relatedTables.includes(table.name)"
+                  @click="toggleRelatedTable(table.name)"
+                >
+                  <strong>{{ table.name }}</strong>
+                  <span>{{ table.description || `${table.columns.length} 个字段` }}</span>
+                </button>
+              </div>
+              <div v-if="relatedTables.length" class="related-table-tags">
+                <span class="related-table-tags-label">已关联：</span>
+                <el-tag
+                  v-for="table in relatedTables"
+                  :key="table"
+                  type="primary"
+                  effect="light"
+                  closable
+                  @close="toggleRelatedTable(table)"
+                >{{ table }}</el-tag>
               </div>
             </div>
           </section>
@@ -265,10 +303,29 @@
                 <div class="field-panel-hero">
                   <div>
                     <span class="eyebrow">字段候选区</span>
-                    <strong>{{ form.table || "可选字段" }}</strong>
-                    <small>{{ currentColumns.length }} 个字段，可按用途快速筛选</small>
+                    <strong v-if="form.table">
+                      {{ form.table }}<template v-if="relatedTables.length"> 等 {{ 1 + relatedTables.length }} 张表</template>
+                    </strong>
+                    <strong v-else>可选字段</strong>
+                    <small>
+                      <template v-if="form.table">
+                        共 {{ fieldRoleConfigs.length }} 个字段
+                        <template v-if="relatedTables.length">（含 {{ relatedTables.length }} 张关联表）</template>
+                        ，可按用途快速筛选
+                      </template>
+                      <template v-else>尚未选择数据范围</template>
+                    </small>
                   </div>
-                  <el-tag effect="plain">{{ visibleFieldConfigs.length }} 可见</el-tag>
+                  <div class="hero-table-tags">
+                    <el-tag v-if="form.table" effect="plain">{{ form.table }}</el-tag>
+                    <el-tag
+                      v-for="table in relatedTables"
+                      :key="table"
+                      effect="plain"
+                      type="primary"
+                    >{{ table }}</el-tag>
+                    <span class="visible-count">{{ visibleFieldConfigs.length }} 可见</span>
+                  </div>
                 </div>
 
                 <div class="field-mode-tabs" aria-label="字段用途筛选">
@@ -292,70 +349,94 @@
                   clearable
                   placeholder="搜索字段名、别名、类型或描述"
                 />
-                <div class="field-config-list" role="list">
+                <div
+                  class="field-config-columns"
+                  role="region"
+                  aria-label="按表分组的字段候选区"
+                  tabindex="0"
+                  @keydown.left.prevent="scrollColumnsByKey(-1, $event)"
+                  @keydown.right.prevent="scrollColumnsByKey(1, $event)"
+                >
                   <div
-                    v-for="config in visibleFieldConfigs"
-                    :key="config.key"
-                    class="field-config-row"
-                    :class="`role-${config.role}`"
-                    role="listitem"
+                    v-for="group in fieldConfigsByTable"
+                    :key="group.table"
+                    class="field-config-column"
                   >
-                    <div class="field-config-top">
-                      <div class="field-config-main">
-                        <span class="role-dot" />
-                        <div>
-                          <strong>{{ config.column }}</strong>
-                          <small>{{ config.description || config.key }}</small>
+                    <div class="field-column-head">
+                      <strong>{{ group.table }}</strong>
+                      <span class="field-column-count">{{ group.configs.length }}</span>
+                    </div>
+                    <div class="field-config-list" role="list">
+                      <div
+                        v-for="config in group.configs"
+                        :key="config.key"
+                        class="field-config-row"
+                        :class="`role-${config.role}`"
+                        role="listitem"
+                      >
+                        <div class="field-config-top">
+                          <div class="field-config-main">
+                            <span class="role-dot" />
+                            <div>
+                              <strong>{{ config.column }}</strong>
+                              <small>{{ config.description || config.key }}</small>
+                            </div>
+                          </div>
+                          <div class="field-config-tags">
+                            <el-tag size="small" effect="plain">{{ config.type }}</el-tag>
+                            <span class="role-label">{{ fieldRoleLabel(config.role) }}</span>
+                          </div>
+                        </div>
+
+                        <div class="field-config-controls">
+                          <label class="control-field control-role">
+                            <span>字段用途</span>
+                            <el-segmented
+                              v-model="config.role"
+                              :options="roleOptions"
+                              class="role-segmented"
+                              @change="handleRoleChange(config)"
+                            />
+                          </label>
+                          <label class="control-field">
+                            <span>显示名称</span>
+                            <el-input
+                              v-model="config.alias"
+                              clearable
+                              class="alias-input"
+                              placeholder="用于图表、问数和语义层"
+                            />
+                          </label>
+                          <label v-if="config.role === 'metric'" class="control-field">
+                            <span>计算方式</span>
+                            <el-select
+                              v-model="config.aggregation"
+                              class="aggregation-select"
+                              placeholder="计算方式"
+                            >
+                              <el-option
+                                v-for="option in aggregationOptions"
+                                :key="option.value"
+                                :label="option.label"
+                                :value="option.value"
+                              />
+                            </el-select>
+                          </label>
+                          <div v-else class="field-role-hint">
+                            {{ fieldRoleHint(config.role) }}
+                          </div>
                         </div>
                       </div>
-                      <div class="field-config-tags">
-                        <el-tag size="small" effect="plain">{{ config.type }}</el-tag>
-                        <span class="role-label">{{ fieldRoleLabel(config.role) }}</span>
-                      </div>
-                    </div>
-
-                    <div class="field-config-controls">
-                      <label class="control-field control-role">
-                        <span>字段用途</span>
-                        <el-segmented
-                          v-model="config.role"
-                          :options="roleOptions"
-                          class="role-segmented"
-                          @change="handleRoleChange(config)"
-                        />
-                      </label>
-                      <label class="control-field">
-                        <span>显示名称</span>
-                        <el-input
-                          v-model="config.alias"
-                          clearable
-                          class="alias-input"
-                          placeholder="用于图表、问数和语义层"
-                        />
-                      </label>
-                      <label v-if="config.role === 'metric'" class="control-field">
-                        <span>计算方式</span>
-                        <el-select
-                          v-model="config.aggregation"
-                          class="aggregation-select"
-                          placeholder="计算方式"
-                        >
-                          <el-option
-                            v-for="option in aggregationOptions"
-                            :key="option.value"
-                            :label="option.label"
-                            :value="option.value"
-                          />
-                        </el-select>
-                      </label>
-                      <div v-else class="field-role-hint">
-                        {{ fieldRoleHint(config.role) }}
-                      </div>
+                      <el-empty
+                        v-if="!group.configs.length"
+                        :image-size="40"
+                        description="无匹配字段"
+                      />
                     </div>
                   </div>
                 </div>
                 <el-empty
-                  v-if="form.table && visibleFieldConfigs.length === 0"
+                  v-if="form.table && fieldConfigsByTable.length === 0"
                   :image-size="72"
                   description="没有匹配字段"
                 />
@@ -785,7 +866,19 @@
                   <el-descriptions-item label="数据源">
                     {{ form.datasource_id ? datasourceName(form.datasource_id) : "-" }}
                   </el-descriptions-item>
-                  <el-descriptions-item label="主表">{{ form.table || "-" }}</el-descriptions-item>
+                  <el-descriptions-item label="主表及关联表">
+                    <div v-if="form.table" class="summary-table-list">
+                      <div class="summary-main-table">{{ form.table }}</div>
+                      <div
+                        v-for="table in relatedTables"
+                        :key="table"
+                        class="summary-related-table"
+                      >
+                        {{ table }}
+                      </div>
+                    </div>
+                    <span v-else>-</span>
+                  </el-descriptions-item>
                   <el-descriptions-item label="维度">{{ selectedColumns.length }} 个</el-descriptions-item>
                   <el-descriptions-item label="筛选">{{ filters.length }} 条</el-descriptions-item>
                   <el-descriptions-item label="指标">{{ aggregations.length }} 个</el-descriptions-item>
@@ -1016,6 +1109,7 @@ const fieldRoleConfigs = ref<FieldRoleConfig[]>([])
 const filters = ref<string[]>([])
 const derivedColumns = ref<string[]>([])
 const joins = ref<string[]>([])
+const relatedTables = ref<string[]>([])
 const filterField = ref("")
 const filterOperator = ref("=")
 const filterValue = ref("")
@@ -1145,13 +1239,20 @@ const currentTable = computed(() =>
 
 const currentColumns = computed(() => currentTable.value?.columns || [])
 
-const currentFieldOptions = computed(() =>
-  currentColumns.value.map((column) => ({
-    key: columnKey(form.table, column.name),
-    label: columnKey(form.table, column.name),
-    column,
-  }))
-)
+const currentFieldOptions = computed(() => {
+  const tables = [form.table, ...relatedTables.value].filter(Boolean)
+  const options: Array<{ key: string; label: string; column: SchemaColumn }> = []
+  tables.forEach((tableName) => {
+    columnsForTable(tableName).forEach((column) => {
+      options.push({
+        key: columnKey(tableName, column.name),
+        label: columnKey(tableName, column.name),
+        column,
+      })
+    })
+  })
+  return options
+})
 
 const visibleFieldConfigs = computed(() => {
   const q = fieldKeyword.value.trim().toLowerCase()
@@ -1164,6 +1265,14 @@ const visibleFieldConfigs = computed(() => {
       item.toLowerCase().includes(q)
     )
   )
+})
+
+const fieldConfigsByTable = computed(() => {
+  const tables = [form.table, ...relatedTables.value].filter(Boolean)
+  return tables.map((tableName) => ({
+    table: tableName,
+    configs: visibleFieldConfigs.value.filter((config) => config.table === tableName),
+  }))
 })
 
 const dimensionConfigs = computed(() =>
@@ -1395,6 +1504,47 @@ const firstTableExcept = (tableName: string) =>
   schemaTables.value.find((table) => table.name !== tableName)?.name || tableName
 
 const firstColumnName = (tableName: string) => columnsForTable(tableName)[0]?.name || ""
+
+const columnNamesOf = (tableName: string) => columnsForTable(tableName).map((column) => column.name)
+
+const buildAutoJoin = (mainTable: string, relatedTable: string): string => {
+  if (!mainTable || !relatedTable || mainTable === relatedTable) return ""
+  const mainNames = columnNamesOf(mainTable)
+  const relatedNames = columnNamesOf(relatedTable)
+  if (!mainNames.length || !relatedNames.length) return ""
+  const common = mainNames.filter((name) => relatedNames.includes(name))
+  // 1. 同名列 id
+  if (common.includes("id")) return `LEFT JOIN ${columnKey(mainTable, "id")} = ${columnKey(relatedTable, "id")}`
+  // 2. 同名列中 *_id 模式
+  const commonId = common.find((name) => /_id$/i.test(name))
+  if (commonId) return `LEFT JOIN ${columnKey(mainTable, commonId)} = ${columnKey(relatedTable, commonId)}`
+  // 3. 任意同名列
+  if (common.length) return `LEFT JOIN ${columnKey(mainTable, common[0])} = ${columnKey(relatedTable, common[0])}`
+  // 4. 不对称模式：<related>_id 或 <main>_id
+  const relatedFk = relatedNames.find((name) => name.toLowerCase() === `${mainTable.toLowerCase()}_id`)
+  if (relatedFk && mainNames.includes("id")) {
+    return `LEFT JOIN ${columnKey(mainTable, "id")} = ${columnKey(relatedTable, relatedFk)}`
+  }
+  const mainFk = mainNames.find((name) => name.toLowerCase() === `${relatedTable.toLowerCase()}_id`)
+  if (mainFk && relatedNames.includes("id")) {
+    return `LEFT JOIN ${columnKey(mainTable, mainFk)} = ${columnKey(relatedTable, "id")}`
+  }
+  // 5. 首列兜底
+  return `LEFT JOIN ${columnKey(mainTable, mainNames[0])} = ${columnKey(relatedTable, relatedNames[0])}`
+}
+
+const parseRelatedTablesFromJoins = (joinList: string[], mainTable: string): string[] => {
+  const tables = new Set<string>()
+  joinList.forEach((join) => {
+    const match = join.match(/\b([A-Za-z_][\w]*)\.[A-Za-z_][\w]*\s*(?:=|!=|<>)\s*([A-Za-z_][\w]*)\./i)
+    if (!match) return
+    const leftTable = match[1]
+    const rightTable = match[2]
+    if (leftTable && leftTable !== mainTable) tables.add(leftTable)
+    if (rightTable && rightTable !== mainTable) tables.add(rightTable)
+  })
+  return Array.from(tables)
+}
 
 const isNumericColumn = (column: SchemaColumn) =>
   /(int|number|decimal|numeric|float|double|real|money|amount|price|qty|quantity)/i.test(
@@ -1725,25 +1875,37 @@ const fetchDatasets = async () => {
 
 const syncFieldRoleConfigs = (roleMode: "suggest" | "ignore" = "suggest") => {
   const previous = new Map(fieldRoleConfigs.value.map((config) => [config.key, config]))
-  fieldRoleConfigs.value = currentColumns.value.map((column, index) => {
-    const key = columnKey(form.table, column.name)
-    const old = previous.get(key)
-    if (old) {
-      return {
-        ...old,
-        table: form.table,
-        column: column.name,
-        type: column.type,
-        description: column.description || "",
+  const tables = [form.table, ...relatedTables.value].filter(Boolean)
+  const nextConfigs: FieldRoleConfig[] = []
+  tables.forEach((tableName) => {
+    // 每张表（主表/关联表）各自从 0 计数，保证关联表字段也能获得建议 role，
+    // 否则主表字段数 >= 12 时关联表所有字段都会被建议为 ignore
+    let tableIndex = 0
+    columnsForTable(tableName).forEach((column) => {
+      const key = columnKey(tableName, column.name)
+      const old = previous.get(key)
+      if (old) {
+        nextConfigs.push({
+          ...old,
+          table: tableName,
+          column: column.name,
+          type: column.type,
+          description: column.description || "",
+        })
+      } else {
+        nextConfigs.push(
+          createFieldRoleConfig(
+            tableName,
+            column,
+            tableIndex,
+            roleMode === "ignore" ? "ignore" : undefined
+          )
+        )
       }
-    }
-    return createFieldRoleConfig(
-      form.table,
-      column,
-      index,
-      roleMode === "ignore" ? "ignore" : undefined
-    )
+      tableIndex += 1
+    })
   })
+  fieldRoleConfigs.value = nextConfigs
 }
 
 const parseMetricConfig = (item: unknown) => {
@@ -1804,6 +1966,20 @@ const applySavedFieldModel = (dataset: DatasetItem) => {
       config.alias = metric.alias || config.alias || defaultMetricAlias(config)
     }
   }
+
+  // 旧数据集未保存关联表字段的 role，回填后仍为 ignore。
+  // 此处按表内 index 建议 role，使关联表字段也能进入语义模型（保存后生效）。
+  fieldRoleConfigs.value.forEach((config) => {
+    if (config.table !== form.table && config.role === "ignore") {
+      const tableIndex = fieldRoleConfigs.value.filter((c) => c.table === config.table).indexOf(config)
+      const column: SchemaColumn = {
+        name: config.column,
+        type: config.type ?? "string",
+        description: config.description ?? "",
+      }
+      config.role = suggestedRoleForColumn(column, tableIndex)
+    }
+  })
 }
 
 const resetForm = (preferredDatasourceId: number | null = null) => {
@@ -1818,6 +1994,7 @@ const resetForm = (preferredDatasourceId: number | null = null) => {
   filters.value = []
   derivedColumns.value = []
   joins.value = []
+  relatedTables.value = []
   logicTab.value = "filters"
   filterField.value = ""
   filterOperator.value = "="
@@ -1888,10 +2065,11 @@ const openEdit = async (dataset: DatasetItem) => {
 
   const savedTable = typeof dataset.fields_json?.table === "string" ? dataset.fields_json.table : ""
   form.table = savedTable || inferTableFromFields(dataset.fields_json) || schemaTables.value[0]?.name || ""
+  joins.value = normalizeList(dataset.joins_json?.joins)
+  relatedTables.value = parseRelatedTablesFromJoins(joins.value, form.table)
   applySavedFieldModel(dataset)
   filters.value = normalizeList(dataset.filters_json?.filters)
   derivedColumns.value = normalizeList(dataset.derived_columns_json?.expressions)
-  joins.value = normalizeList(dataset.joins_json?.joins)
   semanticModelDraft.value = dataset.semantic_model_json ? cloneJson(dataset.semantic_model_json) : null
   drillConfig.value = normalizeDrillConfig(dataset.drill_config_json)
   activeStep.value = "source"
@@ -1907,6 +2085,8 @@ const inferTableFromFields = (fieldsJson: Record<string, unknown> | null) => {
 const handleDatasourceChange = async () => {
   form.table = ""
   fieldRoleConfigs.value = []
+  relatedTables.value = []
+  joins.value = []
   filterField.value = ""
   previewRows.value = []
   rawPreviewColumns.value = []
@@ -1918,6 +2098,8 @@ const handleDatasourceChange = async () => {
 
 const selectTable = (tableName: string) => {
   form.table = tableName
+  relatedTables.value = []
+  joins.value = []
   syncFieldRoleConfigs("suggest")
   filterField.value = currentFieldOptions.value[0]?.key || ""
   joinLeftTable.value = tableName
@@ -1969,7 +2151,7 @@ const setFieldRole = (key: string, role: FieldRole) => {
 const handleRoleChange = (config: FieldRoleConfig) => {
   semanticModelDraft.value = null
   if (config.role === "metric") {
-    const column = currentColumns.value.find((item) => item.name === config.column)
+    const column = columnsForTable(config.table).find((item) => item.name === config.column)
     if (column && config.aggregation === "SUM" && !isNumericColumn(column)) {
       config.aggregation = "COUNT"
     }
@@ -2036,8 +2218,53 @@ const addJoin = () => {
   uniquePush(joins.value, joinPreviewText.value)
 }
 
+const isJoinForTable = (join: string, tableName: string) => {
+  const escaped = tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`(^|\\s)${escaped}\\.`, "i").test(join)
+}
+
 const removeJoin = (join: string) => {
   joins.value = joins.value.filter((item) => item !== join)
+  // 若删除的是自动生成的 Join，同步取消对应关联表勾选，保持 UI 与数据一致
+  const affectedTables = parseRelatedTablesFromJoins([join], form.table)
+  affectedTables.forEach((tableName) => {
+    if (relatedTables.value.includes(tableName)) {
+      const stillReferenced = joins.value.some((item) => isJoinForTable(item, tableName))
+      if (!stillReferenced) {
+        relatedTables.value = relatedTables.value.filter((name) => name !== tableName)
+        fieldRoleConfigs.value = fieldRoleConfigs.value.filter((config) => config.table !== tableName)
+      }
+    }
+  })
+}
+
+const scrollColumnsByKey = (direction: -1 | 1, event: KeyboardEvent) => {
+  const container = event.currentTarget as HTMLElement | null
+  if (!container) return
+  const column = container.querySelector<HTMLElement>(".field-config-column")
+  const step = column ? column.offsetWidth + 12 : 320
+  container.scrollBy({ left: direction * step, behavior: "smooth" })
+}
+
+const toggleRelatedTable = (tableName: string) => {
+  if (!form.table || tableName === form.table) return
+  if (relatedTables.value.includes(tableName)) {
+    // 取消勾选：移除关联表及对应 Join，并清理其字段配置
+    relatedTables.value = relatedTables.value.filter((name) => name !== tableName)
+    joins.value = joins.value.filter((join) => !isJoinForTable(join, tableName))
+    fieldRoleConfigs.value = fieldRoleConfigs.value.filter((config) => config.table !== tableName)
+    return
+  }
+  // 勾选：加入关联表并自动生成 LEFT JOIN
+  relatedTables.value = [...relatedTables.value, tableName]
+  const autoJoin = buildAutoJoin(form.table, tableName)
+  if (autoJoin) {
+    uniquePush(joins.value, autoJoin)
+    ElMessage.success(`已自动添加 Join：${autoJoin}`)
+  } else {
+    ElMessage.warning(`未找到 ${tableName} 与主表的关联字段，请到高级建模中手动配置 Join`)
+  }
+  syncFieldRoleConfigs("suggest")
 }
 
 const applyAiFieldRoles = (roles: Array<Record<string, unknown>>) => {
@@ -2710,6 +2937,25 @@ watch(
   font-weight: 700;
 }
 
+.summary-table-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.5;
+}
+
+.summary-main-table {
+  color: var(--app-text);
+  font-weight: 600;
+}
+
+.summary-related-table {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--app-border-soft);
+}
+
 .table-picker {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -2741,6 +2987,37 @@ watch(
   margin-top: 8px;
   color: var(--app-text-muted);
   line-height: 1.45;
+}
+
+.related-table-picker-wrap {
+  margin-top: 16px;
+  border-style: dashed;
+}
+
+.related-table-picker-wrap .panel-title small {
+  font-weight: 500;
+  color: var(--app-primary);
+}
+
+.table-picker-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--app-text-muted);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+}
+
+.related-table-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.related-table-tags-label {
+  color: var(--app-text-muted);
+  font-size: 13px;
 }
 
 .fields-section-head {
@@ -2869,12 +3146,88 @@ watch(
   margin-bottom: 0;
 }
 
+.hero-table-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.visible-count {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.field-config-columns {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  align-items: stretch;
+  scrollbar-width: thin;
+}
+
+.field-config-columns:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+  border-radius: var(--app-radius-sm);
+}
+
+.field-config-column {
+  flex: 1 1 0;
+  min-width: 280px;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+  overflow: hidden;
+}
+
+.field-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--app-border-light);
+  background: var(--app-surface);
+}
+
+.field-column-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text);
+  font-size: 14px;
+}
+
+.field-column-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--app-primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .field-config-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   max-height: 560px;
-  overflow: auto;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 10px;
+  flex: 1 1 auto;
 }
 
 .field-config-row {

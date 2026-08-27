@@ -15,6 +15,29 @@ TraceCallback = Callable[[dict[str, Any]], Awaitable[None]]
 CHART_TYPES = {"line", "bar", "horizontal_bar", "area", "pie", "donut", "scatter", "table", "kpi", "combo"}
 CHART_LAYOUTS = {"single", "tabs_by_field"}
 CHART_SORT_ORDERS = {"none", "asc", "desc"}
+# 识别度量（Y 轴）数值列的关键词，覆盖金额/业务指标等常见命名
+MEASURE_VALUE_PATTERNS = (
+    "count",
+    "total",
+    "sum",
+    "times",
+    "amount",
+    "num",
+    "qty",
+    "value",
+    "occurrence",
+    "gmv",
+    "revenue",
+    "income",
+    "sales",
+    "profit",
+    "price",
+    "fee",
+    "cost",
+    "spend",
+)
+# 时序编号/序号列（如小时、分钟），通常是分组维度而非度量
+INDEX_LIKE_TOKENS = ("hour", "minute", "second", "weekday", "day_of_week", "quarter", "index", "seq")
 IDENTIFIER_SUFFIXES = ("identifier", "equipment", "machine", "station", "customer", "product", "region")
 SEMANTIC_GENERIC_TOKENS = {
     "id",
@@ -640,30 +663,25 @@ def _is_identifier_like_column(column: str) -> bool:
 
 
 def _is_measure_like_column(column: str) -> bool:
-    measure_tokens = (
-        "count",
-        "total",
-        "sum",
-        "amount",
-        "num",
-        "qty",
-        "value",
-        "occurrence",
+    measure_tokens = MEASURE_VALUE_PATTERNS + (
         "rate",
         "ratio",
         "avg",
         "average",
         "min",
         "max",
-        "sales",
-        "revenue",
-        "times",
     )
     lower = column.lower()
     parts = [part for part in re.split(r"[^a-z0-9]+", lower) if part]
     if any(part in measure_tokens for part in parts):
         return True
     return any(lower.startswith(token) or lower.endswith(token) for token in measure_tokens)
+
+
+def _is_index_like_column(column: str) -> bool:
+    """时序编号/序号列（如 hour、minute），通常应作为分组维度而非度量。"""
+    lower = column.lower()
+    return any(token in lower for token in INDEX_LIKE_TOKENS)
 
 
 def _numeric_columns(columns: list[str], rows: list[dict[str, Any]]) -> list[str]:
@@ -700,11 +718,18 @@ def infer_agentic_chart_spec(question: str, result: dict[str, Any]) -> dict[str,
 
     numeric_columns = _numeric_columns(columns, rows)
     date_columns = [column for column in columns if _is_date_like_field(column, rows)]
-    value_patterns = ("count", "total", "sum", "times", "amount", "num", "qty", "value", "occurrence")
     y_field = next(
-        (column for column in numeric_columns if any(token in column.lower() for token in value_patterns)),
-        numeric_columns[0] if numeric_columns else None,
+        (column for column in numeric_columns if any(token in column.lower() for token in MEASURE_VALUE_PATTERNS)),
+        None,
     )
+    if not y_field:
+        # 无明确度量关键词时，优先选择非时序编号/标识列作为度量（如 hour、id 等通常是维度）
+        candidates = [
+            column
+            for column in numeric_columns
+            if not _is_index_like_column(column) and not _is_identifier_like_column(column)
+        ]
+        y_field = candidates[0] if candidates else (numeric_columns[0] if numeric_columns else None)
     x_field = date_columns[0] if date_columns else next((column for column in columns if column != y_field), columns[0])
     dimension_fields = [
         column
@@ -778,9 +803,34 @@ def _normalize_chart_spec(raw: str, question: str, result: dict[str, Any]) -> di
     if chart_type in {"donut"}:
         chart_type = "pie"
 
+    numeric_columns = _numeric_columns(columns, rows)
     x_field = _resolve_column(parsed.get("x_field"), columns) or fallback.get("x_field")
     y_field = _resolve_column(parsed.get("y_field"), columns) or fallback.get("y_field")
-    numeric_columns = _numeric_columns(columns, rows)
+    # 校验：时序编号/序号列（如 hour）不应作为度量，回退到更合理的度量列
+    if y_field and _is_index_like_column(y_field):
+        better_y = next(
+            (
+                column
+                for column in numeric_columns
+                if column != y_field
+                and not _is_index_like_column(column)
+                and any(token in column.lower() for token in MEASURE_VALUE_PATTERNS)
+            ),
+            None,
+        )
+        if not better_y:
+            better_y = next(
+                (
+                    column
+                    for column in numeric_columns
+                    if column != y_field
+                    and not _is_index_like_column(column)
+                    and not _is_identifier_like_column(column)
+                ),
+                None,
+            )
+        if better_y:
+            y_field = better_y
     facet_field = _resolve_column(parsed.get("facet_field"), columns) or fallback.get("facet_field")
     if facet_field and not _is_chart_dimension_column(facet_field, numeric_columns):
         facet_field = None

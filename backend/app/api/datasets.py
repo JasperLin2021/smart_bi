@@ -298,6 +298,27 @@ def _validate_database_table_and_columns(engine, table: str, fields: list[str]) 
             raise HTTPException(status_code=400, detail=f"字段不存在: {field}")
 
 
+def _validate_join_references(engine, joins: list[str], default_table: str) -> None:
+    """Validate that every Join references existing tables and columns on both sides."""
+    inspector = inspect(engine)
+    available_tables = set(inspector.get_table_names())
+    table_columns: dict[str, set[str]] = {}
+    for join in joins:
+        match = JOIN_RE.match(str(join).strip())
+        if not match:
+            raise HTTPException(status_code=400, detail=f"Join 关系不合法: {join}")
+        for raw in (match.group("left"), match.group("right")):
+            join_table, join_column = _split_field(raw, default_table)
+            if join_table not in available_tables:
+                raise HTTPException(status_code=400, detail=f"Join 引用的表不存在: {join_table}")
+            if join_table not in table_columns:
+                table_columns[join_table] = {
+                    column["name"] for column in inspector.get_columns(join_table)
+                }
+            if join_column not in table_columns[join_table]:
+                raise HTTPException(status_code=400, detail=f"Join 引用的字段不存在: {raw}")
+
+
 def _selected_fields(dataset: Dataset, table: str) -> list[str]:
     return [item["field"] for item in _dimension_specs(dataset, table)]
 
@@ -599,6 +620,7 @@ def _build_dataset_sql(dataset: Dataset, datasource: DataSource, limit: int | No
             re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\b", expression)
         )
     _validate_database_table_and_columns(engine, table, validation_fields)
+    _validate_join_references(engine, _join_expressions(dataset), table)
 
     select_parts: list[str] = []
     group_by_parts: list[str] = []

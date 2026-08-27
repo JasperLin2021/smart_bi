@@ -342,15 +342,15 @@
                   <div class="field-candidate-panel">
                     <div class="field-candidate-panel__head">
                       <strong>数据集字段候选项</strong>
-                      <span>{{ currentDataset?.name || "先选择数据集后展示指标" }}</span>
+                      <span>{{ currentDataset?.name || "先选择数据集后展示字段" }}</span>
                     </div>
-                    <div v-if="datasetFieldOptions.length" class="field-candidate-tools">
+                    <div v-if="allDatasetFieldOptions.length" class="field-candidate-tools">
                       <el-input
                         v-model="fieldCandidateKeyword"
                         class="field-candidate-search"
                         clearable
                         :prefix-icon="Search"
-                        placeholder="搜索指标 / 别名 / 类型"
+                        placeholder="搜索字段 / 别名 / 类型"
                       />
                       <div class="field-candidate-role-filter" role="group" aria-label="字段类型筛选">
                         <button
@@ -365,7 +365,7 @@
                         </button>
                       </div>
                     </div>
-                    <div v-if="datasetFieldOptions.length" class="field-insert-toolbar">
+                    <div v-if="allDatasetFieldOptions.length" class="field-insert-toolbar">
                       <span>插入到</span>
                       <el-select v-model="fieldInsertTarget" class="field-insert-target" size="small">
                         <el-option
@@ -385,12 +385,17 @@
                         class="field-candidate-chip"
                         @click="insertCandidateField(field)"
                       >
-                        <strong>{{ field.label }}</strong>
+                        <strong>
+                          {{ field.label }}
+                          <span class="field-candidate-chip__role">
+                            {{ field.role === "dimension" ? "维度" : "指标" }}
+                          </span>
+                        </strong>
                         <small>{{ field.name }}</small>
                       </button>
                     </div>
                     <p v-else class="field-candidate-empty">
-                      {{ datasetFieldOptions.length ? "没有匹配指标，请调整搜索词。" : "当前数据集暂无指标候选，请先在数据集开发中配置指标。" }}
+                      {{ allDatasetFieldOptions.length ? "没有匹配字段，请调整搜索词。" : "当前数据集暂无字段候选，请先在数据集开发中配置字段。" }}
                     </p>
                   </div>
 
@@ -1384,7 +1389,7 @@ interface CalculationFilterRule {
 type CalculationMode = "aggregate" | "ratio" | "derived" | "window"
 type RawField = string | Record<string, any>
 type FieldRole = "dimension" | "metric"
-type FieldCandidateRoleFilter = "all" | "metric"
+type FieldCandidateRoleFilter = "all" | "dimension" | "metric"
 type ExpressionTarget = "numerator_expression" | "denominator_expression" | "derived_expression"
 type FieldInsertTarget =
   | "auto"
@@ -1899,6 +1904,9 @@ const metricFieldOptions = computed(() => {
 })
 
 const datasetFieldOptions = computed(() => dedupeDatasetFields(metricFieldOptions.value))
+const allDatasetFieldOptions = computed(() =>
+  dedupeDatasetFields([...dimensionFieldOptions.value, ...metricFieldOptions.value])
+)
 const fieldOptionGroups = computed(() => [
   { label: "指标字段", options: metricFieldOptions.value },
 ].filter(group => group.options.length))
@@ -1915,14 +1923,15 @@ const timeFieldOptions = computed(() => {
   return matches.length ? matches : datasetFieldOptions.value
 })
 const fieldCandidateFilterOptions = computed(() => [
-  { label: "全部指标", value: "all" as const, count: datasetFieldOptions.value.length },
+  { label: "全部字段", value: "all" as const, count: allDatasetFieldOptions.value.length },
+  { label: "维度", value: "dimension" as const, count: dimensionFieldOptions.value.length },
   { label: "指标", value: "metric" as const, count: metricFieldOptions.value.length },
 ])
 const filteredCandidateFields = computed(() => {
   const keyword = fieldCandidateKeyword.value.trim().toLowerCase()
   const role = fieldCandidateRoleFilter.value
-  return datasetFieldOptions.value.filter((field) => {
-    const matchRole = role === "all" || (role === "metric" && field.role === "metric")
+  return allDatasetFieldOptions.value.filter((field) => {
+    const matchRole = role === "all" || field.role === role
     const text = `${field.name} ${field.label} ${field.type}`.toLowerCase()
     return matchRole && (!keyword || text.includes(keyword))
   })
@@ -4021,6 +4030,16 @@ onMounted(() => {
 .field-candidate-chip strong {
   font-size: 12px;
   line-height: 1.35;
+}
+
+.field-candidate-chip__role {
+  margin-left: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--app-surface-muted);
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 500;
 }
 
 .field-candidate-chip small {

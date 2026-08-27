@@ -65,6 +65,36 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
+-- 2.5 DATASOURCES (id=1-5, existing business records)
+-- ============================================================
+
+INSERT INTO datasources
+  (id, name, slug, database_url, source_type, metadata_prompt, schema_metadata,
+   drill_config, metrics_prompt, text2sql_prompt, recommend_questions, is_active,
+   org_id, created_at, updated_at)
+VALUES
+  (1, '嘉盛半导体', 'carsem', 'excel://local/carsem_test_data.xlsx', 'excel',
+   '嘉盛半导体封测车间测试数据源，包含晶圆测试（wafer test）、封装（assembly）、终测（final test）等工序的良率与产出数据，覆盖产线、批次、班次、机台和物料维度。',
+   NULL, NULL, NULL, NULL, NULL, 1, 2, NOW() - INTERVAL '60 days', NOW() - INTERVAL '60 days'),
+
+  (2, 'nexteer (Excel)', 'nexteer-excel', 'excel://local/ChatBI数据.xlsx', 'excel',
+   'Nexteer 生产班组数据，主表 mainrecord 包含产线、班次、班次开始/结束时间、OEE、RTY、总产出（TOTALCOUNT）等字段；ngtype 记录不合格品类型；rtyinfo 记录一次通过率明细；production 记录末工序合格产出（OKCOUNT）。',
+   NULL, NULL, NULL, NULL, NULL, 1, 1, NOW() - INTERVAL '60 days', NOW() - INTERVAL '1 day'),
+
+  (3, 'Mock PostgreSQL 销售分析', 'mock-psql-sales', 'postgresql://mock:mock@localhost:5432/sales_analytics', 'database',
+   '演示用 PostgreSQL 销售分析数据库，提供订单、客户、产品、地区等维度的实时 SQL 查询能力，与 Excel 数据源互补，用于跨系统销售趋势分析。',
+   NULL, NULL, NULL, NULL, NULL, 1, 1, NOW() - INTERVAL '45 days', NOW() - INTERVAL '45 days'),
+
+  (4, '蓝途科技销售数据', 'blueway-demo', 'excel://local/blueway_demo.xlsx', 'excel',
+   '蓝途科技销售数据源，包含订单主表（orders）、订单明细（order_items）、产品（products）、客户（customers）和月度经营 KPI（monthly_kpi）等表，提供销售额、订单数、客单价、达成率、新增客户和 NPS 等指标。',
+   NULL, NULL, NULL, NULL, NULL, 1, 1, NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour'),
+
+  (5, '嘉盛封测数据库', 'carsem-db', 'postgresql://mock:mock@localhost:5432/carsem', 'database',
+   '嘉盛半导体封测数据库直连，提供 wafer/assembly/final 各工序的实时良率与设备状态数据，用于跨园区良率对比与产能分析。',
+   NULL, NULL, NULL, NULL, NULL, 1, 2, NOW() - INTERVAL '30 days', NOW() - INTERVAL '30 days')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
 -- 3. NOTIFICATION SETTINGS
 -- ============================================================
 
@@ -702,6 +732,39 @@ ON CONFLICT (id) DO NOTHING;
 -- 11. DASHBOARD COMMENTS (8 comments on dashboards id=1-4)
 -- ============================================================
 
+-- ============================================================
+-- 10.5 DASHBOARDS (id=1-4, existing business records)
+-- ============================================================
+
+INSERT INTO dashboards
+  (id, title, description, layout_json, filters_json, status, visibility, is_public,
+   share_token, shared_user_ids, version, org_id, owner_id, created_at, updated_at)
+VALUES
+  (1, 'OEE生产效率看板',
+   '实时展示Nexteer各产线OEE、RTY和日产出，支持按产线和班次下钻分析。',
+   '{"refresh_interval":"5min","chart_count":6,"data_range":"rolling_30d"}', NULL,
+   'published', 'org', 0, NULL, NULL, 2, 1, 2, NOW() - INTERVAL '60 days', NOW() - INTERVAL '1 day'),
+
+  (2, '销售经营看板',
+   '面向管理层展示蓝途销售核心指标，支持销售额、订单数、客单价和月度达成分析。',
+   NULL, NULL,
+   'published', 'org', 0, NULL, NULL, 1, 1, 8, NOW() - INTERVAL '40 days', NOW() - INTERVAL '14 days'),
+
+  (3, 'RTY质量分析看板',
+   'RTY 一次通过率分析看板，含失效模式分布、班次对比和趋势监控。',
+   NULL, NULL,
+   'published', 'org', 0, NULL, NULL, 1, 1, 6, NOW() - INTERVAL '35 days', NOW() - INTERVAL '8 days'),
+
+  (4, '生产综合看板',
+   '生产综合看板，集中展示今日完成率、OEE 与关键生产 KPI，供管理层第一眼掌握核心指标。',
+   NULL, NULL,
+   'published', 'org', 0, NULL, NULL, 1, 1, 2, NOW() - INTERVAL '30 days', NOW() - INTERVAL '3 days')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- 11. DASHBOARD COMMENTS
+-- ============================================================
+
 INSERT INTO dashboard_comments
   (id, dashboard_id, user_id, username, content, created_at)
 VALUES
@@ -802,6 +865,11 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO catalog_categories
   (id, name, parent_id, org_id, sort_order, created_at)
 VALUES
+  -- Top-level categories (id=1-4)
+  (1, '销售分析', NULL, 1, 1, NOW() - INTERVAL '45 days'),
+  (2, '生产管理', NULL, 1, 2, NOW() - INTERVAL '40 days'),
+  (3, '质量管理', NULL, 1, 3, NOW() - INTERVAL '40 days'),
+  (4, '其他', NULL, 1, 4, NOW() - INTERVAL '35 days'),
   -- Under id=1 (销售分析)
   (5, '蓝途销售分析', 1, 1, 1, NOW() - INTERVAL '40 days'),
   -- Under id=2 (生产管理)
@@ -838,7 +906,7 @@ VALUES
    128, NOW() - INTERVAL '50 days', NOW() - INTERVAL '2 days'),
 
   -- Asset 20: RTY一次通过率指标
-  (20, 'metric', 2, 'RTY一次通过率指标',
+  (20, 'metric', 5, 'RTY一次通过率指标',
    '衡量产品一次通过全部工序的质量指标，用于质量趋势监控、班次对比和失效模式改善。',
    2, 1, 6, 7,
    'published',
@@ -865,13 +933,22 @@ VALUES
    54, NOW() - INTERVAL '22 days', NOW() - INTERVAL '22 days'),
 
   -- Asset 23: OEE综合效率指标
-  (23, 'metric', 1, 'OEE综合效率指标',
+  (23, 'metric', 2, 'OEE综合效率指标',
    '综合衡量产线时间开动率、性能效率和质量良率的核心生产效率指标。',
    2, 1, 2, 6,
    'published',
    '["OEE","生产效率","KPI","认证指标"]',
    '{"formula":"时间开动率 * 性能效率 * 质量良率","unit":"%","aggregation":"avg","target":85,"certification_status":"certified"}',
-   156, NOW() - INTERVAL '70 days', NOW() - INTERVAL '30 days')
+   156, NOW() - INTERVAL '70 days', NOW() - INTERVAL '30 days'),
+
+  -- Asset 34: 线产出 (archived duplicate, matched by UPDATE data_assets WHERE asset_type='metric' AND asset_id=3)
+  (34, 'metric', 3, '线产出',
+   '已下架：该指标与“产出”口径重复，请使用“产出”并选择产线维度分析。',
+   2, 1, 2, 6,
+   'archived',
+   '["Nexteer","生产","产出","重复指标","已下架"]',
+   '{"definition":"已下架：线产出可由“产出”指标按 mainrecord.LINE 维度实时拆解得到，不再作为独立可信指标维护。","formula":"SUM(mainrecord.TOTALCOUNT)","replacement_metric":"产出","deprecation_reason":"该指标与“产出”口径重复；按 mainrecord.LINE 维度拆解即可得到同等业务结果。","certification_status":"deprecated","quality_status":"unknown","is_active":0}',
+   12, NOW() - INTERVAL '28 days', NOW() - INTERVAL '1 day')
 ON CONFLICT (id) DO UPDATE SET
   asset_type = EXCLUDED.asset_type,
   asset_id = EXCLUDED.asset_id,
@@ -1075,20 +1152,26 @@ ON CONFLICT (id) DO UPDATE SET
 
 INSERT INTO data_pipelines
   (id, name, description, dataset_id, dag_json, schedule_cron, run_mode, status,
+   environment, priority, sla_minutes, retry_count, timeout_minutes,
+   current_version, published_version,
    last_run_status, last_run_at, org_id, owner_id, created_by, created_at, updated_at)
 VALUES
   (1, 'Nexteer 生产明细日同步',
    '每天凌晨从生产数据源抽取 mainrecord 班次主数据，完成字段标准化、异常值清洗和质量校验后写入生产明细目标表。',
    1,
    '{"nodes":[{"id":"extract_mainrecord","type":"extract","label":"抽取 mainrecord","config":{"dataset_id":1,"mode":"full","incremental_key":"班次开始时间","batch_size":5000}},{"id":"clean_shift","type":"transform","label":"字段标准化与类型清洗","config":{"field_mapping":[{"source":"产线","target":"line"},{"source":"班次","target":"shift_name"},{"source":"班次开始时间","target":"shift_start_time"},{"source":"零件号","target":"part_no"},{"source":"OEE","target":"oee"},{"source":"RTY","target":"rty"},{"source":"总产出","target":"total_count"}],"type_conversions":[{"field":"shift_start_time","type":"datetime"},{"field":"oee","type":"decimal"},{"field":"rty","type":"decimal"},{"field":"total_count","type":"integer"}],"filters":[{"field":"shift_start_time","operator":"not_null"},{"field":"line","operator":"not_null"},{"field":"oee","operator":"not_null"},{"field":"rty","operator":">=","value":0},{"field":"rty","operator":"<=","value":100}]}},{"id":"quality_oee","type":"quality","label":"OEE/RTY 质量校验","config":{"fail_fast":true}},{"id":"load_dataset","type":"load","label":"写入生产明细目标表","config":{"target_table":"etl_nexteer_production_daily","mode":"replace","batch_size":5000}}],"edges":[{"source":"extract_mainrecord","target":"clean_shift"},{"source":"clean_shift","target":"quality_oee"},{"source":"quality_oee","target":"load_dataset"}]}',
-   '0 2 * * *', 'scheduled', 'active', 'success', NOW() - INTERVAL '1 day 02:04',
+   '0 2 * * *', 'scheduled', 'active',
+   'production', 'medium', 120, 2, 60, 1, 1,
+   'success', NOW() - INTERVAL '1 day 02:04',
    1, 2, 2, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 day'),
 
   (2, '蓝途销售增量同步',
    '每小时同步蓝途销售订单增量数据，支持失败重试和月底补数。',
    3,
    '{"nodes":[{"id":"extract_sales_orders","type":"extract","label":"抽取 orders 订单增量","config":{"dataset_id":3,"mode":"incremental","incremental_key":"下单日期","batch_size":5000}},{"id":"dedupe_order","type":"transform","label":"订单字段标准化与去重","config":{"field_mapping":[{"source":"订单号","target":"order_id"},{"source":"客户ID","target":"customer_id"},{"source":"客户名称","target":"customer_name"},{"source":"大区","target":"region"},{"source":"城市","target":"city"},{"source":"销售员","target":"salesperson"},{"source":"订单状态","target":"status"},{"source":"付款方式","target":"payment_method"},{"source":"下单日期","target":"order_date"},{"source":"订单金额","target":"total_amount"},{"source":"订单数","target":"order_count"}],"type_conversions":[{"field":"order_date","type":"date"},{"field":"total_amount","type":"decimal"},{"field":"order_count","type":"integer"}],"dedupe":{"keys":["order_id"],"keep":"last"}}},{"id":"quality_sales_orders","type":"quality","label":"订单质量校验","config":{"fail_fast":true}},{"id":"load_sales_dataset","type":"load","label":"写入销售订单增量表","config":{"target_table":"etl_lantu_sales_incremental_orders","mode":"upsert","primary_key":"order_id","upsert_keys":["order_id"],"batch_size":5000}}],"edges":[{"source":"extract_sales_orders","target":"dedupe_order"},{"source":"dedupe_order","target":"quality_sales_orders"},{"source":"quality_sales_orders","target":"load_sales_dataset"}]}',
-   '0 * * * *', 'incremental', 'active', 'success', NOW() - INTERVAL '1 hour',
+   '0 * * * *', 'incremental', 'active',
+   'production', 'medium', 120, 2, 60, 1, 1,
+   'success', NOW() - INTERVAL '1 hour',
    1, 8, 8, NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour')
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
@@ -1098,6 +1181,13 @@ ON CONFLICT (id) DO UPDATE SET
   schedule_cron = EXCLUDED.schedule_cron,
   run_mode = EXCLUDED.run_mode,
   status = EXCLUDED.status,
+  environment = EXCLUDED.environment,
+  priority = EXCLUDED.priority,
+  sla_minutes = EXCLUDED.sla_minutes,
+  retry_count = EXCLUDED.retry_count,
+  timeout_minutes = EXCLUDED.timeout_minutes,
+  current_version = EXCLUDED.current_version,
+  published_version = EXCLUDED.published_version,
   last_run_status = EXCLUDED.last_run_status,
   last_run_at = EXCLUDED.last_run_at,
   updated_at = EXCLUDED.updated_at;
@@ -1151,6 +1241,372 @@ ON CONFLICT (id) DO UPDATE SET
 SELECT setval(pg_get_serial_sequence('data_pipelines', 'id'), GREATEST((SELECT MAX(id) FROM data_pipelines), 2), true);
 SELECT setval(pg_get_serial_sequence('data_pipeline_runs', 'id'), GREATEST((SELECT MAX(id) FROM data_pipeline_runs), 3), true);
 SELECT setval(pg_get_serial_sequence('data_quality_rules', 'id'), GREATEST((SELECT MAX(id) FROM data_quality_rules), 4), true);
+
+-- ============================================================
+-- 20.5 DATASETS BASE ROWS (id=1-4, so that UPDATE statements below take effect)
+-- ============================================================
+
+INSERT INTO datasets
+  (id, name, description, datasource_id, fields_json, aggregations_json, joins_json, semantic_model_json,
+   status, visibility, last_refresh_status, last_refresh_at, last_refresh_row_count,
+   materialization_status, materialization_mode, org_id, owner_id, created_at, updated_at)
+VALUES
+  (1, 'Nexteer 生产 OEE 数据集',
+   '基于 ChatBI 生产 Excel 的 mainrecord 班次主数据，提供产线、班次、时间、零件号维度和 OEE/RTY/产出指标。',
+   2,
+   $${
+     "table":"mainrecord",
+     "dimensions":[
+       {"name":"mainrecord.LINE","alias":"产线","type":"string"},
+       {"name":"mainrecord.SHIFTNAME","alias":"班次","type":"string"},
+       {"name":"mainrecord.SHIFTSTARTTIME","alias":"班次开始时间","type":"datetime"},
+       {"name":"mainrecord.PARTNO","alias":"零件号","type":"string"}
+     ],
+     "metrics":[
+       {"name":"mainrecord.OEE","alias":"OEE","type":"decimal","aggregation":"avg"},
+       {"name":"mainrecord.RTY","alias":"RTY","type":"decimal","aggregation":"avg"},
+       {"name":"mainrecord.TOTALCOUNT","alias":"总产出","type":"integer","aggregation":"sum"}
+     ]
+   }$$::json,
+   $${
+     "aggregations":[
+       {"field":"mainrecord.OEE","aggregation":"avg","alias":"平均OEE"},
+       {"field":"mainrecord.RTY","aggregation":"avg","alias":"平均RTY"},
+       {"field":"mainrecord.TOTALCOUNT","aggregation":"sum","alias":"总产出"}
+     ]
+   }$$::json,
+   NULL,
+   $${
+     "dimensions":[
+       {"name":"LINE","label":"产线"},
+       {"name":"SHIFTNAME","label":"班次"},
+       {"name":"PARTNO","label":"零件号"}
+     ],
+     "time_dimensions":[{"name":"SHIFTSTARTTIME","label":"班次开始时间"}],
+     "metrics":[
+       {"name":"OEE","label":"OEE","aggregation":"avg"},
+       {"name":"RTY","label":"RTY","aggregation":"avg"},
+       {"name":"TOTALCOUNT","label":"总产出","aggregation":"sum"}
+     ],
+     "synonyms":{"产线":["LINE"],"班次":["SHIFTNAME"],"产出":["TOTALCOUNT"]}
+   }$$::json,
+   'published', 'org', 'success', NOW() - INTERVAL '1 day', 500,
+   'ready', 'view', 1, 2, NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 day'),
+
+  (2, 'Nexteer 生产产出明细数据集',
+   '基于 ChatBI 生产 Excel 的 production 末工序产出明细，与 mainrecord 班次主数据关联，提供合格产出（OKCOUNT）指标。',
+   2,
+   $${
+     "table":"production",
+     "dimensions":[
+       {"name":"production.MAINID","alias":"班次主记录ID","type":"integer"},
+       {"name":"mainrecord.LINE","alias":"产线","type":"string"},
+       {"name":"mainrecord.SHIFTNAME","alias":"班次","type":"string"}
+     ],
+     "metrics":[
+       {"name":"production.OKCOUNT","alias":"合格产出","type":"integer","aggregation":"sum"}
+     ],
+     "joins":[
+       {"right":"mainrecord","type":"LEFT JOIN","on":"production.MAINID = mainrecord.ID"}
+     ]
+   }$$::json,
+   $${
+     "aggregations":[
+       {"field":"production.OKCOUNT","aggregation":"sum","alias":"合格产出"}
+     ]
+   }$$::json,
+   $${
+     "joins":[
+       {"right":"mainrecord","type":"LEFT JOIN","on":"production.MAINID = mainrecord.ID"}
+     ]
+   }$$::json,
+   $${
+     "dimensions":[
+       {"name":"MAINID","label":"班次主记录ID"},
+       {"name":"LINE","label":"产线"},
+       {"name":"SHIFTNAME","label":"班次"}
+     ],
+     "time_dimensions":[],
+     "metrics":[
+       {"name":"OKCOUNT","label":"合格产出","aggregation":"sum"}
+     ],
+     "synonyms":{"合格产出":["OKCOUNT"],"产线":["LINE"]}
+   }$$::json,
+   'published', 'org', 'success', NOW() - INTERVAL '2 days', 320,
+   'ready', 'view', 1, 2, NOW() - INTERVAL '30 days', NOW() - INTERVAL '2 days'),
+
+  (3, '蓝途销售订单数据集',
+   '基于蓝途销售 Excel 的 orders 订单主表，提供订单、客户、大区、销售员、金额和订单状态等统一语义字段。',
+   4,
+   $${
+     "table":"orders",
+     "dimensions":[
+       {"name":"orders.order_id","alias":"订单号","type":"string"},
+       {"name":"orders.customer_id","alias":"客户ID","type":"string"},
+       {"name":"orders.customer_name","alias":"客户名称","type":"string"},
+       {"name":"orders.region","alias":"大区","type":"string"},
+       {"name":"orders.city","alias":"城市","type":"string"},
+       {"name":"orders.salesperson","alias":"销售员","type":"string"},
+       {"name":"orders.status","alias":"订单状态","type":"string"},
+       {"name":"orders.payment_method","alias":"付款方式","type":"string"},
+       {"name":"orders.order_date","alias":"下单日期","type":"date"}
+     ],
+     "metrics":[
+       {"name":"orders.total_amount","alias":"订单金额","type":"decimal","aggregation":"sum"},
+       {"name":"orders.order_id","alias":"订单数","type":"string","aggregation":"count_distinct"}
+     ],
+     "joins":[
+       {"right":"customers","type":"LEFT JOIN","on":"orders.customer_id = customers.customer_id"},
+       {"right":"order_items","type":"LEFT JOIN","on":"orders.order_id = order_items.order_id"},
+       {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
+     ]
+   }$$::json,
+   $${
+     "aggregations":[
+       {"field":"orders.total_amount","aggregation":"sum","alias":"订单金额"},
+       {"field":"orders.order_id","aggregation":"count_distinct","alias":"订单数"}
+     ]
+   }$$::json,
+   $${
+     "joins":[
+       {"right":"customers","type":"LEFT JOIN","on":"orders.customer_id = customers.customer_id"},
+       {"right":"order_items","type":"LEFT JOIN","on":"orders.order_id = order_items.order_id"},
+       {"right":"products","type":"LEFT JOIN","on":"order_items.product_id = products.product_id"}
+     ]
+   }$$::json,
+   $${
+     "dimensions":[
+       {"name":"order_id","label":"订单号"},
+       {"name":"customer_name","label":"客户名称"},
+       {"name":"region","label":"大区"},
+       {"name":"city","label":"城市"},
+       {"name":"salesperson","label":"销售员"},
+       {"name":"status","label":"订单状态"},
+       {"name":"payment_method","label":"付款方式"}
+     ],
+     "time_dimensions":[{"name":"order_date","label":"下单日期"}],
+     "metrics":[
+       {"name":"total_amount","label":"订单金额","aggregation":"sum"},
+       {"name":"order_id","label":"订单数","aggregation":"count_distinct"}
+     ],
+     "synonyms":{"销售额":["total_amount","订单金额"],"订单数":["order_id"],"大区":["region"],"销售员":["salesperson"]}
+   }$$::json,
+   'published', 'org', 'success', NOW() - INTERVAL '1 hour', 1006,
+   'ready', 'view', 1, 8, NOW() - INTERVAL '21 days', NOW() - INTERVAL '1 hour'),
+
+  (4, '蓝途科技销售明细数据集',
+   '基于蓝途销售 Excel 的 order_items 订单明细，提供产品、品类维度和销售额/销量指标。',
+   4,
+   $${
+     "table":"order_items",
+     "dimensions":[
+       {"name":"order_items.product_name","alias":"产品名称","type":"string"},
+       {"name":"order_items.category","alias":"产品品类","type":"string"},
+       {"name":"order_items.product_id","alias":"产品ID","type":"string"}
+     ],
+     "metrics":[
+       {"name":"order_items.subtotal","alias":"销售额","type":"decimal","aggregation":"sum"},
+       {"name":"order_items.quantity","alias":"销量","type":"integer","aggregation":"sum"}
+     ]
+   }$$::json,
+   $${
+     "aggregations":[
+       {"field":"order_items.subtotal","aggregation":"sum","alias":"销售额"},
+       {"field":"order_items.quantity","aggregation":"sum","alias":"销量"}
+     ]
+   }$$::json,
+   NULL,
+   $${
+     "dimensions":[
+       {"name":"product_name","label":"产品名称"},
+       {"name":"category","label":"产品品类"},
+       {"name":"product_id","label":"产品ID"}
+     ],
+     "time_dimensions":[],
+     "metrics":[
+       {"name":"subtotal","label":"销售额","aggregation":"sum"},
+       {"name":"quantity","label":"销量","aggregation":"sum"}
+     ],
+     "synonyms":{"产品":["product_name"],"品类":["category"],"销售额":["subtotal"],"销量":["quantity"]}
+   }$$::json,
+   'published', 'org', 'success', NOW() - INTERVAL '1 day', 1200,
+   'ready', 'view', 1, 8, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 day'),
+
+  (5, '蓝途月度经营数据集',
+   '基于蓝途销售 Excel 的 monthly_kpi 月度经营数据，提供大区维度的销售额、订单数、客单价、达成率、新增客户数和 NPS 等月度 KPI。',
+   4,
+   $${
+     "table":"monthly_kpi",
+     "dimensions":[
+       {"name":"monthly_kpi.year_month","alias":"月份","type":"string"},
+       {"name":"monthly_kpi.region","alias":"大区","type":"string"},
+       {"name":"monthly_kpi.city","alias":"城市","type":"string"}
+     ],
+     "metrics":[
+       {"name":"monthly_kpi.sales_amount","alias":"销售额","type":"decimal","aggregation":"sum"},
+       {"name":"monthly_kpi.order_count","alias":"订单数","type":"integer","aggregation":"sum"},
+       {"name":"monthly_kpi.new_customers","alias":"新增客户数","type":"integer","aggregation":"sum"},
+       {"name":"monthly_kpi.nps_score","alias":"NPS","type":"decimal","aggregation":"avg"}
+     ]
+   }$$::json,
+   $${
+     "aggregations":[
+       {"field":"monthly_kpi.sales_amount","aggregation":"sum","alias":"销售额"},
+       {"field":"monthly_kpi.order_count","aggregation":"sum","alias":"订单数"},
+       {"field":"monthly_kpi.new_customers","aggregation":"sum","alias":"新增客户数"},
+       {"field":"monthly_kpi.nps_score","aggregation":"avg","alias":"NPS"}
+     ]
+   }$$::json,
+   NULL,
+   $${
+     "dimensions":[
+       {"name":"year_month","label":"月份"},
+       {"name":"region","label":"大区"},
+       {"name":"city","label":"城市"}
+     ],
+     "time_dimensions":[{"name":"year_month","label":"月份"}],
+     "metrics":[
+       {"name":"sales_amount","label":"销售额","aggregation":"sum"},
+       {"name":"order_count","label":"订单数","aggregation":"sum"},
+       {"name":"new_customers","label":"新增客户数","aggregation":"sum"},
+       {"name":"nps_score","label":"NPS","aggregation":"avg"}
+     ],
+     "synonyms":{"销售额":["sales_amount"],"订单数":["order_count"],"新增客户":["new_customers"],"NPS":["nps_score"]}
+   }$$::json,
+   'published', 'org', 'success', NOW() - INTERVAL '1 day', 60,
+   'ready', 'view', 1, 8, NOW() - INTERVAL '22 days', NOW() - INTERVAL '1 day')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- 20.6 METRICS BASE ROWS (id=1-10, so that UPDATE statements below take effect)
+-- ============================================================
+
+INSERT INTO metrics
+  (id, dataset_id, datasource_id, name, description, definition, column_name, formula,
+   calculation_config, owner_name, unit, aggregation, tags, status, dimensions,
+   certification_status, certified_by, certified_at, caliber_version, last_value,
+   last_computed_at, data_updated_at, quality_status, quality_message, is_active,
+   created_at, updated_at)
+VALUES
+  -- 1: 产出（alerts 3 引用 metric_id=1；UPDATE metrics 按名更新）
+  (1, 1, 2, '产出', 'Nexteer 班次产出总量',
+   'Nexteer mainrecord 班次主数据中 TOTALCOUNT 的合计，反映统计周期内实际产出件数。',
+   'mainrecord.TOTALCOUNT', 'SUM(mainrecord.TOTALCOUNT)',
+   $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json,
+   '生产运营部', '件', 'sum', '["Nexteer","生产","产出","认证指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '20 days', 'v2026.05.1',
+   5200, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与产线日报核对一致。', 1,
+   NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour'),
+
+  -- 2: OEE（alerts 1 引用 metric_id=2；UPDATE metrics 按名更新）
+  (2, 1, 2, 'OEE', 'Nexteer 产线综合效率',
+   'Nexteer mainrecord 班次主数据中 OEE 的平均值，按产线、班次和日期可拆解。',
+   'mainrecord.OEE', 'AVG(mainrecord.OEE)',
+   $${"calculation_mode":"aggregate","metric_field":"mainrecord.OEE","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"mainrecord.OEE","operator":">=","value":0},{"logic":"AND","field":"mainrecord.OEE","operator":"<=","value":100}],"statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据中 OEE 取值在 0-100 的有效记录"],"excluded_subjects":["测试补录记录","OEE 超出 0-100 的异常采集值"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json,
+   '生产运营部', '%', 'avg', '["Nexteer","生产","OEE","认证指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '20 days', 'v2026.05.1',
+   82.5, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与设备综合效率月报核对一致。', 1,
+   NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 hour'),
+
+  -- 3: 线产出（archived，UPDATE metrics 按名下架）
+  (3, 1, 2, '线产出', '已下架：该指标与“产出”口径重复，请使用“产出”并选择产线维度分析。',
+   '已下架：线产出可由“产出”指标按 mainrecord.LINE 维度实时拆解得到，不再作为独立可信指标维护。',
+   'mainrecord.TOTALCOUNT', 'SUM(mainrecord.TOTALCOUNT)',
+   $${"calculation_mode":"aggregate","metric_field":"mainrecord.TOTALCOUNT","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","replacement_metric":"产出","deprecation_reason":"该指标与“产出”口径重复；按 mainrecord.LINE 维度拆解即可得到同等业务结果。","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json,
+   '生产运营部', '件', 'sum', '["Nexteer","生产","产出","重复指标","已下架"]', 'archived',
+   '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]',
+   'deprecated', NULL, NULL, 'v2026.05.1', NULL,
+   NULL, NULL, 'unknown', '已下架：与“产出”指标口径重复，请使用“产出”并按产线维度预览。', 0,
+   NOW() - INTERVAL '28 days', NOW() - INTERVAL '1 hour'),
+
+  -- 4: 月销售额（alerts 4 引用 metric_id=4）
+  (4, 3, 4, '月销售额', '蓝途科技自然月已完成订单销售额合计。',
+   '统计自然月内订单状态为“已完成”的订单金额合计，退款与测试订单不纳入。',
+   'orders.total_amount', 'SUM(orders.total_amount)',
+   $${"calculation_mode":"aggregate","metric_field":"orders.total_amount","statistical_window":"自然月","time_field":"orders.order_date","time_grain":"month","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"orders.status","operator":"=","value":"已完成"}],"statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["已完成订单"],"excluded_subjects":["退款订单","测试订单"],"dimensions":["orders.region","orders.salesperson"]}}$$::json,
+   '销售运营中心', '元', 'sum', '["销售","收入","认证指标"]', 'published',
+   '["orders.region","orders.salesperson","orders.order_date"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '15 days', 'v2026.05.1',
+   45600000, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与蓝途月度销售报表核对一致。', 1,
+   NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 hour'),
+
+  -- 5: RTY（alerts 2 引用 metric_name='RTY'，data_assets 20 对应资产）
+  (5, 1, 2, 'RTY', 'Nexteer 一次通过率',
+   'Nexteer mainrecord 班次主数据中 RTY 的平均值，反映产线首次通过良率。',
+   'mainrecord.RTY', 'AVG(mainrecord.RTY)',
+   $${"calculation_mode":"aggregate","metric_field":"mainrecord.RTY","statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","refresh_sla":"T+1 08:00 前完成刷新","filters":[{"logic":"AND","field":"mainrecord.RTY","operator":">=","value":0},{"logic":"AND","field":"mainrecord.RTY","operator":"<=","value":100}],"statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据中 RTY 取值在 0-100 的有效记录"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE","mainrecord.SHIFTNAME"]}}$$::json,
+   '生产运营部', '%', 'avg', '["Nexteer","生产","RTY","认证指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTNAME","mainrecord.SHIFTSTARTTIME"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '18 days', 'v2026.05.1',
+   96.8, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与质量日报 RTY 口径一致。', 1,
+   NOW() - INTERVAL '28 days', NOW() - INTERVAL '1 hour'),
+
+  -- 6: OEE目标达成率（对比 85% 基准）
+  (6, 1, 2, 'OEE目标达成率', 'OEE 相对 85% 目标的达成率。',
+   '自然日内平均 OEE 除以 85% 目标基准，反映设备效率目标完成情况。',
+   'mainrecord.OEE', 'ROUND(AVG(mainrecord.OEE) / 85.0, 4)',
+   $${"calculation_mode":"ratio","numerator_field":"mainrecord.OEE","numerator_aggregation":"avg","numerator_expression":"AVG(mainrecord.OEE)","denominator_value":85,"denominator_description":"OEE 85% 目标基准","decimal_precision":4,"statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json,
+   '生产运营部', '%', 'ratio', '["Nexteer","生产","OEE","比率指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]',
+   'pending_review', 'nexteer_certifier', NULL, 'v2026.05.0',
+   0.9706, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '基准值 85% 与生产目标一致。', 1,
+   NOW() - INTERVAL '20 days', NOW() - INTERVAL '1 hour'),
+
+  -- 7: RTY目标达成率（对比 95% 基准）
+  (7, 1, 2, 'RTY目标达成率', 'RTY 相对 95% 目标的达成率。',
+   '自然日内平均 RTY 除以 95% 目标基准，反映一次通过率目标完成情况。',
+   'mainrecord.RTY', 'ROUND(AVG(mainrecord.RTY) / 95.0, 4)',
+   $${"calculation_mode":"ratio","numerator_field":"mainrecord.RTY","numerator_aggregation":"avg","numerator_expression":"AVG(mainrecord.RTY)","denominator_value":95,"denominator_description":"RTY 95% 目标基准","decimal_precision":4,"statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json,
+   '生产运营部', '%', 'ratio', '["Nexteer","生产","RTY","比率指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]',
+   'pending_review', 'nexteer_certifier', NULL, 'v2026.05.0',
+   1.0189, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '基准值 95% 与质量目标一致。', 1,
+   NOW() - INTERVAL '20 days', NOW() - INTERVAL '1 hour'),
+
+  -- 8: 产出达成率（以日产 4800 件为基准）
+  (8, 1, 2, '产出达成率', '班次产出相对目标产出的达成率。',
+   '自然日内 TOTALCOUNT 合计除以目标产出 4800 件，反映生产计划达成情况。',
+   'mainrecord.TOTALCOUNT', 'ROUND(SUM(mainrecord.TOTALCOUNT) / 4800.0, 4)',
+   $${"calculation_mode":"ratio","numerator_field":"mainrecord.TOTALCOUNT","numerator_aggregation":"sum","numerator_expression":"SUM(mainrecord.TOTALCOUNT)","denominator_value":4800,"denominator_description":"日产目标 4800 件","decimal_precision":4,"statistical_window":"自然日","time_field":"mainrecord.SHIFTSTARTTIME","time_grain":"day","statistical_scope":{"organization_scope":"Nexteer 生产组织","included_subjects":["mainrecord 班次主数据"],"excluded_subjects":["测试补录记录"],"dimensions":["mainrecord.LINE"]}}$$::json,
+   '生产运营部', '%', 'ratio', '["Nexteer","生产","产出","比率指标"]', 'published',
+   '["mainrecord.LINE","mainrecord.SHIFTSTARTTIME"]',
+   'pending_review', 'nexteer_certifier', NULL, 'v2026.05.0',
+   1.0833, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与生产计划达成率月报口径一致。', 1,
+   NOW() - INTERVAL '18 days', NOW() - INTERVAL '1 hour'),
+
+  -- 9: 新增客户数（蓝途，基于 monthly_kpi）
+  (9, 5, 4, '新增客户数', '蓝途科技自然月新增客户数量。',
+   '统计自然月内 monthly_kpi 中新增客户数合计。',
+   'monthly_kpi.new_customers', 'SUM(monthly_kpi.new_customers)',
+   $${"calculation_mode":"aggregate","metric_field":"monthly_kpi.new_customers","statistical_window":"自然月","time_field":"monthly_kpi.year_month","time_grain":"month","refresh_sla":"T+1 09:00 前完成刷新","statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["各大区月度新增客户"],"excluded_subjects":["测试客户"],"dimensions":["monthly_kpi.region"]}}$$::json,
+   '销售运营中心', '家', 'sum', '["销售","客户","基础指标"]', 'published',
+   '["monthly_kpi.region","monthly_kpi.year_month"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '12 days', 'v2026.05.1',
+   18, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与客户台账核对一致。', 1,
+   NOW() - INTERVAL '24 days', NOW() - INTERVAL '1 hour'),
+
+  -- 10: NPS（蓝途，基于 monthly_kpi）
+  (10, 5, 4, 'NPS', '蓝途科技净推荐值。',
+   '自然月内月度经营数据中 NPS 的平均值。',
+   'monthly_kpi.nps_score', 'AVG(monthly_kpi.nps_score)',
+   $${"calculation_mode":"aggregate","metric_field":"monthly_kpi.nps_score","statistical_window":"自然月","time_field":"monthly_kpi.year_month","time_grain":"month","refresh_sla":"T+1 09:00 前完成刷新","statistical_scope":{"organization_scope":"蓝途科技销售组织","included_subjects":["月度 NPS 调研结果"],"excluded_subjects":["未完成调研的客户"],"dimensions":["monthly_kpi.region"]}}$$::json,
+   '客户体验部', '分', 'avg', '["销售","客户","体验指标"]', 'published',
+   '["monthly_kpi.region","monthly_kpi.year_month"]',
+   'certified', 'nexteer_certifier', NOW() - INTERVAL '12 days', 'v2026.05.1',
+   42.5, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour',
+   'normal', '与季度 NPS 调研报告一致。', 1,
+   NOW() - INTERVAL '24 days', NOW() - INTERVAL '1 hour')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
 -- 21. P1 ENTERPRISE CAPABILITIES: SELF-SERVICE ANALYSIS

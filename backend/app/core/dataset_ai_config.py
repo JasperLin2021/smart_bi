@@ -317,6 +317,81 @@ def _extract_json(raw: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+def _coerce_drill_config(raw: Any, default_table: str) -> dict[str, Any]:
+    """将 LLM 可能输出的简化格式归一化为 DrillConfig 合法结构。
+
+    兼容的简化写法：
+      - dimensions/metrics 为纯字符串列表（缺省 table/column/label/kind/aggregation）
+      - paths 使用 {"from": ..., "to": ...} 简写（缺 id/label/action）
+    对合法标准结构保持幂等。
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("下钻配置必须是 JSON 对象")
+    dimensions: list[dict[str, Any]] = []
+    for item in _as_list(raw.get("dimensions")):
+        if isinstance(item, str):
+            item = {"id": item, "column": item}
+        if not isinstance(item, dict):
+            continue
+        field = _clean(item.get("field") or item.get("column") or item.get("id"))
+        if not field:
+            continue
+        column = _column_name(field)
+        dimensions.append(
+            {
+                "id": item.get("id") or field,
+                "table": _table_name(field, default_table),
+                "column": column,
+                "label": item.get("label") or column,
+                "kind": item.get("kind") or _kind_for_dimension(column, is_time=_is_time(column, "")),
+            }
+        )
+
+    metrics: list[dict[str, Any]] = []
+    for item in _as_list(raw.get("metrics")):
+        if isinstance(item, str):
+            item = {"id": item, "column": item}
+        if not isinstance(item, dict):
+            continue
+        field = _clean(item.get("field") or item.get("column") or item.get("id"))
+        if not field:
+            continue
+        column = "*" if field == "*" else _column_name(field)
+        metrics.append(
+            {
+                "id": item.get("id") or field,
+                "table": _table_name(field, default_table) if field != "*" else default_table,
+                "column": column,
+                "label": item.get("label") or column,
+                "aggregation": item.get("aggregation")
+                or ("count" if column == "*" else _aggregation_for_column(column)),
+            }
+        )
+
+    kind_by_id = {item["id"]: item["kind"] for item in dimensions}
+    paths: list[dict[str, Any]] = []
+    for item in _as_list(raw.get("paths")):
+        if not isinstance(item, dict):
+            continue
+        source = _clean(item.get("source_dimension_id") or item.get("from"))
+        target = _clean(item.get("target_dimension_id") or item.get("to"))
+        if not source or not target or source == target:
+            continue
+        label = item.get("label")
+        if not label:
+            label = "看时间趋势" if kind_by_id.get(target) == "time" else f"看{target}分布"
+        paths.append(
+            {
+                "id": item.get("id") or f"{source}__{target}",
+                "source_dimension_id": source,
+                "target_dimension_id": target,
+                "label": label,
+                "action": item.get("action") or "group_by",
+            }
+        )
+    return {"dimensions": dimensions, "metrics": metrics, "paths": paths}
+
+
 def _llm_prompt(datasource: Any, table: str, semantic_model: dict[str, Any], drill_config: dict[str, Any]) -> list[dict[str, str]]:
     schema = _schema_dict(datasource)
     system_prompt = """你是企业 BI 数据集建模助手。请为当前数据集生成可编辑的语义层和下钻配置。
@@ -325,10 +400,33 @@ def _llm_prompt(datasource: Any, table: str, semantic_model: dict[str, Any], dri
 1. 维度、指标、时间维度必须只使用给定 schema 中存在的字段。
 2. 指标优先抽象为稳定口径，例如 COUNT(*)、SUM(total)、AVG(rate)，不要包含 TOP N 或临时时间过滤。
 3. 下钻路径必须引用 semantic_model 中存在的维度或时间维度 ID。
-4. 输出纯 JSON，不要 markdown。结构：
+4. 输出纯 JSON，不要 markdown。每个对象的字段必须完整给出，禁止把对象缩写成字符串数组，禁止用 from/to 简写路径。
+
+必须输出的完整结构（字段一个都不能少）：
 {
-  "semantic_model": {"dimensions": [], "metrics": [], "time_dimensions": [], "synonyms": []},
-  "drill_config": {"dimensions": [], "metrics": [], "paths": []}
+  "semantic_model": {
+    "dimensions": [
+      {"id": "site", "field": "cb_orders.site", "label": "站点"}
+    ],
+    "metrics": [
+      {"id": "sum_gmv", "field": "cb_orders.amount", "label": "GMV", "aggregation": "sum"}
+    ],
+    "time_dimensions": [
+      {"id": "dt", "field": "cb_orders.order_date", "label": "下单日期", "granularity": "day"}
+    ],
+    "synonyms": []
+  },
+  "drill_config": {
+    "dimensions": [
+      {"id": "site", "table": "cb_orders", "column": "site", "label": "站点", "kind": "site"}
+    ],
+    "metrics": [
+      {"id": "sum_gmv", "table": "cb_orders", "column": "amount", "label": "GMV", "aggregation": "sum"}
+    ],
+    "paths": [
+      {"id": "site__dt", "source_dimension_id": "site", "target_dimension_id": "dt", "label": "看时间趋势", "action": "group_by"}
+    ]
+  }
 }
 """
     user_prompt = json.dumps(
@@ -382,7 +480,7 @@ async def suggest_dataset_ai_config(
         raw = await chat_completion(_llm_prompt(datasource, table, semantic_model, drill_config), temperature=0.1)
         parsed = _extract_json(raw)
         llm_semantic = normalize_semantic_model(parsed.get("semantic_model") or {})
-        llm_drill = normalize_drill_config(parsed.get("drill_config") or {})
+        llm_drill = normalize_drill_config(_coerce_drill_config(parsed.get("drill_config") or {}, table))
         semantic_model = llm_semantic
         drill_config = llm_drill
         source = "llm"
