@@ -12,7 +12,11 @@ from app.core.audit import try_record_audit_log
 from app.core.config import settings
 from app.core.excel_executor import execute_excel_query, get_excel_tables
 from app.core.olap import execute_materialized_dataset_preview, write_dataset_to_olap
-from app.core.safe_delete import assert_dataset_can_delete, delete_catalog_asset
+from app.core.safe_delete import (
+    assert_dataset_can_delete,
+    delete_catalog_asset,
+    delete_dataset_refresh_logs,
+)
 from app.core.dataset_ai_config import suggest_dataset_ai_config as build_dataset_ai_config
 from app.core.drill_config import normalize_drill_config
 from app.core.semantic_layer import infer_semantic_model, normalize_semantic_model
@@ -1361,6 +1365,7 @@ def delete_dataset(
     dataset_name = dataset.name
     dataset_org_id = dataset.org_id
     delete_catalog_asset(db, "dataset", dataset.id)
+    delete_dataset_refresh_logs(db, dataset.id)
     db.delete(dataset)
     db.commit()
     try_record_audit_log(

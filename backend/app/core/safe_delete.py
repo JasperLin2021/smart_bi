@@ -15,7 +15,7 @@ from app.models.big_screen import BigScreen
 from app.models.catalog import AssetLineage, AssetNotification, AssetSubscription, DataAsset
 from app.models.dashboard_config import Dashboard
 from app.models.data_pipeline import DataPipeline
-from app.models.dataset import Dataset
+from app.models.dataset import Dataset, DatasetRefreshLog
 from app.models.datasource import DataSource
 from app.models.embed_token import EmbedToken
 from app.models.integration import ExternalIdentity, ExternalOrgBinding, ExternalPermissionMapping
@@ -316,6 +316,14 @@ def assert_organization_can_delete(db: Session, org: Any) -> None:
         ),
     ]
     _raise_if_referenced("企业", org.name, refs)
+
+
+def delete_dataset_refresh_logs(db: Session, dataset_id: int) -> None:
+    if not _table_exists(db, DatasetRefreshLog):
+        return
+    db.query(DatasetRefreshLog).filter(DatasetRefreshLog.dataset_id == dataset_id).delete(
+        synchronize_session=False
+    )
 
 
 def delete_catalog_asset(db: Session, asset_type: str, asset_id: int) -> None:

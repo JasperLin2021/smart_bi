@@ -40,6 +40,9 @@
           <el-button class="toolbar-button toolbar-button--primary" type="primary" :icon="VideoPlay" :loading="running" :disabled="!selectedPipeline" @click="runSelected()">运行</el-button>
           <el-button class="toolbar-button" type="warning" plain :icon="RefreshRight" :loading="running" :disabled="!selectedPipeline" @click="runBackfill">补数</el-button>
         </div>
+        <el-tooltip v-if="canDeletePipeline" content="删除选中管道" placement="bottom">
+          <el-button class="toolbar-button" type="danger" plain :icon="Delete" :disabled="!selectedPipeline" aria-label="删除选中管道" @click="deleteSelectedPipeline">删除</el-button>
+        </el-tooltip>
         <el-button class="toolbar-button toolbar-button--new" type="primary" plain :icon="Plus" @click="openCreate">新建管道</el-button>
       </div>
     </div>
@@ -1013,7 +1016,8 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
-import { ElButton, ElMessage, ElTooltip } from "element-plus"
+import { ElButton, ElMessage, ElMessageBox, ElTooltip } from "element-plus"
+import { useAuthStore } from "@/store/auth"
 import CodeMirrorSqlEditor from "@/components/SqlEditor.vue"
 import {
   Aim,
@@ -1246,6 +1250,10 @@ const form = reactive({
   alert_channels: ["wechat_work"] as string[],
   alert_on_failure: true,
 })
+
+const authStore = useAuthStore()
+const canDeletePipeline = computed(() => authStore.isOrgAdmin)
+
 const runForm = reactive({
   mode: "manual" as RunMode,
   reason: "界面手动运行",
@@ -2287,6 +2295,27 @@ const publishSelectedVersion = async () => {
     ElMessage.error(error.response?.data?.detail || "发布版本失败")
   } finally {
     publishingVersion.value = false
+  }
+}
+
+const deleteSelectedPipeline = async () => {
+  const pipeline = selectedPipeline.value
+  if (!pipeline) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除管道「${pipeline.name}」吗？此操作不可恢复，关联的运行记录与质量规则将一并删除。`,
+      "删除确认",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
+    await axios.delete(`/api/pipelines/${pipeline.id}`)
+    ElMessage.success("管道已删除")
+    await loadAll()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "删除失败")
   }
 }
 

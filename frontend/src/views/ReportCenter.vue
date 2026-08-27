@@ -78,7 +78,7 @@
         <el-table-column label="更新时间" min-width="150">
           <template #default="{ row }">{{ formatDate(row.updated_at || row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <div class="icon-actions">
               <template v-if="row.report_type === 'ai_html'">
@@ -103,6 +103,9 @@
                   <el-button circle :loading="exportingId === `${row.id}:word`" @click="exportTemplate(row, 'word')">W</el-button>
                 </el-tooltip>
               </template>
+              <el-tooltip v-if="canDeleteReport" content="删除报表">
+                <el-button text type="danger" :icon="Delete" aria-label="删除报表" @click="deleteReport(row)" />
+              </el-tooltip>
             </div>
           </template>
         </el-table-column>
@@ -171,8 +174,9 @@
 import { computed, onMounted, reactive, ref } from "vue"
 import { useRouter } from "vue-router"
 import axios from "axios"
-import { ElMessage } from "element-plus"
-import { Download, Edit, Plus, Refresh, Search, View } from "@element-plus/icons-vue"
+import { ElMessage, ElMessageBox } from "element-plus"
+import { useAuthStore } from "@/store/auth"
+import { Delete, Download, Edit, Plus, Refresh, Search, View } from "@element-plus/icons-vue"
 
 type DatasetItem = { id: number; name: string }
 type ReportTemplate = {
@@ -193,6 +197,8 @@ type ReportTemplate = {
 }
 
 const router = useRouter()
+const authStore = useAuthStore()
+const canDeleteReport = computed(() => authStore.isOrgAdmin)
 const loading = ref(false)
 const saving = ref(false)
 const exportingId = ref("")
@@ -330,6 +336,25 @@ const exportTemplate = async (row: ReportTemplate, exportType: "excel" | "pdf" |
     ElMessage.error(error.response?.data?.detail || "导出失败")
   } finally {
     exportingId.value = ""
+  }
+}
+
+const deleteReport = async (row: ReportTemplate) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除复杂报表「${row.name}」吗？此操作不可恢复，关联的填报记录、运行记录与历史版本将一并删除。`,
+      "删除确认",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
+    await axios.delete(`/api/report-templates/${row.id}`)
+    ElMessage.success("复杂报表已删除")
+    await loadAll()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "删除失败")
   }
 }
 

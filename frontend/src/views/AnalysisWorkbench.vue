@@ -275,6 +275,9 @@
               <el-tooltip content="加入看板">
                 <el-button text :icon="Grid" @click="openDashboardDialog(view)" />
               </el-tooltip>
+              <el-tooltip v-if="canDeleteAnalysis" content="删除">
+                <el-button text type="danger" :icon="Delete" @click="deleteAnalysisView(view)" />
+              </el-tooltip>
             </div>
           </article>
           <el-empty v-if="!views.length" description="暂无分析视图" :image-size="72" />
@@ -300,7 +303,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import axios from "axios"
-import { ElMessage } from "element-plus"
+import { ElMessage, ElMessageBox } from "element-plus"
+import { useAuthStore } from "@/store/auth"
 import {
   Check,
   CopyDocument,
@@ -385,7 +389,7 @@ let chartInstance: echarts.ECharts | null = null
 
 const form = reactive({
   id: null as number | null,
-  name: "蓝途客户销售贡献分析",
+  name: "",
   description: "",
   dataset_id: null as number | null,
   chart_type: "bar",
@@ -397,6 +401,9 @@ const form = reactive({
   visual_config_json: { top_n: 20, show_legend: true } as Record<string, any>,
   interaction_json: { drill: true, linkage: true } as Record<string, any>,
 })
+
+const authStore = useAuthStore()
+const canDeleteAnalysis = computed(() => authStore.isOrgAdmin)
 
 const chartOptions = [
   { label: "柱状", value: "bar" },
@@ -681,6 +688,28 @@ const copyAnalysisView = async (view?: AnalysisView) => {
   ElMessage.success("已复制分析视图")
   await loadAll()
   loadView(data)
+}
+const deleteAnalysisView = async (view: AnalysisView) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除分析「${view.name}」吗？此操作不可恢复。`,
+      "删除确认",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" }
+    )
+  } catch {
+    return // 用户取消
+  }
+  try {
+    await axios.delete(`/api/analysis-views/${view.id}`)
+    ElMessage.success("已删除分析视图")
+    if (form.id === view.id) {
+      form.id = null
+      resetPreview()
+    }
+    await loadAll()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "删除失败")
+  }
 }
 const publishAnalysisView = async (view?: AnalysisView) => {
   const targetId = view?.id || form.id

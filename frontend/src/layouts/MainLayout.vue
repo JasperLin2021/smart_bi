@@ -188,7 +188,7 @@ import { useDatasourceStore } from "@/store/datasource"
 import {
   DataLine, ChatDotRound, Coin, User, OfficeBuilding,
   TrendCharts, Setting, Refresh, SwitchButton, Bell, AlarmClock,
-  Grid, FolderOpened, Document, Fold, Expand, Tickets, SetUp, MagicStick
+  Grid, FolderOpened, Document, Fold, Expand, Tickets, SetUp, MagicStick, Memo
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -319,6 +319,7 @@ const menuEntries: MenuEntry[] = [
     items: [
       { path: "/dashboard-center", label: "看板中心", icon: Grid },
       { path: "/ai-report", label: "AI 报表", icon: MagicStick },
+      { path: "/report-center", label: "报表中心", icon: Memo },
       { path: "/metric-settings", label: "可信指标", icon: TrendCharts },
       { path: "/alert-settings", label: "预警管理", icon: Bell },
       { path: "/scheduled-reports", label: "定时报告", icon: AlarmClock },
