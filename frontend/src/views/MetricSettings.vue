@@ -1934,6 +1934,7 @@ const allDatasetFieldOptions = computed(() =>
   dedupeDatasetFields([...dimensionFieldOptions.value, ...metricFieldOptions.value])
 )
 const fieldOptionGroups = computed(() => [
+  { label: "维度字段", options: dimensionFieldOptions.value },
   { label: "指标字段", options: metricFieldOptions.value },
 ].filter(group => group.options.length))
 const metricFieldOptionGroups = computed(() => {
