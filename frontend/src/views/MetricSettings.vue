@@ -808,6 +808,23 @@
                     </template>
                   </el-table-column>
                 </el-table>
+                <details v-if="metricPreviewSql" class="metric-preview-sql-details">
+                  <summary>查看后端 SQL</summary>
+                  <div class="metric-preview-sql-body">
+                    <el-button
+                      class="metric-preview-sql-copy"
+                      size="small"
+                      text
+                      type="primary"
+                      :icon="CopyDocument"
+                      aria-label="复制 SQL 到剪贴板"
+                      @click="copyMetricPreviewSql"
+                    >
+                      复制 SQL
+                    </el-button>
+                    <pre class="metric-preview-sql">{{ metricPreviewSql }}</pre>
+                  </div>
+                </details>
               </section>
             </div>
           </el-tab-pane>
@@ -1337,6 +1354,7 @@ import { ElMessage, ElMessageBox } from "element-plus"
 import {
   Coin,
   Connection,
+  CopyDocument,
   DataLine,
   Delete,
   Document,
@@ -1543,11 +1561,18 @@ interface FormulaCandidate {
   feedback?: string
 }
 
+interface MetricPreviewQuery {
+  sql?: string
+  dimensions?: string[]
+  limit?: number
+  metric_column?: string
+}
+
 interface MetricPreviewResult {
   columns: string[]
   rows: Record<string, any>[]
   row_count: number
-  query?: Record<string, any>
+  query?: MetricPreviewQuery
 }
 
 interface FieldInsertTargetOption {
@@ -1608,6 +1633,7 @@ const metricPreviewRows = ref<Record<string, any>[]>([])
 const metricPreviewLoading = ref(false)
 const metricPreviewError = ref("")
 const metricPreviewRowCount = ref(0)
+const metricPreviewSql = ref("")
 
 const emptyCalculationFilter = (): CalculationFilterRule => ({
   logic: "AND",
@@ -2552,6 +2578,7 @@ const resetMetricPreview = () => {
   metricPreviewRows.value = []
   metricPreviewError.value = ""
   metricPreviewRowCount.value = 0
+  metricPreviewSql.value = ""
 }
 
 const fetchMetricPreview = async () => {
@@ -2569,13 +2596,24 @@ const fetchMetricPreview = async () => {
     metricPreviewColumns.value = response.data.columns || []
     metricPreviewRows.value = response.data.rows || []
     metricPreviewRowCount.value = response.data.row_count || metricPreviewRows.value.length
+    metricPreviewSql.value = response.data.query?.sql || ""
   } catch (error: any) {
     metricPreviewColumns.value = []
     metricPreviewRows.value = []
     metricPreviewRowCount.value = 0
+    metricPreviewSql.value = ""
     metricPreviewError.value = error.response?.data?.detail || "实时数据预览失败"
   } finally {
     metricPreviewLoading.value = false
+  }
+}
+
+const copyMetricPreviewSql = async () => {
+  try {
+    await navigator.clipboard.writeText(metricPreviewSql.value)
+    ElMessage.success("SQL 已复制")
+  } catch {
+    ElMessage.error("复制失败")
   }
 }
 
@@ -4138,6 +4176,59 @@ onMounted(() => {
   color: #b91c1c;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.metric-preview-sql-details {
+  margin-top: 10px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+}
+
+.metric-preview-sql-details summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  list-style: none;
+  user-select: none;
+}
+
+.metric-preview-sql-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.metric-preview-sql-details[open] summary {
+  border-bottom: 1px solid var(--app-border-light);
+}
+
+.metric-preview-sql-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 12px 12px;
+}
+
+.metric-preview-sql-copy {
+  align-self: flex-end;
+  margin: 6px 0;
+}
+
+.metric-preview-sql {
+  max-height: 300px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+  background: #0f172a;
+  color: #dbe4f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .field-option-row {
