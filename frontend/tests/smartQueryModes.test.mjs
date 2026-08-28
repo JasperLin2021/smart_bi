@@ -114,9 +114,13 @@ test("smart query switches chat content by mode and selected scope", () => {
   assert.match(view, /restoreConversationForScope/)
   assert.match(view, /queryStore\.restoreConversationForCurrentScope\(\)/)
   assert.match(view, /if \(isRestoringHistory\.value\) return/)
-  assert.match(view, /watch\(\(\) => queryStore\.mode[\s\S]+restoreConversationForScope\(\)[\s\S]+refreshHistoryForScope\(\)/)
-  assert.match(view, /watch\(\(\) => queryStore\.selectedDatasourceId[\s\S]+if \(queryStore\.mode === "agentic"\)[\s\S]+restoreConversationForScope\(\)[\s\S]+refreshHistoryForScope\(\)/)
-  assert.match(view, /watch\(\(\) => queryStore\.selectedDatasetId[\s\S]+if \(queryStore\.mode === "business"\)[\s\S]+restoreConversationForScope\(\)[\s\S]+refreshHistoryForScope\(\)/)
+  // 模式/范围切换统一收敛到渲染后的同步调度：避免同一响应式 tick 内 watcher 连锁重入
+  assert.match(view, /const runScopeSync = \(\) =>[\s\S]+ensureScopeDefaults\([\s\S]+restoreConversationForScope\(\)[\s\S]+refreshHistoryForScope\(\)/)
+  assert.match(view, /const scheduleScopeSync = \(useRoleDefault = false\) =>[\s\S]+nextTick\(runScopeSync\)/)
+  assert.match(view, /watch\(\(\) => queryStore\.mode, \(\) => scheduleScopeSync\(\)\)/)
+  assert.match(view, /watch\(\(\) => queryStore\.scopeMode, \(\) => scheduleScopeSync\(\)\)/)
+  assert.match(view, /watch\(\(\) => queryStore\.selectedDatasourceId, \(id\) =>[\s\S]+datasourceStore\.switchDatasource\(id\)[\s\S]+scheduleScopeSync\(\)/)
+  assert.match(view, /watch\(\(\) => queryStore\.selectedDatasetId, \(\) => scheduleScopeSync\(\)\)/)
   assert.match(view, /onMounted\(async \(\) =>[\s\S]+queryStore\.restoreConversationForCurrentScope\(\)[\s\S]+queryStore\.fetchHistory\(\)/)
 })
 
