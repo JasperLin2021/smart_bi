@@ -702,6 +702,42 @@ const restoreConversationForScope = () => {
   activeHistoryId.value = null
 }
 
+// 模式/范围切换时，scope 状态的联动（scopeMode、selectedDatasourceId、
+// selectedDatasetId、消息恢复、历史刷新）统一收敛到一次渲染后的同步中执行：
+// 1) 防止 watcher 连锁重入，在同一响应式 tick 内反复修改多个状态；
+// 2) 避免组件“卸载/挂载”（el-select 的 v-if 分支、消息列表重建）与
+//    “props 更新”（select 的 v-model）在同一渲染周期内交错，导致 Vue 访问
+//    已销毁实例（Cannot read properties of null (reading 'type'/'emitsOptions')）。
+let scopeSyncScheduled = false
+let scopeSyncRerun = false
+let scopeSyncUseRoleDefault = false
+
+const scheduleScopeSync = (useRoleDefault = false) => {
+  if (isRestoringHistory.value) return
+  if (useRoleDefault) scopeSyncUseRoleDefault = true
+  if (scopeSyncScheduled) {
+    scopeSyncRerun = true
+    return
+  }
+  scopeSyncScheduled = true
+  nextTick(runScopeSync)
+}
+
+const runScopeSync = () => {
+  scopeSyncScheduled = false
+  if (isRestoringHistory.value) return
+  if (scopeSyncRerun) {
+    scopeSyncRerun = false
+    scheduleScopeSync()
+    return
+  }
+  const useRoleDefault = scopeSyncUseRoleDefault
+  scopeSyncUseRoleDefault = false
+  ensureScopeDefaults(useRoleDefault)
+  restoreConversationForScope()
+  refreshHistoryForScope()
+}
+
 watch(() => queryStore.messages.length, () => {
   if (
     selectedResultMessageId.value &&
@@ -712,42 +748,18 @@ watch(() => queryStore.messages.length, () => {
   scrollToBottom()
 })
 
-watch(() => queryStore.scopeMode, () => {
-  ensureScopeDefaults()
-  restoreConversationForScope()
-  refreshHistoryForScope()
-})
+watch(() => queryStore.scopeMode, () => scheduleScopeSync())
 
-watch(() => queryStore.mode, () => {
-  ensureScopeDefaults()
-  restoreConversationForScope()
-  refreshHistoryForScope()
-})
+watch(() => queryStore.mode, () => scheduleScopeSync())
 
 watch(() => queryStore.selectedDatasourceId, (id) => {
   if (id) datasourceStore.switchDatasource(id)
-  if (queryStore.mode === "agentic") {
-    restoreConversationForScope()
-    refreshHistoryForScope()
-  }
+  scheduleScopeSync()
 })
 
-watch(() => queryStore.selectedDatasetId, () => {
-  if (queryStore.mode === "business" && selectedDataset.value) {
-    queryStore.selectedDatasourceId = selectedDataset.value.datasource_id
-    datasourceStore.switchDatasource(selectedDataset.value.datasource_id)
-  }
-  if (queryStore.mode === "business") {
-    restoreConversationForScope()
-    refreshHistoryForScope()
-  }
-})
+watch(() => queryStore.selectedDatasetId, () => scheduleScopeSync())
 
-watch(() => authStore.profile?.role, () => {
-  ensureScopeDefaults(true)
-  restoreConversationForScope()
-  refreshHistoryForScope()
-})
+watch(() => authStore.profile?.role, () => scheduleScopeSync(true))
 
 onMounted(async () => {
   await datasourceStore.fetchDatasources()

@@ -226,6 +226,7 @@ export const useQueryStore = defineStore("query", {
     loading: false,
     messages: [] as ChatMessage[],
     history: [] as QueryHistoryItem[],
+    historyFetchSeq: 0,
     mode: "business" as QueryMode,
     scopeMode: "dataset" as QueryScopeMode,
     selectedDatasourceId: null as number | null,
@@ -566,6 +567,7 @@ export const useQueryStore = defineStore("query", {
     },
     
     async fetchHistory() {
+      const seq = ++this.historyFetchSeq
       try {
         const dsStore = useDatasourceStore()
         const params: Record<string, any> = {}
@@ -573,9 +575,13 @@ export const useQueryStore = defineStore("query", {
         if (datasourceId) params.datasource_id = datasourceId
         params.mode = this.mode
         const response = await axios.get("/api/query/history", { params })
+        // 丢弃过期响应，避免快速切换模式/数据源时旧结果覆盖新结果
+        if (seq !== this.historyFetchSeq) return
         this.history = response.data.items
       } catch (error) {
-        ElMessage.error("历史记录加载失败")
+        if (seq === this.historyFetchSeq) {
+          ElMessage.error("历史记录加载失败")
+        }
       }
     },
     
