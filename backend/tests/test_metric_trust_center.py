@@ -497,6 +497,115 @@ class MetricTrustCenterTests(unittest.TestCase):
 
         self.assertEqual([item.name for item in result["items"]], ["同组织指标"])
 
+    def test_compute_metric_renders_dataset_joins_for_cross_table_formula(self):
+        """跨表公式的指标在"计算指标"时需渲染数据集 JOIN 子句，避免 missing FROM-clause。"""
+        from sqlalchemy import text as sql_text
+
+        from app.api.metrics import compute_metric, create_metric
+        from app.db.session import get_datasource_engine
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricCreate
+
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource = DataSource(
+            name="CrossBorder",
+            slug="cross-border-joins",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add(datasource)
+        db.flush()
+        dataset = Dataset(
+            name="Cross Border Dataset",
+            datasource_id=datasource.id,
+            fields_json={"table": "orders", "metrics": ["order_payments.payment_value"]},
+            joins_json=[
+                {
+                    "right": "order_payments",
+                    "type": "LEFT JOIN",
+                    "on": "orders.order_id = order_payments.order_id",
+                }
+            ],
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        metric = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="按州统计总GMV",
+                definition="订单支付金额合计",
+                formula="SUM(order_payments.payment_value)",
+                aggregation="sum",
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        # 业务数据源建表并插入数据，get_datasource_engine 与 compute_metric 共用同一缓存引擎
+        engine = get_datasource_engine(datasource.database_url)
+        with engine.begin() as conn:
+            conn.execute(sql_text("DROP TABLE IF EXISTS order_payments"))
+            conn.execute(sql_text("DROP TABLE IF EXISTS orders"))
+            conn.execute(sql_text("CREATE TABLE orders (order_id INTEGER PRIMARY KEY, customer_state VARCHAR(16))"))
+            conn.execute(sql_text("CREATE TABLE order_payments (order_id INTEGER, payment_value NUMERIC)"))
+            conn.execute(sql_text("INSERT INTO orders (order_id, customer_state) VALUES (1, 'CA'), (2, 'NY'), (3, 'CA')"))
+            conn.execute(sql_text("INSERT INTO order_payments (order_id, payment_value) VALUES (1, 100), (1, 50), (2, 200), (3, 75)"))
+
+        result = compute_metric(
+            metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        self.assertEqual(result["last_value"], 425.0)
+        self.assertIsNotNone(result["computed_at"])
+        db.refresh(metric)
+        self.assertEqual(metric.last_value, 425.0)
+        self.assertEqual(metric.quality_status, "normal")
+
+        # 基线：数据集未配置 JOIN 时行为不变（不拼接 JOIN 子句）
+        base_dataset = Dataset(
+            name="Base No Join Dataset",
+            datasource_id=datasource.id,
+            fields_json={"table": "orders_base", "metrics": ["orders_base.total_amount"]},
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(base_dataset)
+        db.commit()
+        db.refresh(base_dataset)
+        base_metric = create_metric(
+            MetricCreate(
+                dataset_id=base_dataset.id,
+                name="无 JOIN 基线指标",
+                definition="订单金额合计",
+                formula="SUM(total_amount)",
+                aggregation="sum",
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+        with engine.begin() as conn:
+            conn.execute(sql_text("DROP TABLE IF EXISTS orders_base"))
+            conn.execute(sql_text("CREATE TABLE orders_base (order_id INTEGER PRIMARY KEY, total_amount NUMERIC)"))
+            conn.execute(sql_text("INSERT INTO orders_base (order_id, total_amount) VALUES (1, 10), (2, 20)"))
+
+        base_result = compute_metric(
+            base_metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+        self.assertEqual(base_result["last_value"], 30.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1566,6 +1566,11 @@ def compute_metric(
     else:
         raise HTTPException(status_code=400, detail="指标缺少计算口径：请配置 column_name 或 formula，并确保数据集已设置主表")
 
+    # 渲染数据集配置的 JOIN 子句（与指标预览逻辑保持一致），否则跨表公式会报 missing FROM-clause
+    join_clauses = _render_preview_joins(dataset, table)
+    if join_clauses:
+        sql = f"{sql} {' '.join(join_clauses)}"
+
     filters_sql = _render_calculation_filters(metric.calculation_config)
     if filters_sql:
         connector = "AND" if re.search(r"\bwhere\b", sql, flags=re.I) else "WHERE"
