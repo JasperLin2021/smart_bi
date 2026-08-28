@@ -131,9 +131,11 @@ def _read_memory_usage() -> dict:
 
 def _system_resources() -> dict:
     cpu_count = os.cpu_count() or 1
+    # os.getloadavg 仅 Unix 系统可用；Windows 上属性不存在，需降级处理。
+    getloadavg = getattr(os, "getloadavg", None)
     try:
-        load_1m, _, _ = os.getloadavg()
-    except OSError:
+        load_1m = getloadavg()[0] if getloadavg else 0.0
+    except (OSError, AttributeError):
         load_1m = 0.0
 
     disk = shutil.disk_usage("/")

@@ -264,6 +264,32 @@ class OperationsUsageTests(unittest.TestCase):
         self.assertEqual(summary["active_users"], 3)
         self.assertEqual(summary["datasource_count"], 2)
 
+    def test_system_resources_degrades_when_getloadavg_unavailable(self):
+        import os
+        from unittest.mock import patch
+
+        from app.api.operations import _system_resources
+
+        # 模拟 Windows：os.getloadavg 属性不存在，存在性判断应直接降级为 0.0
+        with patch.object(os, "getloadavg", None, create=True):
+            resources = _system_resources()
+        self.assertEqual(resources["cpu_load"]["used"], 0)
+        self.assertEqual(resources["cpu_load"]["used_percent"], 0)
+        self.assertIn("label", resources["cpu_load"])
+        self.assertIn("detail", resources["cpu_load"])
+        self.assertIn("memory", resources)
+        self.assertIn("disk", resources)
+
+        # 模拟属性存在但调用抛 AttributeError：异常兜底也应降级为 0.0
+        with patch.object(os, "getloadavg", side_effect=AttributeError, create=True):
+            resources = _system_resources()
+        self.assertEqual(resources["cpu_load"]["used"], 0)
+        self.assertEqual(resources["cpu_load"]["used_percent"], 0)
+        self.assertIn("label", resources["cpu_load"])
+        self.assertIn("detail", resources["cpu_load"])
+        self.assertIn("memory", resources)
+        self.assertIn("disk", resources)
+
 
 if __name__ == "__main__":
     unittest.main()
