@@ -221,6 +221,45 @@ class DatasetPipelineTests(unittest.TestCase):
         finally:
             os.unlink(source_path)
 
+    def test_derived_expression_allows_string_literal_percent_and_chinese(self):
+        from app.api.datasets import preview_dataset_draft
+        from app.schemas.dataset import DatasetDraftPreviewRequest
+
+        source_path = self._source_database()
+        try:
+            db, dataset = self._dataset_fixture(source_path)
+            user = SimpleNamespace(id=10, username="owner", role="user", org_id=2)
+
+            result = preview_dataset_draft(
+                DatasetDraftPreviewRequest(
+                    name="含中文日期格式的派生列",
+                    datasource_id=dataset.datasource_id,
+                    fields_json={"table": "sales", "fields": ["sales.region", "sales.amount"]},
+                    derived_columns_json={
+                        "expressions": ["month_label = strftime('%Y年%m月', '2026-08-28')"]
+                    },
+                    limit=10,
+                ),
+                db=db,
+                current_user=user,
+            )
+
+            self.assertEqual(result["columns"], ["region", "amount", "month_label"])
+            self.assertEqual(
+                result["rows"],
+                [
+                    {"region": "East", "amount": 100, "month_label": "2026年08月"},
+                    {"region": "West", "amount": 80, "month_label": "2026年08月"},
+                    {"region": "East", "amount": 130, "month_label": "2026年08月"},
+                ],
+            )
+        finally:
+            # Windows 下 SQLite 文件会被缓存的 engine 连接锁定，先释放再删除临时文件
+            from app.db.session import get_datasource_engine
+
+            get_datasource_engine(f"sqlite:///{source_path}").dispose()
+            os.unlink(source_path)
+
     def test_excel_dataset_draft_preview_applies_filter_conditions(self):
         from app.api.datasets import preview_dataset_draft
         from app.models.datasource import DataSource
