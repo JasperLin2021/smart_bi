@@ -310,6 +310,7 @@ async def generate_sql_query(
     context: str = "",
     query_plan: dict | None = None,
     metric_match: dict | None = None,
+    metric_matches: list[dict] | None = None,
 ) -> dict:
     """生成SQL查询语句，基于数据源的元数据"""
     if datasource:
@@ -322,9 +323,11 @@ async def generate_sql_query(
     system_prompt = text2sql_prompt
     if metadata_prompt:
         system_prompt += f"\n\n{metadata_prompt}"
-    if metric_match:
-        metric_name = (metric_match.get("name") or "").strip()
-        metric_formula = (metric_match.get("formula") or "").strip()
+    candidates = metric_matches if metric_matches else ([metric_match] if metric_match else [])
+    if candidates:
+        primary = candidates[0]
+        metric_name = (primary.get("name") or "").strip()
+        metric_formula = (primary.get("formula") or "").strip()
         if metric_name or metric_formula:
             system_prompt += "\n\n本次问题命中的目标指标："
             if metric_name:
@@ -334,6 +337,18 @@ async def generate_sql_query(
                     f"\n必须使用以下指标公式，不允许改写成其他口径：{metric_formula}"
                     "\n如果 SQL 中没有体现该公式或等价表达式，则答案无效。"
                 )
+        reference_lines: list[str] = []
+        for candidate in candidates[1:]:
+            ref_name = (candidate.get("name") or "").strip()
+            ref_formula = (candidate.get("formula") or "").strip()
+            if not ref_name and not ref_formula:
+                continue
+            if ref_name and ref_formula:
+                reference_lines.append(f"- {ref_name}：{ref_formula}")
+            else:
+                reference_lines.append(f"- {ref_name or ref_formula}")
+        if reference_lines:
+            system_prompt += "\n\n相关参考口径（如问题涉及，请遵循对应公式）：\n" + "\n".join(reference_lines)
     elif metrics_prompt:
         system_prompt += f"\n\n{metrics_prompt}"
     if datasource and getattr(datasource, "source_type", "") == "excel":

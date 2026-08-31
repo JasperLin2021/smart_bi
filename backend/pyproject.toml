@@ -25,6 +25,7 @@ dependencies = [
     "pymssql>=2.3.13",
     "clickhouse-sqlalchemy>=0.3.2",
     "cryptography>=42.0.0",
+    "sqlglot>=25.0.0,<28",
 ]
 
 [dependency-groups]

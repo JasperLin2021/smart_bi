@@ -97,8 +97,14 @@ class QueryTrustSignalsTests(unittest.TestCase):
                 patch("app.api.query._generate_safe_sql", new=fake_generate_safe_sql),
                 patch("app.api.query.plan_query", new=fake_plan_query),
                 patch(
-                    "app.api.query.match_metric_from_question",
-                    return_value={"name": "回款率", "formula": "SUM(received_amount) / SUM(receivable_amount)"},
+                    "app.api.query.match_metrics_from_question",
+                    return_value=[
+                        {
+                            "name": "回款率",
+                            "formula": "SUM(received_amount) / SUM(receivable_amount)",
+                            "certification_status": "certified",
+                        }
+                    ],
                 ),
                 patch("app.api.query.generate_summary", new=fake_summary),
                 patch("app.api.query.get_llm_config", new=fake_get_llm_config),

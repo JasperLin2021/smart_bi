@@ -96,6 +96,7 @@ class QueryDatasetScopeTests(unittest.TestCase):
                 datasource,
                 query_plan=None,
                 metric_match=None,
+                metric_matches=None,
                 context="",
             ):
                 captured_context["datasource_id"] = datasource.id
@@ -115,7 +116,7 @@ class QueryDatasetScopeTests(unittest.TestCase):
             with (
                 patch("app.api.query._generate_safe_sql", new=fake_generate_safe_sql),
                 patch("app.api.query.plan_query", new=fake_plan_query),
-                patch("app.api.query.match_metric_from_question", return_value=None),
+                patch("app.api.query.match_metrics_from_question", return_value=[]),
                 patch("app.api.query.generate_summary", new=fake_summary),
                 patch("app.api.query.get_llm_config", new=fake_get_llm_config),
             ):

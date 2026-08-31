@@ -24,7 +24,11 @@ from app.core.agentic_nl2sql import (
     repair_agentic_sql_after_execution_error,
 )
 from app.core.audit import try_record_audit_log
-from app.core.metric_binding import match_metric_from_question, sql_uses_metric_formula
+from app.core.metric_binding import (
+    match_metrics_from_question,
+    metric_caliber_formula,
+    sql_uses_metric_formula,
+)
 from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
 from app.core.sql_guard import detect_excel_join_risk
@@ -572,7 +576,8 @@ def _metric_trust_signal(metric: Metric) -> dict:
         "metric_id": metric.id,
         "metric_name": metric.name,
         "definition": metric.definition,
-        "formula": metric.formula,
+        # 展示完整口径（公式 + 固定筛选），让口径对用户透明
+        "formula": metric_caliber_formula(metric),
         "owner_name": metric.owner_name,
         "unit": metric.unit,
         "certification_status": metric.certification_status,
@@ -612,7 +617,9 @@ def _query_metric_trust_signals(
     for metric in metrics:
         if not metric.formula:
             continue
-        formula_used = sql_uses_metric_formula(sql_query, metric.formula)
+        # 用完整口径（公式 + 固定筛选）判定 SQL 是否真的遵循指标，
+        # 防止 SQL 漏掉指标自带筛选（如 order_status='delivered'）仍被误标为可信信号。
+        formula_used = sql_uses_metric_formula(sql_query, metric_caliber_formula(metric))
         if not formula_used:
             continue
         if metric.id in seen:
@@ -817,35 +824,40 @@ async def _generate_safe_sql(
     datasource: DataSource,
     query_plan: dict | None = None,
     metric_match: dict | None = None,
+    metric_matches: list[dict] | None = None,
     context: str = "",
 ) -> str:
+    candidates = metric_matches if metric_matches else ([metric_match] if metric_match else [])
+    primary = candidates[0] if candidates else None
     sql_response = await generate_sql_query(
         question,
         datasource=datasource,
         context=context,
         query_plan=query_plan,
-        metric_match=metric_match,
+        metric_match=primary,
+        metric_matches=candidates,
     )
     sql_query = sql_response.get("sql", "")
 
-    metric_formula = (metric_match or {}).get("formula")
-    if metric_match and not sql_uses_metric_formula(sql_query, metric_formula):
+    metric_formula = (primary or {}).get("formula")
+    if primary and not sql_uses_metric_formula(sql_query, metric_formula):
         retry_context = (
             "上一版 SQL 没有使用目标指标公式。\n"
-            f"目标指标：{metric_match.get('name', '未命名指标')}\n"
+            f"目标指标：{primary.get('name', '未命名指标')}\n"
             f"必须使用的公式：{metric_formula}\n"
-            "请严格按该指标口径重写 SQL，只输出最终 SQL。"
+            "请严格按该指标口径重写 SQL，不要在其基础上增加变换（如加常量、乘系数、改筛选条件），只输出最终 SQL。"
         )
         retry_response = await generate_sql_query(
             question,
             datasource=datasource,
             context=f"{context}\n\n{retry_context}" if context else retry_context,
             query_plan=query_plan,
-            metric_match=metric_match,
+            metric_match=primary,
+            metric_matches=candidates,
         )
         retried_sql = retry_response.get("sql", "")
         if not sql_uses_metric_formula(retried_sql, metric_formula):
-            raise ValueError(f"生成结果未使用目标指标公式：{metric_match.get('name', '未命名指标')}")
+            raise ValueError(f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}")
         sql_query = retried_sql
 
     if datasource.source_type != "excel":
@@ -866,11 +878,12 @@ async def _generate_safe_sql(
         datasource=datasource,
         context=f"{context}\n\n{retry_context}" if context else retry_context,
         query_plan=query_plan,
-        metric_match=metric_match,
+        metric_match=primary,
+        metric_matches=candidates,
     )
     retried_sql = retry_response.get("sql", "")
-    if metric_match and not sql_uses_metric_formula(retried_sql, metric_formula):
-        raise ValueError(f"生成结果未使用目标指标公式：{metric_match.get('name', '未命名指标')}")
+    if primary and not sql_uses_metric_formula(retried_sql, metric_formula):
+        raise ValueError(f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}")
     retry_risk = detect_excel_join_risk(datasource.database_url, retried_sql)
     if retry_risk:
         raise ValueError(f"检测到高风险JOIN。{retry_risk['message']}")
@@ -939,6 +952,7 @@ async def _execute_agentic_sql_with_repair(
     agent_trace: list[dict],
     llm_model: str | None = None,
     llm_config: dict | None = None,
+    metric_matches: list[dict] | None = None,
     rls_clauses: list | None = None,
     max_execution_repairs: int = 2,
     on_trace=None,
@@ -998,6 +1012,7 @@ async def _execute_agentic_sql_with_repair(
                     execution_error,
                     llm_model=llm_model,
                     llm_config=llm_config,
+                    metric_matches=metric_matches,
                     on_trace=on_trace,
                 )
             except Exception as repair_exc:
@@ -1189,6 +1204,7 @@ async def ask(
     value_probe_context = ""
     try:
         if mode == "agentic":
+            metric_matches = match_metrics_from_question(db, question, datasource)
             _, value_probe_context = await _append_agentic_value_probe(
                 datasource,
                 question,
@@ -1200,20 +1216,28 @@ async def ask(
                 llm_model=runtime_llm_model,
                 llm_config=agentic_llm_config,
                 extra_context=value_probe_context,
+                metric_matches=metric_matches,
             )
             query_plan = agentic_result.get("plan") or {}
-            metric_match = match_metric_from_question(question, datasource)
+            metric_match = metric_matches[0] if metric_matches else None
             sql_query = agentic_result["sql_query"]
             agent_trace.extend(agentic_result.get("trace") or [])
             agent_notes = agentic_result.get("agent_notes")
         else:
             query_plan = await plan_query(question, datasource)
-            metric_match = match_metric_from_question(question, datasource)
+            metric_matches = match_metrics_from_question(
+                db,
+                question,
+                datasource,
+                dataset_id=dataset.id if dataset else None,
+            )
+            metric_match = metric_matches[0] if metric_matches else None
             sql_query = await _generate_safe_sql(
                 question,
                 datasource,
                 query_plan,
                 metric_match=metric_match,
+                metric_matches=metric_matches,
                 context=dataset_context,
             )
     except Exception as exc:
@@ -1262,6 +1286,7 @@ async def ask(
                 agent_trace,
                 llm_model=runtime_llm_model,
                 llm_config=agentic_llm_config,
+                metric_matches=metric_matches,
                 rls_clauses=rls_clauses,
             )
         else:
@@ -1433,6 +1458,7 @@ async def ask_stream(
         async def run_query():
             nonlocal sql_query, query_plan, metric_match, result, rows, chart_spec, agent_notes, empty_diagnostics, value_probe_context
             try:
+                metric_matches = match_metrics_from_question(db, question, datasource)
                 _, value_probe_context = await _append_agentic_value_probe(
                     datasource,
                     question,
@@ -1445,10 +1471,11 @@ async def ask_stream(
                     llm_model=runtime_llm_model,
                     llm_config=agentic_llm_config,
                     extra_context=value_probe_context,
+                    metric_matches=metric_matches,
                     on_trace=emit_trace,
                 )
                 query_plan = agentic_result.get("plan") or {}
-                metric_match = match_metric_from_question(question, datasource)
+                metric_match = metric_matches[0] if metric_matches else None
                 sql_query = agentic_result["sql_query"]
                 agent_trace.extend(agentic_result.get("trace") or [])
                 agent_notes = agentic_result.get("agent_notes")
@@ -1484,6 +1511,7 @@ async def ask_stream(
                     agent_trace,
                     llm_model=runtime_llm_model,
                     llm_config=agentic_llm_config,
+                    metric_matches=metric_matches,
                     rls_clauses=rls_clauses,
                     on_trace=emit_trace,
                 )

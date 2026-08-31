@@ -4,6 +4,7 @@ import time
 from typing import Any, Awaitable, Callable
 
 from app.core.llm import chat_completion
+from app.core.metric_binding import sql_uses_metric_formula
 from app.core.sql_guard import detect_excel_join_risk
 
 
@@ -446,7 +447,7 @@ def _dialect_repair_hint(dialect: str) -> str:
     return "请严格使用当前数据源 SQL 方言支持的函数和日期写法。"
 
 
-def _build_datasource_context(datasource: Any) -> str:
+def _build_datasource_context(datasource: Any, metric_matches: list[dict] | None = None) -> str:
     parts = [
         f"数据源名称：{getattr(datasource, 'name', '未命名数据源')}",
         f"数据源类型：{getattr(datasource, 'source_type', 'database') or 'database'}",
@@ -464,6 +465,27 @@ def _build_datasource_context(datasource: Any) -> str:
             parts.append(relationship_hint)
     if metrics_prompt:
         parts.append(f"指标口径：\n{metrics_prompt}")
+    if metric_matches:
+        primary = metric_matches[0]
+        metric_name = str(primary.get("name") or "").strip()
+        metric_formula = str(primary.get("formula") or "").strip()
+        if metric_name or metric_formula:
+            block = "目标指标口径（必须遵守，不可改写成其他口径）：\n"
+            if metric_name:
+                block += f"- 目标指标：{metric_name}"
+            if metric_formula:
+                block += f"\n- 必须使用的公式：{metric_formula}"
+            if len(metric_matches) > 1:
+                refs: list[str] = []
+                for candidate in metric_matches[1:]:
+                    ref_name = str(candidate.get("name") or "").strip()
+                    ref_formula = str(candidate.get("formula") or "").strip()
+                    if not ref_name and not ref_formula:
+                        continue
+                    refs.append(f"- {ref_name}：{ref_formula}" if ref_name and ref_formula else f"- {ref_name or ref_formula}")
+                if refs:
+                    block += "\n相关参考口径（如问题涉及，请遵循对应公式）：\n" + "\n".join(refs)
+            parts.append(block)
     return "\n\n".join(parts)
 
 
@@ -1034,12 +1056,21 @@ def _validate_agentic_sql(
     sql: str,
     question: str | None = None,
     plan: dict[str, Any] | None = None,
+    metric_matches: list[dict] | None = None,
 ) -> str:
     safe_sql = assert_read_only_sql(sql)
     if getattr(datasource, "source_type", "") == "excel":
         risk = detect_excel_join_risk(getattr(datasource, "database_url", ""), safe_sql)
         if risk:
             raise ValueError(f"{risk['message']} {risk['hint']}")
+    primary = metric_matches[0] if metric_matches else None
+    if primary:
+        metric_formula = str(primary.get("formula") or "").strip()
+        if metric_formula and not sql_uses_metric_formula(safe_sql, metric_formula):
+            raise ValueError(
+                f"SQL 未使用目标指标「{primary.get('name', '未命名指标')}」的公式：{metric_formula}。"
+                "请严格按该指标口径重写 SQL，不要在其基础上增加变换（如加常量、乘系数、改筛选条件）。"
+            )
     missing_dimensions = _projection_semantic_risks(datasource, safe_sql, question, plan)
     if missing_dimensions:
         dimension_list = "、".join(missing_dimensions[:5])
@@ -1056,12 +1087,13 @@ async def build_agentic_nl2sql(
     llm_model: str | None = None,
     llm_config: dict[str, Any] | None = None,
     extra_context: str | None = None,
+    metric_matches: list[dict] | None = None,
     max_repairs: int = 2,
     on_trace: TraceCallback | None = None,
 ) -> dict[str, Any]:
     context_start = time.perf_counter()
     trace: list[dict[str, Any]] = []
-    datasource_context = _build_datasource_context(datasource)
+    datasource_context = _build_datasource_context(datasource, metric_matches=metric_matches)
     if extra_context:
         datasource_context = f"{datasource_context}\n\n运行时探测证据：\n{extra_context.strip()}"
     if not llm_model and llm_config:
@@ -1073,6 +1105,8 @@ async def build_agentic_nl2sql(
     }
     if llm_model:
         context_detail["model"] = llm_model
+    if metric_matches:
+        context_detail["metric_matches"] = [item.get("name") for item in metric_matches if item.get("name")]
     await _append_trace(
         trace,
         _trace("context", "success", "已读取数据源元数据", context_detail, duration_ms=_duration_ms(context_start)),
@@ -1114,7 +1148,13 @@ async def build_agentic_nl2sql(
             llm_config=llm_config,
         )
         try:
-            safe_sql = _validate_agentic_sql(datasource, sql, question=question, plan=plan)
+            safe_sql = _validate_agentic_sql(
+                datasource,
+                sql,
+                question=question,
+                plan=plan,
+                metric_matches=metric_matches,
+            )
             await _append_trace(
                 trace,
                 _trace(stage, "success", "已生成安全 SQL", {"sql": safe_sql}, duration_ms=_duration_ms(step_start)),
@@ -1141,11 +1181,12 @@ async def repair_agentic_sql_after_execution_error(
     execution_error: str,
     llm_model: str | None = None,
     llm_config: dict[str, Any] | None = None,
+    metric_matches: list[dict] | None = None,
     max_repairs: int = 1,
     on_trace: TraceCallback | None = None,
 ) -> dict[str, Any]:
     trace: list[dict[str, Any]] = []
-    datasource_context = _build_datasource_context(datasource)
+    datasource_context = _build_datasource_context(datasource, metric_matches=metric_matches)
     if not llm_model and llm_config:
         llm_model = str(llm_config.get("model") or "").strip() or None
     dialect = infer_sql_dialect(datasource)
@@ -1179,7 +1220,13 @@ async def repair_agentic_sql_after_execution_error(
         if llm_model:
             detail["model"] = llm_model
         try:
-            safe_sql = _validate_agentic_sql(datasource, sql, question=question, plan=plan)
+            safe_sql = _validate_agentic_sql(
+                datasource,
+                sql,
+                question=question,
+                plan=plan,
+                metric_matches=metric_matches,
+            )
             detail["sql"] = safe_sql
             await _append_trace(
                 trace,
