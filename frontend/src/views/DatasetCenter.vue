@@ -2074,6 +2074,8 @@ const openEdit = async (dataset: DatasetItem) => {
   drillConfig.value = normalizeDrillConfig(dataset.drill_config_json)
   activeStep.value = "source"
   drawerVisible.value = true
+  // 后台增量刷新表结构：主表/关联表新增字段自动出现在业务口径字段候选区，不阻塞编辑
+  void refreshSchemaFields()
 }
 
 const inferTableFromFields = (fieldsJson: Record<string, unknown> | null) => {
@@ -2130,7 +2132,10 @@ const detectSchema = async () => {
       metadata_prompt: promptResponse.data.metadata_prompt,
     })
     await fetchDatasourceDetail(form.datasource_id)
-    if (!form.table && schemaTables.value.length > 0) {
+    if (form.table) {
+      // 编辑既有数据集：无论是否已选主表都重建字段配置，让候选区展示新增字段
+      syncFieldRoleConfigs("suggest")
+    } else if (schemaTables.value.length > 0) {
       selectTable(schemaTables.value[0].name)
     }
     ElMessage.success("表结构已更新")
@@ -2138,6 +2143,23 @@ const detectSchema = async () => {
     ElMessage.error(error.response?.data?.detail || "表结构检测失败")
   } finally {
     schemaLoading.value = false
+  }
+}
+
+const refreshSchemaFields = async () => {
+  if (!form.datasource_id) return
+  try {
+    // 增量刷新：检测实时表结构并与缓存合并，保留已有字段说明与关联关系
+    await axios.post(`/api/datasources/${form.datasource_id}/refresh-schema`)
+    await fetchDatasourceDetail(form.datasource_id)
+    // 按 key 保留已配置的角色/别名/聚合，仅追加主表与关联表的新增字段
+    syncFieldRoleConfigs("suggest")
+    if (filterField.value && !currentFieldOptions.value.some((option) => option.key === filterField.value)) {
+      filterField.value = currentFieldOptions.value[0]?.key || ""
+    }
+  } catch {
+    // 数据库不可达等场景优雅降级：继续使用缓存的字段列表，不阻塞编辑
+    ElMessage.warning("表结构刷新失败，已沿用缓存的字段列表")
   }
 }
 

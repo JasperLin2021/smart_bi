@@ -2,7 +2,7 @@
 import pandas as pd
 import re
 from sqlalchemy import create_engine, inspect, text
-from typing import Dict, Any, List
+from typing import List
 
 from app.schemas.datasource import SchemaMetadata, TableSchema, ColumnSchema, RelationshipSchema
 from app.core.excel_uploads import resolve_excel_source_path
@@ -346,6 +346,56 @@ def detect_schema(source_path: str, source_type: str) -> SchemaMetadata:
         return detect_excel_schema(source_path)
     else:
         return detect_database_schema(source_path)
+
+
+def merge_schema_metadata(previous: SchemaMetadata | None, fresh: SchemaMetadata) -> SchemaMetadata:
+    """Merge a freshly detected schema into a previously cached one.
+
+    Used for incremental schema refresh so that columns/tables added to the
+    physical datasource show up without destroying curated metadata:
+
+    - Structure (tables/columns) follows ``fresh``: newly added tables/columns are
+      kept, columns/tables that no longer exist are dropped.
+    - Non-empty descriptions from ``previous`` (including AI-generated column notes)
+      are preserved for tables/columns that still exist.
+    - Relationships from ``previous`` are kept (status/confidence/evidence are part
+      of the semantic config); newly detected relationships are appended only when
+      their key is not already present.
+    """
+    prev_tables = {table.name: table for table in (previous.tables if previous else [])}
+    merged_tables: List[TableSchema] = []
+    for table in fresh.tables:
+        prev_table = prev_tables.get(table.name)
+        prev_columns = {column.name: column for column in prev_table.columns} if prev_table else {}
+        columns: List[ColumnSchema] = []
+        for column in table.columns:
+            prev_column = prev_columns.get(column.name)
+            columns.append(
+                ColumnSchema(
+                    name=column.name,
+                    type=column.type,
+                    description=prev_column.description if prev_column and prev_column.description else column.description,
+                )
+            )
+        merged_tables.append(
+            TableSchema(
+                name=table.name,
+                description=prev_table.description if prev_table and prev_table.description else table.description,
+                columns=columns,
+            )
+        )
+
+    prev_relationships = list(previous.relationships) if previous else []
+    known_keys = {_relationship_key(rel) for rel in prev_relationships}
+    merged_relationships: List[RelationshipSchema] = list(prev_relationships)
+    for relationship in fresh.relationships:
+        key = _relationship_key(relationship)
+        if key in known_keys:
+            continue
+        known_keys.add(key)
+        merged_relationships.append(relationship)
+
+    return SchemaMetadata(tables=merged_tables, relationships=merged_relationships)
 
 
 def schema_to_prompt(schema: SchemaMetadata) -> str:

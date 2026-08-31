@@ -26,7 +26,7 @@ from app.core.excel_executor import (
     test_excel_connection,
 )
 from app.core.excel_uploads import build_excel_storage_path, is_allowed_excel_filename
-from app.core.schema_detector import detect_schema, schema_to_prompt
+from app.core.schema_detector import detect_schema, merge_schema_metadata, schema_to_prompt
 from app.core.drill_config import generate_drill_config
 from app.core.recommend_questions import generate_recommend_questions
 from app.core.schema_enrichment import generate_column_descriptions
@@ -116,6 +116,21 @@ def _schema_from_datasource(ds: DataSource) -> SchemaMetadata | None:
         return SchemaMetadata.model_validate(json.loads(ds.schema_metadata))
     except Exception:
         return None
+
+
+def _schema_column_diff(previous: SchemaMetadata | None, current: SchemaMetadata) -> tuple[int, int]:
+    """Count columns added / removed between two schema snapshots."""
+    prev_columns = {
+        (table.name, column.name)
+        for table in (previous.tables if previous else [])
+        for column in table.columns
+    }
+    current_columns = {
+        (table.name, column.name)
+        for table in current.tables
+        for column in table.columns
+    }
+    return len(current_columns - prev_columns), len(prev_columns - current_columns)
 
 
 async def _generate_recommend_questions_for_datasource_background(
@@ -608,6 +623,71 @@ def detect_datasource_schema(
             message=f"检测schema失败: {e}",
         )
         raise HTTPException(status_code=400, detail=f"检测schema失败: {e}")
+
+
+@router.post("/{datasource_id}/refresh-schema", response_model=SchemaMetadata)
+def refresh_datasource_schema(
+    datasource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """增量刷新表结构：实时检测后与缓存 schema 合并并持久化。
+
+    与 ``detect-schema`` 的全量覆盖语义不同，此端点会保留缓存中已有的表/列说明
+    （含 AI 生成的字段说明）与关联关系，仅追加物理库中新增的表/列/关系，并同步
+    更新 ``metadata_prompt``。数据集编辑器在打开既有数据集时调用此端点，即可让
+    主表/关联表新增的字段自动出现在业务口径字段候选区。
+    """
+    ds = db.query(DataSource).filter(DataSource.id == datasource_id).first()
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if not check_datasource_access(current_user, ds):
+        raise HTTPException(status_code=403, detail="无权访问此数据源")
+
+    previous = _schema_from_datasource(ds)
+    try:
+        fresh = detect_schema(ds.database_url, ds.source_type)
+        merged = merge_schema_metadata(previous, fresh)
+    except Exception as e:
+        try_record_audit_log(
+            db,
+            actor=current_user,
+            action="datasource.refresh_schema",
+            resource_type="datasource",
+            resource_id=ds.id,
+            resource_name=ds.name,
+            org_id=ds.org_id,
+            status="error",
+            message=f"表结构刷新失败: {e}",
+            detail={"has_previous_schema": previous is not None},
+        )
+        raise HTTPException(status_code=400, detail=f"表结构刷新失败: {e}")
+
+    added_columns, removed_columns = _schema_column_diff(previous, merged)
+    prev_relationship_count = len(previous.relationships) if previous else 0
+    ds.schema_metadata = json.dumps(merged.model_dump(), ensure_ascii=False)
+    ds.metadata_prompt = schema_to_prompt(merged)
+    db.commit()
+    db.refresh(ds)
+    try_record_audit_log(
+        db,
+        actor=current_user,
+        action="datasource.refresh_schema",
+        resource_type="datasource",
+        resource_id=ds.id,
+        resource_name=ds.name,
+        org_id=ds.org_id,
+        status="success",
+        message="表结构增量刷新成功",
+        detail={
+            "table_count_prev": len(previous.tables) if previous else 0,
+            "table_count_new": len(merged.tables),
+            "columns_added": added_columns,
+            "columns_removed": removed_columns,
+            "relationships_added": len(merged.relationships) - prev_relationship_count,
+        },
+    )
+    return merged
 
 
 @router.post("/{datasource_id}/generate-prompt")

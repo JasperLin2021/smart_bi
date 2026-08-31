@@ -95,3 +95,28 @@ test("dataset center uses a compact top-right toolbar instead of hero and summar
   assert.doesNotMatch(view, /\.hero-actions\s*\{/)
   assert.doesNotMatch(view, /\.summary-grid\s*\{/)
 })
+
+test("editing an existing dataset automatically refreshes the schema so new fields reach the candidate area", () => {
+  const view = read("src/views/DatasetCenter.vue")
+  const openEditBlock = view.match(/const openEdit = async \(dataset: DatasetItem\) => \{[\s\S]*?\n\}/)?.[0] || ""
+
+  assert.match(openEditBlock, /drawerVisible\.value = true/)
+  assert.match(openEditBlock, /void refreshSchemaFields\(\)/)
+})
+
+test("schema refresh merges the live table structure and rebuilds field candidate configs", () => {
+  const view = read("src/views/DatasetCenter.vue")
+  const refreshBlock = view.match(/const refreshSchemaFields = async \(\) => \{[\s\S]*?\n\}/)?.[0] || ""
+
+  assert.match(refreshBlock, /\/api\/datasources\/\$\{form\.datasource_id\}\/refresh-schema/)
+  assert.match(refreshBlock, /fetchDatasourceDetail\(form\.datasource_id\)/)
+  assert.match(refreshBlock, /syncFieldRoleConfigs\("suggest"\)/)
+})
+
+test("manual schema detection rebuilds the field candidate area even when the main table is already selected", () => {
+  const view = read("src/views/DatasetCenter.vue")
+  const detectBlock = view.match(/const detectSchema = async \(\) => \{[\s\S]*?\n\}/)?.[0] || ""
+
+  assert.match(detectBlock, /fetchDatasourceDetail\(form\.datasource_id\)/)
+  assert.match(detectBlock, /syncFieldRoleConfigs\("suggest"\)/)
+})
