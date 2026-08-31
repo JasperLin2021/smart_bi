@@ -217,3 +217,13 @@ test("metric dialog previews live metric data by selected dimensions", () => {
   assert.match(view, /@change="fetchMetricPreview"/)
   assert.match(view, /实时数据预览/)
 })
+
+test("metric preview dimension options include derived columns from the dataset", () => {
+  const view = read("src/views/MetricSettings.vue")
+
+  assert.match(view, /const derivedColumnsJson = dataset\.derived_columns_json \|\| \{\}/)
+  assert.match(view, /derivedColumnsJson\.expressions/)
+  assert.match(view, /source: "dataset_derived"/)
+  assert.match(view, /派生列/)
+  assert.match(view, /metricPreviewDimensionOptions = computed\(\(\) => dimensionFieldOptions\.value\)/)
+})

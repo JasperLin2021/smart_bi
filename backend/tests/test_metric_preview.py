@@ -118,6 +118,97 @@ class MetricPreviewTests(unittest.TestCase):
             self.assertIn("GROUP BY", result["query"]["sql"])
             self.assertIn("WHERE", result["query"]["sql"])
         finally:
+            from app.db.session import _datasource_engines
+
+            engine = _datasource_engines.pop(f"sqlite:///{source_path}", None)
+            if engine is not None:
+                engine.dispose()
+            os.unlink(source_path)
+
+    def test_metric_preview_supports_derived_column_dimensions(self):
+        from app.api.metrics import preview_metric
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricPreviewRequest
+
+        source_path = self._source_database()
+        try:
+            db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__])
+            datasource = DataSource(
+                name="销售库",
+                slug="sales-preview-derived",
+                source_type="database",
+                database_url=f"sqlite:///{source_path}",
+                metadata_prompt="",
+                org_id=2,
+            )
+            db.add(datasource)
+            db.flush()
+            dataset = Dataset(
+                name="销售订单",
+                datasource_id=datasource.id,
+                fields_json={
+                    "table": "sales",
+                    "dimensions": [{"name": "sales.region", "alias": "大区", "type": "string"}],
+                    "metrics": [{"name": "sales.amount", "alias": "订单金额", "type": "decimal", "aggregation": "sum"}],
+                },
+                derived_columns_json={"expressions": ["margin = sales.amount * 2"]},
+                status="published",
+                visibility="org",
+                org_id=2,
+                owner_id=10,
+            )
+            db.add(dataset)
+            db.flush()
+            metric = Metric(
+                dataset_id=dataset.id,
+                datasource_id=datasource.id,
+                name="完成订单销售额",
+                definition="已完成订单金额合计",
+                formula="SUM(sales.amount)",
+                column_name="sales.amount",
+                aggregation="sum",
+                calculation_config={
+                    "calculation_mode": "aggregate",
+                    "metric_field": "sales.amount",
+                    "filters": [{"logic": "AND", "field": "sales.status", "operator": "=", "value": "已完成"}],
+                },
+                status="published",
+                certification_status="certified",
+                quality_status="normal",
+            )
+            db.add(metric)
+            db.commit()
+            db.refresh(metric)
+
+            result = preview_metric(
+                metric.id,
+                MetricPreviewRequest(dimensions=["margin"], limit=10),
+                db=db,
+                current_user=SimpleNamespace(id=11, username="analyst", role="org_admin", org_id=2),
+            )
+
+            # 派生列以计算表达式参与 SELECT / GROUP BY，结果按指标倒序
+            self.assertEqual(result["columns"], ["margin", "完成订单销售额"])
+            self.assertEqual(
+                result["rows"],
+                [
+                    {"margin": 240.0, "完成订单销售额": 120.0},
+                    {"margin": 160.0, "完成订单销售额": 80.0},
+                    {"margin": 100.0, "完成订单销售额": 50.0},
+                ],
+            )
+            self.assertEqual(result["row_count"], 3)
+            self.assertEqual(result["query"]["dimensions"], ["margin"])
+            self.assertIn("amount * 2", result["query"]["sql"])
+            self.assertIn("GROUP BY", result["query"]["sql"])
+        finally:
+            from app.db.session import _datasource_engines
+
+            engine = _datasource_engines.pop(f"sqlite:///{source_path}", None)
+            if engine is not None:
+                engine.dispose()
             os.unlink(source_path)
 
 

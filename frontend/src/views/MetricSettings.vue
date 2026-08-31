@@ -1530,6 +1530,7 @@ interface DatasetItem {
     metrics?: RawField[]
   } | null
   aggregations_json?: { aggregations?: RawField[] } | null
+  derived_columns_json?: { expressions?: RawField[] } | null
   semantic_model_json?: {
     dimensions?: RawField[]
     time_dimensions?: RawField[]
@@ -1545,7 +1546,7 @@ interface DatasetFieldOption {
   role: FieldRole
   aggregation?: string
   expression?: string
-  source?: "dataset_metric" | "trusted_metric"
+  source?: "dataset_metric" | "trusted_metric" | "dataset_derived"
   datasetName?: string
 }
 
@@ -1899,11 +1900,26 @@ const dimensionFieldOptions = computed(() => {
     const role = String(field.role || field.semantic_type || "").toLowerCase()
     return role !== "metric" && role !== "measure"
   })
+  const derivedColumnsJson = dataset.derived_columns_json || {}
+  const derivedDimensions = asRawFieldList(derivedColumnsJson.expressions)
+    .map((item) => {
+      const text = typeof item === "string" ? item.trim() : ""
+      const name = text.split("=")[0]?.trim()
+      if (!name) return null
+      return {
+        name,
+        label: name,
+        type: "derived",
+        role: "dimension" as const,
+        source: "dataset_derived" as const,
+      }
+    })
   return dedupeDatasetFields([
     ...asRawFieldList(fieldsJson.dimensions).map((field) => normalizeDatasetField(field, "dimension")),
     ...legacyDimensions.map((field) => normalizeDatasetField(field, "dimension")),
     ...asRawFieldList(semantic.dimensions).map((field) => normalizeDatasetField(field, "dimension")),
     ...asRawFieldList(semantic.time_dimensions).map((field) => normalizeDatasetField(field, "dimension")),
+    ...derivedDimensions,
   ])
 })
 
@@ -2008,6 +2024,9 @@ const fieldOptionLabel = (field: DatasetFieldOption) => {
   if (field.source === "trusted_metric") {
     return `${field.label}（已有可信指标）`
   }
+  if (field.source === "dataset_derived") {
+    return `${field.label}（派生列）`
+  }
   return `${field.label}（${field.name}）`
 }
 const expressionToken = (fieldName: string, aggregation?: string) => {
@@ -2033,6 +2052,9 @@ const trustedMetricExpression = (metric: Metric) => {
 const fieldOptionDetail = (field: DatasetFieldOption) => {
   if (field.source === "trusted_metric") {
     return [field.datasetName || "可信指标", field.type].filter(Boolean).join(" · ")
+  }
+  if (field.source === "dataset_derived") {
+    return `派生列 · ${field.name}`
   }
   return `${field.name} · ${field.type}`
 }

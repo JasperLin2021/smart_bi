@@ -379,6 +379,25 @@ def _source_table(dataset: Dataset) -> str:
     return table
 
 
+def _metric_derived_columns(dataset: Dataset) -> dict[str, str]:
+    """解析数据集派生列，返回 {name: expression}（来源 derived_columns_json.expressions，格式 name = expression）。"""
+    derived_json = _as_dict(dataset.derived_columns_json)
+    columns: dict[str, str] = {}
+    for item in _as_list(derived_json.get("expressions")):
+        expression = str(item or "").strip()
+        if not expression or "=" not in expression:
+            continue
+        name, raw_expr = expression.split("=", 1)
+        name = name.strip()
+        raw_expr = raw_expr.strip()
+        if not _safe_column_ref(name) or "." in name:
+            continue
+        if not raw_expr or any(token in raw_expr for token in (";", "--", "/*", "*/", "\x00")):
+            continue
+        columns.setdefault(name, raw_expr)
+    return columns
+
+
 def _metric_dimension_candidates(dataset: Dataset) -> dict[str, str]:
     fields_json = _as_dict(dataset.fields_json)
     raw_items: list[Any] = []
@@ -399,6 +418,12 @@ def _metric_dimension_candidates(dataset: Dataset) -> dict[str, str]:
             qualified_name = f"{table}.{name}"
             candidates.setdefault(qualified_name, _field_label(item, name) or name)
         candidates.setdefault(name, _field_label(item, name) or name.split(".")[-1])
+
+    # 派生列（name = expression）同样可作为可预览维度
+    for name in _metric_derived_columns(dataset):
+        candidates.setdefault(name, name)
+        if table:
+            candidates.setdefault(f"{table}.{name}", name)
     return candidates
 
 
@@ -484,10 +509,15 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
     metric_alias = _metric_preview_alias(metric.name)
     formula_expression, formula_where_parts = _sanitize_formula_expression(metric.formula or "")
     metric_expression = formula_expression or _aggregation_expression(metric)
-    select_parts = [
-        f"{item['field']} AS {_quote_alias(item['label'])}"
-        for item in selected_dimensions
-    ]
+    derived_columns = _metric_derived_columns(dataset)
+    select_parts = []
+    for item in selected_dimensions:
+        derived_expr = derived_columns.get(item["field"].split(".")[-1])
+        if derived_expr is not None:
+            # 派生列是计算列，SELECT 需以表达式输出
+            select_parts.append(f"({derived_expr}) AS {_quote_alias(item['label'])}")
+        else:
+            select_parts.append(f"{item['field']} AS {_quote_alias(item['label'])}")
     select_parts.append(f"{metric_expression} AS {_quote_alias(metric_alias)}")
 
     where_parts = formula_where_parts
@@ -496,7 +526,11 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
         where_parts.append(filters_sql)
 
     is_window_metric = str(_calculation_config(metric).get("calculation_mode") or "").lower() == "window" or re.search(r"\bover\s*\(", metric_expression, flags=re.I)
-    group_parts = [item["field"] for item in selected_dimensions] if selected_dimensions and not is_window_metric else []
+    group_parts = []
+    if selected_dimensions and not is_window_metric:
+        for item in selected_dimensions:
+            derived_expr = derived_columns.get(item["field"].split(".")[-1])
+            group_parts.append(f"({derived_expr})" if derived_expr is not None else item["field"])
     limit = _metric_preview_limit(payload.limit)
     sql_parts = [
         f"SELECT {', '.join(select_parts)}",
