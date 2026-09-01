@@ -2012,11 +2012,13 @@ const metricPreviewSortOptions = computed(() => {
   const options = metricPreviewDimensionOptions.value
     .filter((field) => selected.has(field.name))
     .map((field) => ({ label: fieldOptionLabel(field), value: field.name }))
-  // 指标列排序以数据库中的指标名为准，与后端 metric_alias 保持一致（避免编辑改名后请求非法）
+  // 指标列排序以输出别名为准（未配置时回退指标名），与后端 metric_alias 保持一致（避免编辑改名后请求非法）
   const editingMetric = metrics.value.find((metric) => metric.id === editingId.value)
   const metricName = String(editingMetric?.name || "").trim()
-  if (metricName) {
-    options.push({ label: `${metricName}（指标）`, value: metricName })
+  const outputAlias = String(editingMetric?.calculation_config?.output_alias || "").trim()
+  const metricColumn = outputAlias || metricName
+  if (metricColumn) {
+    options.push({ label: `${metricName}（指标）`, value: metricColumn })
   }
   return options
 })

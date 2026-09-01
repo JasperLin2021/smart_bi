@@ -406,6 +406,88 @@ class MetricPreviewTests(unittest.TestCase):
         request = MetricPreviewRequest(dimensions=[], order_direction="ASC")
         self.assertEqual(request.order_direction, "asc")
 
+    def _preview_fixture_with_alias(self):
+        """创建配置了输出别名的指标预览基础数据，返回 (db, metric, source_path)。"""
+        db, metric, source_path = self._preview_fixture()
+        metric.calculation_config = {
+            "calculation_mode": "aggregate",
+            "metric_field": "sales.amount",
+            "output_alias": "gross_margin_rate",
+            "filters": [{"logic": "AND", "field": "sales.status", "operator": "=", "value": "已完成"}],
+        }
+        db.add(metric)
+        db.commit()
+        db.refresh(metric)
+        return db, metric, source_path
+
+    def test_metric_preview_uses_output_alias_for_metric_column(self):
+        # 配置输出别名后，预览列名 / metric_column / 默认 ORDER BY 均以别名为准
+        from app.schemas.metric import MetricPreviewRequest
+
+        db, metric, source_path = self._preview_fixture_with_alias()
+        try:
+            result = self._preview_with(db, metric, MetricPreviewRequest(dimensions=["sales.region"], limit=10))
+            self.assertEqual(result["columns"], ["大区", "gross_margin_rate"])
+            self.assertEqual(result["metric"]["name"], "完成订单销售额")
+            self.assertEqual(result["query"]["metric_column"], "gross_margin_rate")
+            self.assertIn('AS "gross_margin_rate"', result["query"]["sql"])
+            self.assertIn('ORDER BY "gross_margin_rate" DESC', result["query"]["sql"])
+            self.assertEqual(
+                result["rows"],
+                [{"大区": "华东", "gross_margin_rate": 170.0}, {"大区": "华南", "gross_margin_rate": 80.0}],
+            )
+        finally:
+            self._cleanup_preview(source_path)
+
+    def test_metric_preview_order_by_output_alias(self):
+        # 排序字段支持直接传输出别名
+        from app.schemas.metric import MetricPreviewRequest
+
+        db, metric, source_path = self._preview_fixture_with_alias()
+        try:
+            result = self._preview_with(
+                db,
+                metric,
+                MetricPreviewRequest(
+                    dimensions=["sales.region"],
+                    limit=10,
+                    order_by="gross_margin_rate",
+                    order_direction="asc",
+                ),
+            )
+            self.assertIn('ORDER BY "gross_margin_rate" ASC', result["query"]["sql"])
+            self.assertEqual(
+                result["rows"],
+                [{"大区": "华南", "gross_margin_rate": 80.0}, {"大区": "华东", "gross_margin_rate": 170.0}],
+            )
+        finally:
+            self._cleanup_preview(source_path)
+
+    def test_metric_preview_order_by_accepts_metric_name_with_alias(self):
+        # 兼容旧请求：配置输出别名后仍可按指标名排序，ORDER BY 落到别名列
+        from app.schemas.metric import MetricPreviewRequest
+
+        db, metric, source_path = self._preview_fixture_with_alias()
+        try:
+            result = self._preview_with(
+                db,
+                metric,
+                MetricPreviewRequest(
+                    dimensions=["sales.region"],
+                    limit=10,
+                    order_by="完成订单销售额",
+                    order_direction="asc",
+                ),
+            )
+            self.assertEqual(result["query"]["metric_column"], "gross_margin_rate")
+            self.assertIn('ORDER BY "gross_margin_rate" ASC', result["query"]["sql"])
+            self.assertEqual(
+                result["rows"],
+                [{"大区": "华南", "gross_margin_rate": 80.0}, {"大区": "华东", "gross_margin_rate": 170.0}],
+            )
+        finally:
+            self._cleanup_preview(source_path)
+
 
 if __name__ == "__main__":
     unittest.main()

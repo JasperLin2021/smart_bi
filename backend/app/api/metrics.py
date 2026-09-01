@@ -533,11 +533,12 @@ def _metric_preview_order_by(
     payload: MetricPreviewRequest,
     selected_dimensions: list[dict[str, str]],
     metric_alias: str,
+    metric_name: str | None = None,
 ) -> str:
     """根据请求生成 ORDER BY 子句。
 
     排序字段命中已选维度的原始字段名或输出别名时按维度列排序，
-    命中指标别名时按指标列排序；未传时保持默认按指标列降序。
+    命中指标输出别名（兼容旧请求传指标名称）时按指标列排序；未传时保持默认按指标列降序。
     所有排序目标均映射为 SELECT 输出别名，经 _quote_alias 转义，避免 SQL 注入。
     """
     order_by = str(payload.order_by or "").strip()
@@ -547,7 +548,7 @@ def _metric_preview_order_by(
     for item in selected_dimensions:
         if order_by in (item["field"], item["label"]):
             return f"ORDER BY {_quote_alias(item['label'])} {direction}"
-    if order_by == metric_alias:
+    if order_by == metric_alias or (metric_name and order_by == metric_name):
         return f"ORDER BY {_quote_alias(metric_alias)} {direction}"
     raise HTTPException(status_code=400, detail="排序字段不合法")
 
@@ -565,7 +566,8 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
             raise HTTPException(status_code=400, detail=f"预览维度不属于当前指标数据集: {raw_dimension}")
         selected_dimensions.append({"field": field, "label": _metric_preview_alias(label)})
 
-    metric_alias = _metric_preview_alias(metric.name)
+    output_alias = str(_calculation_config(metric).get("output_alias") or "").strip()
+    metric_alias = _metric_preview_alias(output_alias or metric.name)
     formula_expression, formula_where_parts = _sanitize_formula_expression(metric.formula or "")
     metric_expression = formula_expression or _aggregation_expression(metric)
     derived_columns = _metric_derived_columns(dataset)
@@ -600,7 +602,7 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
         sql_parts.append(f"WHERE {' AND '.join(where_parts)}")
     if group_parts:
         sql_parts.append(f"GROUP BY {', '.join(group_parts)}")
-    sql_parts.append(_metric_preview_order_by(payload, selected_dimensions, metric_alias))
+    sql_parts.append(_metric_preview_order_by(payload, selected_dimensions, metric_alias, metric_name=metric.name))
     sql_parts.append(f"LIMIT {limit}")
     return {
         "sql": "\n".join(sql_parts),
