@@ -349,6 +349,10 @@ const showDimensionConfig = ref(false)
 let chartInstance: echarts.ECharts | null = null
 let chartResizeObserver: ResizeObserver | null = null
 let chartResizeFrame = 0
+// 组件卸载标志：切换路由/标签页时组件可能被立即销毁，所有异步图表操作
+// （rAF、ResizeObserver、window resize、nextTick 之后的 init/resize）都必须在
+// 卸载后立即中止，否则会操作已脱离文档的 DOM，触发 zrender parentNode 崩溃。
+let isUnmounted = false
 const selectedRow = ref<Record<string, any> | null>(null)
 const drillActions = ref<DrillAction[]>([])
 const drillLoading = ref(false)
@@ -947,6 +951,7 @@ const resizeChart = () => {
   if (chartResizeFrame) cancelAnimationFrame(chartResizeFrame)
   chartResizeFrame = requestAnimationFrame(() => {
     chartResizeFrame = 0
+    if (isUnmounted) return
     chartInstance?.resize()
   })
 }
@@ -1022,8 +1027,10 @@ const handleChartClick = async (params: any) => {
 
 const renderChart = async () => {
   await nextTick()
-  if (!chartRef.value) return
-  
+  // 卸载后或容器已脱离文档时直接中止，避免在无效 DOM 上 init/resize
+  if (isUnmounted) return
+  if (!chartRef.value || !chartRef.value.isConnected) return
+
   if (!chartInstance) {
     chartInstance = echarts.init(chartRef.value)
   }
@@ -1216,6 +1223,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isUnmounted = true
   window.removeEventListener("resize", resizeChart)
   chartResizeObserver?.disconnect()
   chartResizeObserver = null

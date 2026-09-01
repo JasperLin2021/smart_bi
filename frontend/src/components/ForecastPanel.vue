@@ -52,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import * as echarts from "@/utils/echarts"
 import axios from "axios"
 
@@ -77,6 +77,7 @@ const result = ref<{
 
 const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
+let isUnmounted = false
 
 const histCount = computed(() => result.value?.points.filter(p => !p.is_forecast).length ?? 0)
 const forecastCount = computed(() => result.value?.points.filter(p => p.is_forecast).length ?? 0)
@@ -99,6 +100,8 @@ async function run() {
     })
     result.value = resp.data
     await nextTick()
+    // 请求返回时抽屉可能已关闭/页面已切换，直接中止避免在无效 DOM 上 init
+    if (isUnmounted) return
     renderChart()
   } catch (e: any) {
     error.value = e?.response?.data?.detail || "预测失败"
@@ -108,7 +111,8 @@ async function run() {
 }
 
 function renderChart() {
-  if (!chartRef.value || !result.value) return
+  if (isUnmounted) return
+  if (!chartRef.value || !chartRef.value.isConnected || !result.value) return
   if (!chartInstance) chartInstance = echarts.init(chartRef.value)
 
   const points = result.value.points
@@ -158,6 +162,14 @@ watch(visible, (v) => {
     chartInstance?.dispose()
     chartInstance = null
   }
+})
+
+// 组件可能随路由切换/页面销毁而卸载（此时 visible 不会变 false），
+// 必须在此释放图表实例，避免 zrender 残留实例在已移除 DOM 上操作报错。
+onBeforeUnmount(() => {
+  isUnmounted = true
+  chartInstance?.dispose()
+  chartInstance = null
 })
 </script>
 

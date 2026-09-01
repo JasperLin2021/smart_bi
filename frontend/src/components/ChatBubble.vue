@@ -706,13 +706,18 @@
             <MessageTable v-if="hasResult" :message="message" :columns="message.result!.columns" :rows="message.result!.rows" />
           </div>
         </el-tab-pane>
-        <el-tab-pane v-if="message.sqlQuery" label="SQL" name="sql" lazy>
+        <!-- 注意：不要在 el-tab-pane 上用 v-if 动态增删标签，会触发 Element Plus
+             use-ordered-children 内部 child.getVnode().el 为 null 的 parentNode 报错；
+             标签始终渲染，内容按条件显示即可 -->
+        <el-tab-pane label="SQL" name="sql" lazy>
           <div class="result-detail-pane">
-            <pre class="result-detail-sql">{{ message.sqlQuery }}</pre>
+            <pre v-if="message.sqlQuery" class="result-detail-sql">{{ message.sqlQuery }}</pre>
+            <el-empty v-else description="本次结果没有 SQL" :image-size="56" />
           </div>
         </el-tab-pane>
-        <el-tab-pane v-if="message.summary" label="总结" name="summary" lazy>
-          <div class="result-detail-pane result-detail-summary-text markdown-body" v-html="renderedSummary"></div>
+        <el-tab-pane label="总结" name="summary" lazy>
+          <div v-if="message.summary" class="result-detail-pane result-detail-summary-text markdown-body" v-html="renderedSummary"></div>
+          <el-empty v-else description="本次结果没有总结" :image-size="56" />
         </el-tab-pane>
       </el-tabs>
     </el-dialog>

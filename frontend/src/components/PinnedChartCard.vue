@@ -359,8 +359,11 @@ const applyOption = () => {
 }
 
 let rafId: number | null = null
+// 卸载后中止一切异步图表操作（rAF 自调度、ResizeObserver、window resize、nextTick）
+let isUnmounted = false
 
 const initChart = () => {
+  if (isUnmounted) return
   if (!isEChartsChart.value || !chartRef.value || !displayRows.value.length) {
     chartInstance?.dispose()
     chartInstance = null
@@ -368,8 +371,15 @@ const initChart = () => {
   }
 
   const el = chartRef.value
+  if (!el.isConnected) {
+    // 容器已脱离文档（标签页/抽屉切换导致），释放实例避免 zrender 崩溃
+    chartInstance?.dispose()
+    chartInstance = null
+    return
+  }
   if (el.offsetWidth === 0 || el.offsetHeight === 0) {
     // Container not ready yet — retry next frame
+    if (isUnmounted) return
     rafId = requestAnimationFrame(initChart)
     return
   }
@@ -395,10 +405,12 @@ const initChart = () => {
 
 const renderChart = async () => {
   await nextTick()
+  if (isUnmounted) return
   initChart()
 }
 
 const resizeChart = () => {
+  if (isUnmounted) return
   if (chartInstance) {
     chartInstance.resize()
   } else {
@@ -411,6 +423,7 @@ let ro: ResizeObserver | null = null
 const initObserver = () => {
   if (!chartRef.value || ro) return
   ro = new ResizeObserver(() => {
+    if (isUnmounted) return
     if (!chartRef.value) return
     if (chartInstance) {
       chartInstance.resize()
@@ -441,6 +454,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isUnmounted = true
   if (rafId !== null) cancelAnimationFrame(rafId)
   ro?.disconnect()
   ro = null

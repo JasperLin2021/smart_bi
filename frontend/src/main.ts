@@ -65,4 +65,15 @@ axios.interceptors.response.use(
   }
 )
 
+// 兜底错误处理：避免某个组件在渲染/卸载/异步回调中抛错（如切换标签页时
+// 第三方库在 DOM 生命周期边界上的 parentNode 报错）导致整个页面白屏。
+// 业务逻辑仍应在局部 catch 并给出更具体的提示，这里只负责"不拖垮整页"。
+app.config.errorHandler = (err, _instance, info) => {
+  console.error("[Vue 渲染错误]", info, err)
+}
+
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("[未处理的 Promise 拒绝]", event.reason)
+})
+
 app.mount("#app")

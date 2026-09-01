@@ -386,6 +386,7 @@ const targetDashboardId = ref<number | null>(null)
 const dashboardViewId = ref<number | null>(null)
 const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: echarts.ECharts | null = null
+let isUnmounted = false
 
 const form = reactive({
   id: null as number | null,
@@ -812,7 +813,9 @@ const buildChartOption = () => {
 }
 const renderChart = async () => {
   await nextTick()
-  if (!chartRef.value || form.chart_type === "table" || !previewRows.value.length) {
+  // 切换标签页/路由导致组件卸载后，立即中止异步图表操作
+  if (isUnmounted) return
+  if (!chartRef.value || !chartRef.value.isConnected || form.chart_type === "table" || !previewRows.value.length) {
     chartInstance?.dispose()
     chartInstance = null
     return
@@ -824,13 +827,17 @@ const renderChart = async () => {
     chartInstance.setOption(option)
   }
 }
-const resizeChart = () => chartInstance?.resize()
+const resizeChart = () => {
+  if (isUnmounted) return
+  chartInstance?.resize()
+}
 
 watch(() => [form.chart_type, chartData.value, previewRows.value.length], () => renderChart(), { deep: true })
 
 onMounted(loadAll)
 onMounted(() => window.addEventListener("resize", resizeChart))
 onBeforeUnmount(() => {
+  isUnmounted = true
   window.removeEventListener("resize", resizeChart)
   chartInstance?.dispose()
 })
