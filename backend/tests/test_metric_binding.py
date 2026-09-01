@@ -100,6 +100,138 @@ class MetricBindingTests(unittest.TestCase):
 
         self.assertIn("目标指标公式", str(ctx.exception))
 
+    def test_generate_safe_sql_retries_when_metric_time_field_mismatch(self):
+        """指标配置了时间字段时，SQL 用错时间字段（如下单时间 vs 审批时间）应触发重写。"""
+        from app.api.query import _generate_safe_sql
+
+        datasource = SimpleNamespace(
+            source_type="postgres",
+            database_url="postgresql://example",
+        )
+        metric_match = {
+            "name": "DAU",
+            "formula": "COUNT(DISTINCT orders.customer_id)",
+            "time_field": "orders.order_approved_at",
+        }
+        first_sql = (
+            "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders "
+            "WHERE order_purchase_timestamp >= '2016-10-10' AND order_purchase_timestamp < '2016-10-11'"
+        )
+        second_sql = (
+            "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders "
+            "WHERE order_approved_at >= '2016-10-10' AND order_approved_at < '2016-10-11'"
+        )
+
+        with patch(
+            "app.api.query.generate_sql_query",
+            new=AsyncMock(side_effect=[{"sql": first_sql}, {"sql": second_sql}]),
+        ) as mocked_generate, patch(
+            "app.api.query.detect_excel_join_risk",
+            return_value=None,
+        ):
+            sql = asyncio.run(_generate_safe_sql("2016年10月10日的dau是多少", datasource, metric_match=metric_match))
+
+        self.assertEqual(sql, second_sql)
+        self.assertEqual(mocked_generate.await_count, 2)
+        _, second_kwargs = mocked_generate.await_args_list[1]
+        self.assertIn("order_approved_at", second_kwargs["context"])
+
+    def test_generate_safe_sql_raises_when_metric_time_field_still_missing(self):
+        """时间字段重试后仍用错字段，应直接报错而不是返回口径错误的结果。"""
+        from app.api.query import _generate_safe_sql
+
+        datasource = SimpleNamespace(
+            source_type="postgres",
+            database_url="postgresql://example",
+        )
+        metric_match = {
+            "name": "DAU",
+            "formula": "COUNT(DISTINCT orders.customer_id)",
+            "time_field": "orders.order_approved_at",
+        }
+        bad_sql = (
+            "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders "
+            "WHERE order_purchase_timestamp >= '2016-10-10'"
+        )
+
+        with patch(
+            "app.api.query.generate_sql_query",
+            new=AsyncMock(side_effect=[{"sql": bad_sql}, {"sql": bad_sql}]),
+        ), patch(
+            "app.api.query.detect_excel_join_risk",
+            return_value=None,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                asyncio.run(_generate_safe_sql("2016年10月10日的dau是多少", datasource, metric_match=metric_match))
+
+        self.assertIn("目标指标公式", str(ctx.exception))
+
+    def test_metric_time_field_extracted_from_calculation_config(self):
+        from app.core.metric_binding import _metric_time_field
+
+        self.assertEqual(
+            _metric_time_field(SimpleNamespace(calculation_config={"time_field": "orders.order_approved_at"})),
+            "orders.order_approved_at",
+        )
+        self.assertEqual(_metric_time_field(SimpleNamespace(calculation_config={})), "")
+        self.assertEqual(
+            _metric_time_field(
+                SimpleNamespace(calculation_config={"statistical_scope": {"time_field": "orders.order_approved_at"}})
+            ),
+            "orders.order_approved_at",
+        )
+        self.assertEqual(
+            _metric_time_field(SimpleNamespace(calculation_config='{"time_field": "orders.order_approved_at"}')),
+            "orders.order_approved_at",
+        )
+
+    def test_sql_uses_metric_time_field_checks_where_column(self):
+        from app.core.metric_binding import sql_uses_metric_time_field
+
+        # 使用正确时间字段 -> 通过
+        self.assertTrue(
+            sql_uses_metric_time_field(
+                "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders "
+                "WHERE order_approved_at >= '2016-10-10' AND order_approved_at < '2016-10-11'",
+                "orders.order_approved_at",
+            )
+        )
+        # 时间字段被函数包裹（DATE/CAST）或带别名 -> 仍通过
+        self.assertTrue(
+            sql_uses_metric_time_field(
+                "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders WHERE DATE(order_approved_at) = '2016-10-10'",
+                "orders.order_approved_at",
+            )
+        )
+        self.assertTrue(
+            sql_uses_metric_time_field(
+                "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders WHERE o.order_approved_at::date = '2016-10-10'",
+                "orders.order_approved_at",
+            )
+        )
+        # 用错时间字段 -> 拦截
+        self.assertFalse(
+            sql_uses_metric_time_field(
+                "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders "
+                "WHERE order_purchase_timestamp >= '2016-10-10' AND order_purchase_timestamp < '2016-10-11'",
+                "orders.order_approved_at",
+            )
+        )
+        # 无 WHERE / 未配置时间字段 -> 不做约束
+        self.assertTrue(
+            sql_uses_metric_time_field(
+                "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders",
+                "orders.order_approved_at",
+            )
+        )
+        self.assertTrue(
+            sql_uses_metric_time_field(
+                "SELECT COUNT(DISTINCT customer_id) AS dau FROM orders "
+                "WHERE order_purchase_timestamp >= '2016-10-10'",
+                "",
+            )
+        )
+
     def test_sql_uses_metric_formula_accepts_equivalent_join_filter_sql(self):
         from app.core.metric_binding import sql_uses_metric_formula
 

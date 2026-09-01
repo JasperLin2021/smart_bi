@@ -148,6 +148,31 @@ def metric_caliber_formula(metric: Any) -> str:
     return formula
 
 
+def _metric_time_field(metric: Any) -> str:
+    """提取指标计算配置中的时间字段（如 orders.order_approved_at）。
+
+    时间字段决定"日活/月活/流水"等按时间统计的指标该用哪个时间列过滤日期，
+    为空时 LLM 会在数据集多个时间字段中自由选择，导致口径漂移。
+    """
+    config = getattr(metric, "calculation_config", None) or {}
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except Exception:
+            return ""
+    if not isinstance(config, dict):
+        return ""
+    value = str(config.get("time_field") or "").strip()
+    if value:
+        return value
+    scope = config.get("statistical_scope")
+    if isinstance(scope, dict):
+        value = str(scope.get("time_field") or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _metric_match_score(metric: Any, question: str, lowered: str) -> int:
     """计算指标与问题的文本匹配得分；0 表示不命中。certified 指标在同分时优先。"""
     name = str(metric.name or "").strip()
@@ -228,6 +253,7 @@ def match_metrics_from_question(
                     # 确保生成 SQL 与校验都遵循指标自带筛选，不漏口径。
                     "formula": metric_caliber_formula(metric),
                     "filters": fixed_filters,
+                    "time_field": _metric_time_field(metric),
                     "definition": metric.definition,
                     "aggregation": metric.aggregation,
                     "column_name": metric.column_name,
@@ -522,3 +548,38 @@ def sql_uses_metric_formula(sql: str, formula: str | None) -> bool:
     if ast_result is not None:
         return ast_result
     return _sql_uses_metric_formula_text(sql, formula)
+
+
+def sql_uses_metric_time_field(sql: str, time_field: str | None) -> bool:
+    """校验生成的 SQL 是否按指标配置的时间字段过滤。
+
+    时间口径是"日活/月活/流水"类指标的一部分：同一个去重公式，用
+    order_purchase_timestamp 与 order_approved_at 过滤会得到不同结果。
+    当指标显式配置了 time_field（如 orders.order_approved_at）时，要求 SQL 的
+    WHERE 条件中必须出现该时间字段（允许被 DATE()/TO_CHAR()/CAST() 等函数包裹，
+    也允许带表限定符或别名）；未配置时间字段或 SQL 无 WHERE 时不作约束。
+    """
+    if not time_field:
+        return True
+    time_field = str(time_field).strip()
+    if not time_field:
+        return True
+    target_column = time_field.split(".", 1)[-1].lower()
+    if not target_column:
+        return True
+
+    try:
+        sql_ast = sqlglot.parse_one(sql)
+    except Exception:
+        # 解析失败不阻塞：公式校验已兜底，避免误杀合法但方言特殊的 SQL。
+        return True
+    where = sql_ast.args.get("where")
+    if where is None:
+        # 问题未涉及日期过滤时，SQL 无 WHERE 属于正常形态，不做强约束。
+        return True
+    for column in where.find_all(exp.Column):
+        if str(column.name or "").lower() == target_column:
+            return True
+    # 宽松回退：仅检查 WHERE 片段文本，避免 sqlglot 对个别方言列的解析差异。
+    where_text = re.sub(r"\s+", "", where.sql()).lower()
+    return re.search(rf"(?<![a-z0-9_]){re.escape(target_column)}(?![a-z0-9_])", where_text) is not None

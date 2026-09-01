@@ -29,6 +29,7 @@ from app.core.metric_binding import (
     match_metrics_from_question,
     metric_caliber_formula,
     sql_uses_metric_formula,
+    sql_uses_metric_time_field,
 )
 from app.core.query_planner import plan_query
 from app.core.excel_executor import execute_excel_query
@@ -836,6 +837,30 @@ def _metric_match_log_detail(metric_matches: list[dict]) -> list[dict]:
     ]
 
 
+def _metric_caliber_matches(sql_query: str, formula: str | None, time_field: str | None = "") -> bool:
+    """口径达标判定：指标公式 + 时间字段同时满足。
+
+    时间字段是"日活/月活/流水"等按时间统计指标的一部分——同样的去重公式，
+    用不同时间字段过滤会得到不同结果。公式校验通过不代表时间口径正确。
+    """
+    if not sql_uses_metric_formula(sql_query, formula):
+        return False
+    return sql_uses_metric_time_field(sql_query, time_field)
+
+
+def _metric_caliber_retry_context(primary: dict, formula: str | None, time_field: str | None = "") -> str:
+    parts = [
+        "上一版 SQL 没有使用目标指标公式（或未完全遵循其口径）。",
+        f"目标指标：{primary.get('name', '未命名指标')}",
+    ]
+    if formula:
+        parts.append(f"必须使用的公式：{formula}")
+    if time_field:
+        parts.append(f"必须使用的时间字段：{time_field}（问题中的日期/时间段过滤必须作用于该字段）")
+    parts.append("请严格按该指标口径重写 SQL，不要在其基础上增加变换（如加常量、乘系数、改筛选条件），只输出最终 SQL。")
+    return "\n".join(parts)
+
+
 async def _generate_safe_sql(
     question: str,
     datasource: DataSource,
@@ -857,13 +882,9 @@ async def _generate_safe_sql(
     sql_query = sql_response.get("sql", "")
 
     metric_formula = (primary or {}).get("formula")
-    if primary and not sql_uses_metric_formula(sql_query, metric_formula):
-        retry_context = (
-            "上一版 SQL 没有使用目标指标公式。\n"
-            f"目标指标：{primary.get('name', '未命名指标')}\n"
-            f"必须使用的公式：{metric_formula}\n"
-            "请严格按该指标口径重写 SQL，不要在其基础上增加变换（如加常量、乘系数、改筛选条件），只输出最终 SQL。"
-        )
+    metric_time_field = (primary or {}).get("time_field") or ""
+    if primary and not _metric_caliber_matches(sql_query, metric_formula, metric_time_field):
+        retry_context = _metric_caliber_retry_context(primary, metric_formula, metric_time_field)
         retry_response = await generate_sql_query(
             question,
             datasource=datasource,
@@ -873,7 +894,7 @@ async def _generate_safe_sql(
             metric_matches=candidates,
         )
         retried_sql = retry_response.get("sql", "")
-        if not sql_uses_metric_formula(retried_sql, metric_formula):
+        if not _metric_caliber_matches(retried_sql, metric_formula, metric_time_field):
             raise ValueError(f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}")
         sql_query = retried_sql
 
@@ -899,7 +920,7 @@ async def _generate_safe_sql(
         metric_matches=candidates,
     )
     retried_sql = retry_response.get("sql", "")
-    if primary and not sql_uses_metric_formula(retried_sql, metric_formula):
+    if primary and not _metric_caliber_matches(retried_sql, metric_formula, metric_time_field):
         raise ValueError(f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}")
     retry_risk = detect_excel_join_risk(datasource.database_url, retried_sql)
     if retry_risk:

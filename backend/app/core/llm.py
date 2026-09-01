@@ -328,6 +328,7 @@ async def generate_sql_query(
         primary = candidates[0]
         metric_name = (primary.get("name") or "").strip()
         metric_formula = (primary.get("formula") or "").strip()
+        metric_time_field = (primary.get("time_field") or "").strip()
         if metric_name or metric_formula:
             system_prompt += "\n\n本次问题命中的目标指标："
             if metric_name:
@@ -337,6 +338,11 @@ async def generate_sql_query(
                     f"\n必须使用以下指标公式，不允许改写成其他口径：{metric_formula}"
                     "\n如果 SQL 中没有体现该公式或等价表达式，则答案无效。"
                 )
+        if metric_time_field:
+            system_prompt += (
+                f"\n该指标按时间字段「{metric_time_field}」统计：问题中涉及的日期/时间段过滤条件"
+                "必须作用于该时间字段，不得使用其他时间字段（例如下单时间与审批时间统计口径不同）。"
+            )
         reference_lines: list[str] = []
         for candidate in candidates[1:]:
             ref_name = (candidate.get("name") or "").strip()
