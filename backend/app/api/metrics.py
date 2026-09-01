@@ -529,6 +529,29 @@ def _render_preview_joins(dataset: Dataset, table: str) -> list[str]:
     return joins
 
 
+def _metric_preview_order_by(
+    payload: MetricPreviewRequest,
+    selected_dimensions: list[dict[str, str]],
+    metric_alias: str,
+) -> str:
+    """根据请求生成 ORDER BY 子句。
+
+    排序字段命中已选维度的原始字段名或输出别名时按维度列排序，
+    命中指标别名时按指标列排序；未传时保持默认按指标列降序。
+    所有排序目标均映射为 SELECT 输出别名，经 _quote_alias 转义，避免 SQL 注入。
+    """
+    order_by = str(payload.order_by or "").strip()
+    if not order_by:
+        return f"ORDER BY {_quote_alias(metric_alias)} DESC"
+    direction = "ASC" if payload.order_direction == "asc" else "DESC"
+    for item in selected_dimensions:
+        if order_by in (item["field"], item["label"]):
+            return f"ORDER BY {_quote_alias(item['label'])} {direction}"
+    if order_by == metric_alias:
+        return f"ORDER BY {_quote_alias(metric_alias)} {direction}"
+    raise HTTPException(status_code=400, detail="排序字段不合法")
+
+
 def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSource, payload: MetricPreviewRequest) -> dict[str, Any]:
     table = _source_table(dataset)
     dimension_candidates = _metric_dimension_candidates(dataset)
@@ -577,7 +600,7 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
         sql_parts.append(f"WHERE {' AND '.join(where_parts)}")
     if group_parts:
         sql_parts.append(f"GROUP BY {', '.join(group_parts)}")
-    sql_parts.append(f"ORDER BY {_quote_alias(metric_alias)} DESC")
+    sql_parts.append(_metric_preview_order_by(payload, selected_dimensions, metric_alias))
     sql_parts.append(f"LIMIT {limit}")
     return {
         "sql": "\n".join(sql_parts),
@@ -585,6 +608,8 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
         "dimension_labels": [item["label"] for item in selected_dimensions],
         "metric_column": metric_alias,
         "limit": limit,
+        "order_by": payload.order_by,
+        "order_direction": payload.order_direction,
     }
 
 
@@ -1475,6 +1500,8 @@ def preview_metric(
             "dimensions": plan.get("dimensions", []),
             "limit": plan.get("limit"),
             "metric_column": plan.get("metric_column"),
+            "order_by": plan.get("order_by"),
+            "order_direction": plan.get("order_direction"),
         },
     }
     return jsonable_encoder(response)

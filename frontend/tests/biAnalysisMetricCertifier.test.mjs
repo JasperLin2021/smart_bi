@@ -231,8 +231,22 @@ test("metric dialog previews live metric data by selected dimensions", () => {
   assert.match(view, /metricPreviewColumns/)
   assert.match(view, /fetchMetricPreview/)
   assert.match(view, /\/api\/metrics\/\$\{editingId\.value\}\/preview/)
-  assert.match(view, /@change="fetchMetricPreview"/)
+  assert.match(view, /@change="handleMetricPreviewDimensionsChange"/)
   assert.match(view, /实时数据预览/)
+})
+
+test("metric preview supports ordering by field and asc/desc direction", () => {
+  const view = read("src/views/MetricSettings.vue")
+
+  assert.match(view, /v-model="metricPreviewOrderBy"/)
+  assert.match(view, /v-model="metricPreviewOrderDirection"/)
+  assert.match(view, /metricPreviewSortOptions/)
+  assert.match(view, /默认排序（按指标）/)
+  assert.match(view, /order_by: metricPreviewOrderBy\.value \|\| null/)
+  assert.match(view, /order_direction: metricPreviewOrderDirection\.value/)
+  assert.match(view, /<el-radio-button :value="'desc'">降序<\/el-radio-button>/)
+  assert.match(view, /<el-radio-button :value="'asc'">升序<\/el-radio-button>/)
+  assert.match(view, /handleMetricPreviewDimensionsChange = \(\) => /)
 })
 
 test("metric preview dimension options include derived columns from the dataset", () => {

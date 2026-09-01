@@ -803,7 +803,7 @@
                     filterable
                     placeholder="选择预览维度"
                     :disabled="!editingId"
-                    @change="fetchMetricPreview"
+                    @change="handleMetricPreviewDimensionsChange"
                   >
                     <el-option
                       v-for="field in metricPreviewDimensionOptions"
@@ -817,6 +817,31 @@
                       </div>
                     </el-option>
                   </el-select>
+                  <el-select
+                    v-model="metricPreviewOrderBy"
+                    class="metric-preview-order-by field-picker-select"
+                    clearable
+                    filterable
+                    placeholder="默认排序（按指标）"
+                    :disabled="!editingId"
+                    @change="fetchMetricPreview"
+                  >
+                    <el-option
+                      v-for="option in metricPreviewSortOptions"
+                      :key="`sort-${option.value}`"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                  <el-radio-group
+                    v-model="metricPreviewOrderDirection"
+                    class="metric-preview-order-direction"
+                    :disabled="!editingId || !metricPreviewOrderBy"
+                    @change="fetchMetricPreview"
+                  >
+                    <el-radio-button :value="'desc'">降序</el-radio-button>
+                    <el-radio-button :value="'asc'">升序</el-radio-button>
+                  </el-radio-group>
                 </div>
                 <div v-if="metricPreviewError" class="metric-preview-error">
                   {{ metricPreviewError }}
@@ -1604,6 +1629,8 @@ interface MetricPreviewQuery {
   dimensions?: string[]
   limit?: number
   metric_column?: string
+  order_by?: string | null
+  order_direction?: "asc" | "desc"
 }
 
 interface MetricPreviewResult {
@@ -1666,6 +1693,8 @@ const fieldCandidateKeyword = ref("")
 const fieldCandidateRoleFilter = ref<FieldCandidateRoleFilter>("all")
 const fieldInsertTarget = ref<FieldInsertTarget>("auto")
 const metricPreviewDimensions = ref<string[]>([])
+const metricPreviewOrderBy = ref("")
+const metricPreviewOrderDirection = ref<"asc" | "desc">("desc")
 const metricPreviewColumns = ref<string[]>([])
 const metricPreviewRows = ref<Record<string, any>[]>([])
 const metricPreviewLoading = ref(false)
@@ -1977,6 +2006,20 @@ const dimensionFieldOptions = computed(() => {
 })
 
 const metricPreviewDimensionOptions = computed(() => dimensionFieldOptions.value)
+
+const metricPreviewSortOptions = computed(() => {
+  const selected = new Set(metricPreviewDimensions.value)
+  const options = metricPreviewDimensionOptions.value
+    .filter((field) => selected.has(field.name))
+    .map((field) => ({ label: fieldOptionLabel(field), value: field.name }))
+  // 指标列排序以数据库中的指标名为准，与后端 metric_alias 保持一致（避免编辑改名后请求非法）
+  const editingMetric = metrics.value.find((metric) => metric.id === editingId.value)
+  const metricName = String(editingMetric?.name || "").trim()
+  if (metricName) {
+    options.push({ label: `${metricName}（指标）`, value: metricName })
+  }
+  return options
+})
 
 const metricFieldOptions = computed(() => {
   const dataset = currentDataset.value
@@ -2728,8 +2771,18 @@ const metricPreviewStatusText = computed(() => {
   return "待预览"
 })
 
+const handleMetricPreviewDimensionsChange = () => {
+  const available = new Set(metricPreviewSortOptions.value.map((option) => option.value))
+  if (metricPreviewOrderBy.value && !available.has(metricPreviewOrderBy.value)) {
+    metricPreviewOrderBy.value = ""
+  }
+  fetchMetricPreview()
+}
+
 const resetMetricPreview = () => {
   metricPreviewDimensions.value = []
+  metricPreviewOrderBy.value = ""
+  metricPreviewOrderDirection.value = "desc"
   metricPreviewColumns.value = []
   metricPreviewRows.value = []
   metricPreviewError.value = ""
@@ -2748,6 +2801,8 @@ const fetchMetricPreview = async () => {
     const response = await axios.post<MetricPreviewResult>(`/api/metrics/${editingId.value}/preview`, {
       dimensions: metricPreviewDimensions.value,
       limit: 50,
+      order_by: metricPreviewOrderBy.value || null,
+      order_direction: metricPreviewOrderDirection.value,
     })
     metricPreviewColumns.value = response.data.columns || []
     metricPreviewRows.value = response.data.rows || []
@@ -4357,6 +4412,14 @@ onMounted(() => {
 
 .metric-preview-dimensions {
   width: min(520px, 100%);
+}
+
+.metric-preview-order-by {
+  width: min(240px, 100%);
+}
+
+.metric-preview-order-direction :deep(.el-radio-button__inner) {
+  font-size: 12px;
 }
 
 .metric-preview-table {

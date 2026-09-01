@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Any, Optional
 from datetime import datetime
 
@@ -130,6 +130,16 @@ class MetricPreviewRequest(BaseModel):
 
     dimensions: list[str] = []
     limit: int = 50
+    order_by: Optional[str] = None
+    order_direction: str = "desc"
+
+    @field_validator("order_direction")
+    @classmethod
+    def _normalize_order_direction(cls, value: str) -> str:
+        direction = str(value or "desc").strip().lower()
+        if direction not in {"asc", "desc"}:
+            raise ValueError("排序方向仅支持 asc 或 desc")
+        return direction
 
 
 class MetricPreviewResponse(BaseModel):
