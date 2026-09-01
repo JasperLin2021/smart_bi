@@ -488,7 +488,13 @@
 
                   <div v-if="isCalculationMode('derived')" class="mode-config-grid structured-caliber-builder">
                     <el-form-item class="mode-config-grid__wide" label="派生运算">
-                      <div class="derived-builder">
+                      <el-segmented
+                        v-model="form.calculation_config.derived_formula_mode"
+                        :options="derivedFormulaModeOptions"
+                        block
+                        class="derived-formula-mode-switcher"
+                      />
+                      <div v-if="form.calculation_config.derived_formula_mode === 'simple'" class="derived-builder">
                         <el-select
                           v-model="form.calculation_config.derived_left_field"
                           class="field-picker-select"
@@ -536,6 +542,34 @@
                             </el-option>
                           </el-option-group>
                         </el-select>
+                      </div>
+                      <div v-else class="derived-advanced-builder">
+                        <div class="derived-advanced-toolbar" role="toolbar" aria-label="高级公式插入工具">
+                          <el-select v-model="derivedInsertField" class="field-picker-select" filterable clearable placeholder="选择要插入的字段">
+                            <el-option-group v-for="group in derivedMetricOperandGroups" :key="`insert-${group.label}`" :label="group.label">
+                              <el-option v-for="field in group.options" :key="`insert-${group.label}-${field.name}`" :label="fieldOptionLabel(field)" :value="field.name">
+                                <div class="field-option-row">
+                                  <span>{{ field.label }}</span>
+                                  <small>{{ fieldOptionDetail(field) }}</small>
+                                </div>
+                              </el-option>
+                            </el-option-group>
+                          </el-select>
+                          <el-select v-model="derivedInsertAggregation" class="operand-aggregation-select" placeholder="聚合方式">
+                            <el-option v-for="item in derivedAdvancedAggregationOptions" :key="item.value" :label="item.label" :value="item.value" />
+                          </el-select>
+                          <el-button type="primary" plain :disabled="!derivedInsertField" @click="insertDerivedExpression">
+                            <el-icon style="margin-right: 4px"><Plus /></el-icon>插入字段
+                          </el-button>
+                        </div>
+                        <el-input
+                          v-model="form.calculation_config.derived_custom_expression"
+                          type="textarea"
+                          :rows="5"
+                          class="derived-expression-input"
+                          placeholder="例如：ROUND(SUM(delivery_completion) / COUNT(order_id), 2)"
+                        />
+                        <small class="builder-hint">支持标准 SQL 聚合函数（SUM / COUNT / AVG / MAX / MIN）、ROUND 等标量函数与四则运算；引用“已有可信指标”请先在上方插入。</small>
                       </div>
                       <small class="builder-hint">{{ derivedDependencyText || "选择左右指标后，系统会自动生成依赖指标和计算公式。" }}</small>
                     </el-form-item>
@@ -1416,6 +1450,7 @@ type FieldInsertTarget =
   | "denominator_field"
   | "derived_left_field"
   | "derived_right_field"
+  | "derived_custom_expression"
   | "partition_by"
   | "order_by"
 type FormulaAssistantRole = "user" | "assistant"
@@ -1433,6 +1468,8 @@ interface CalculationConfig {
   derived_left_field: string
   derived_operator: string
   derived_right_field: string
+  derived_formula_mode: "simple" | "advanced"
+  derived_custom_expression: string
   derived_expression: string
   dependency_metrics: string
   window_function: string
@@ -1694,6 +1731,20 @@ const derivedOperatorOptions = [
   { label: "÷", value: "/", title: "相除，自动处理除零" },
 ]
 
+const derivedFormulaModeOptions = [
+  { label: "简单运算", value: "simple" },
+  { label: "高级公式", value: "advanced" },
+]
+
+const derivedAdvancedAggregationOptions = [
+  { label: "无（原样插入）", value: "none" },
+  { label: "SUM", value: "sum" },
+  { label: "COUNT", value: "count" },
+  { label: "AVG", value: "avg" },
+  { label: "MAX", value: "max" },
+  { label: "MIN", value: "min" },
+]
+
 const windowFrameOptions = [
   { label: "累计至当前行", value: "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW" },
   { label: "近 7 行窗口", value: "ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" },
@@ -1722,6 +1773,8 @@ const defaultCalculationConfig = (): CalculationConfig => ({
   derived_left_field: "",
   derived_operator: "/",
   derived_right_field: "",
+  derived_formula_mode: "simple",
+  derived_custom_expression: "",
   derived_expression: "",
   dependency_metrics: "",
   window_function: "sum_over",
@@ -2001,6 +2054,12 @@ const fieldInsertTargetOptions = computed<FieldInsertTargetOption[]>(() => {
     ]
   }
   if (mode === "derived") {
+    if (form.value.calculation_config.derived_formula_mode === "advanced") {
+      return [
+        autoOption,
+        { label: "高级公式", value: "derived_custom_expression", helper: "追加到高级公式表达式末尾。" },
+      ]
+    }
     return [
       autoOption,
       { label: "左侧指标", value: "derived_left_field", helper: "作为派生运算左侧操作数。" },
@@ -2124,8 +2183,57 @@ const buildDerivedExpression = (config = form.value.calculation_config) => {
   if (operator === "/") return `${left} / NULLIF(${right}, 0)`
   return `${left} ${operator} ${right}`
 }
+const derivedInsertField = ref("")
+const derivedInsertAggregation = ref("none")
+const insertDerivedExpression = () => {
+  const fieldName = derivedInsertField.value.trim()
+  if (!fieldName) {
+    ElMessage.warning("请先选择要插入的字段")
+    return
+  }
+  const operand = findMetricOperand(fieldName)
+  const aggregation = derivedInsertAggregation.value
+  const token = operand?.source === "trusted_metric"
+    ? fieldName
+    : aggregation === "none" || !aggregation
+      ? fieldName
+      : expressionToken(fieldName, aggregation)
+  form.value.calculation_config.derived_custom_expression = appendToken(
+    form.value.calculation_config.derived_custom_expression,
+    token,
+  )
+}
+const resolveDerivedCustomExpression = (expression: string) => {
+  const normalized = String(expression || "").trim()
+  if (!normalized) return ""
+  return normalized.replace(/metric:\d+/gi, (token) => {
+    const operand = findMetricOperand(token)
+    return operand?.expression || token
+  })
+}
+const extractDerivedExpressionDependencies = (expression: string) => {
+  const normalized = String(expression || "").trim()
+  if (!normalized) return []
+  const matchesExpression = (candidate: string) => {
+    const text = String(candidate || "").trim()
+    if (!text) return false
+    const pattern = new RegExp(`(^|[^\\w.])${escapeRegExp(text)}([^\\w.]|$)`, "i")
+    return pattern.test(normalized)
+  }
+  return derivedMetricOperandOptions.value
+    .filter((field) => {
+      const key = field.name
+      const label = field.label || field.name
+      return matchesExpression(key) || (label !== key && matchesExpression(label))
+    })
+    .map(field => field.label || field.name)
+}
 const derivedDependencyText = computed(() => {
   const config = form.value.calculation_config
+  if (config.derived_formula_mode === "advanced") {
+    const referenced = extractDerivedExpressionDependencies(config.derived_custom_expression)
+    return referenced.length ? `已识别依赖指标：${referenced.join("、")}` : ""
+  }
   const fields = [config.derived_left_field, config.derived_right_field]
     .map(fieldName => findMetricOperand(fieldName))
     .filter((field): field is DatasetFieldOption => Boolean(field))
@@ -2176,6 +2284,15 @@ const pickCandidateField = (field: DatasetFieldOption) => {
     return
   }
   if (config.calculation_mode === "derived") {
+    if (config.derived_formula_mode === "advanced") {
+      const aggregation = expressionAggregationForField(field)
+      const token = aggregation ? expressionToken(field.name, aggregation) : field.name
+      form.value.calculation_config.derived_custom_expression = appendToken(
+        form.value.calculation_config.derived_custom_expression,
+        token,
+      )
+      return
+    }
     if (!config.derived_left_field.trim()) {
       setDerivedOperand("left", field)
     } else if (!config.derived_right_field.trim()) {
@@ -2211,6 +2328,12 @@ const insertCandidateField = (field: DatasetFieldOption) => {
   }
   if (target === "derived_right_field") {
     setDerivedOperand("right", field)
+    return
+  }
+  if (target === "derived_custom_expression") {
+    const aggregation = expressionAggregationForField(field)
+    const token = aggregation ? expressionToken(field.name, aggregation) : field.name
+    config.derived_custom_expression = appendToken(config.derived_custom_expression, token)
     return
   }
   if (target === "partition_by") {
@@ -2475,13 +2598,23 @@ const lineageCalculationItems = computed(() => {
     )
   }
   if (config.calculation_mode === "derived") {
-    modeSpecificItems.push(
-      { label: "左侧指标", value: config.derived_left_field },
-      { label: "派生运算", value: config.derived_operator },
-      { label: "右侧指标", value: config.derived_right_field },
-      { label: "依赖指标", value: config.dependency_metrics },
-      { label: "输出别名", value: config.output_alias },
-    )
+    if (config.derived_formula_mode === "advanced") {
+      modeSpecificItems.push(
+        { label: "公式模式", value: "高级公式" },
+        { label: "计算公式", value: config.derived_custom_expression },
+        { label: "依赖指标", value: config.dependency_metrics },
+        { label: "输出别名", value: config.output_alias },
+      )
+    } else {
+      modeSpecificItems.push(
+        { label: "公式模式", value: "简单运算" },
+        { label: "左侧指标", value: config.derived_left_field },
+        { label: "派生运算", value: config.derived_operator },
+        { label: "右侧指标", value: config.derived_right_field },
+        { label: "依赖指标", value: config.dependency_metrics },
+        { label: "输出别名", value: config.output_alias },
+      )
+    }
   }
   if (config.calculation_mode === "window") {
     modeSpecificItems.push(
@@ -2695,6 +2828,8 @@ const normalizeCalculationConfig = (value?: Partial<CalculationConfig> | null): 
     derived_left_field: String(config.derived_left_field || "").trim(),
     derived_operator: derivedOperatorOptions.some(item => item.value === config.derived_operator) ? String(config.derived_operator) : base.derived_operator,
     derived_right_field: String(config.derived_right_field || "").trim(),
+    derived_formula_mode: config.derived_formula_mode === "advanced" ? "advanced" : "simple",
+    derived_custom_expression: String(config.derived_custom_expression || "").trim(),
     derived_expression: String(config.derived_expression || "").trim(),
     dependency_metrics: String(config.dependency_metrics || "").trim(),
     window_function: String(config.window_function || base.window_function).trim() || base.window_function,
@@ -2782,6 +2917,7 @@ const formulaPreview = computed(() => {
     return `ROUND(${ratioExpression}, ${config.decimal_precision})`
   }
   if (config.calculation_mode === "derived") {
+    if (config.derived_formula_mode === "advanced") return resolveDerivedCustomExpression(config.derived_custom_expression)
     return buildDerivedExpression(config)
   }
   if (config.calculation_mode === "window") {
@@ -2812,7 +2948,10 @@ const formulaPreviewStatus = computed(() => {
   if (!form.value.dataset_id) return "先选择数据集，再从字段候选项中快速填充"
   if (config.calculation_mode === "aggregate" && form.value.aggregation !== "count") return "请选择聚合字段"
   if (config.calculation_mode === "ratio") return "请补齐分子字段和分母字段"
-  if (config.calculation_mode === "derived") return "请选择左右指标并通过按钮确定派生运算"
+  if (config.calculation_mode === "derived") {
+    if (config.derived_formula_mode === "advanced") return "请输入高级公式表达式，如 ROUND(SUM(delivery_completion) / COUNT(order_id), 2)"
+    return "请选择左右指标并通过按钮确定派生运算"
+  }
   if (config.calculation_mode === "window") return "请选择基础字段，并至少配置分区或排序字段"
   return "补齐必要配置后自动生成"
 })
@@ -2826,6 +2965,9 @@ const isCalculationModelConfigured = computed(() => {
     return Boolean(config.numerator_field.trim() && config.denominator_field.trim())
   }
   if (config.calculation_mode === "derived") {
+    if (config.derived_formula_mode === "advanced") {
+      return Boolean(config.derived_custom_expression.trim())
+    }
     return Boolean(config.derived_left_field.trim() && config.derived_operator && config.derived_right_field.trim())
   }
   if (config.calculation_mode === "window") {
@@ -2865,12 +3007,16 @@ const buildPayload = () => {
   calculationConfig.custom_sql = ""
   calculationConfig.numerator_expression = controlledMetricExpression(calculationConfig.numerator_field, calculationConfig.numerator_aggregation)
   calculationConfig.denominator_expression = controlledMetricExpression(calculationConfig.denominator_field, calculationConfig.denominator_aggregation)
-  calculationConfig.derived_expression = buildDerivedExpression(calculationConfig)
+  calculationConfig.derived_expression = calculationConfig.derived_formula_mode === "advanced"
+    ? resolveDerivedCustomExpression(calculationConfig.derived_custom_expression)
+    : buildDerivedExpression(calculationConfig)
   if (calculationConfig.calculation_mode === "derived") {
-    calculationConfig.dependency_metrics = [calculationConfig.derived_left_field, calculationConfig.derived_right_field]
-      .map(fieldName => findMetricOperand(fieldName)?.label || fieldName)
-      .filter(Boolean)
-      .join(", ")
+    const dependencyNames = calculationConfig.derived_formula_mode === "advanced"
+      ? extractDerivedExpressionDependencies(calculationConfig.derived_custom_expression)
+      : [calculationConfig.derived_left_field, calculationConfig.derived_right_field]
+          .map(fieldName => findMetricOperand(fieldName)?.label || fieldName)
+          .filter(Boolean)
+    calculationConfig.dependency_metrics = Array.from(new Set(dependencyNames)).join(", ")
   }
   const generatedFormula = formulaPreview.value.trim()
   const outputColumn =
@@ -3117,7 +3263,14 @@ const applyFormulaToGraphicalConfig = (formula: string) => {
     return true
   }
   if (config.calculation_mode === "derived") {
-    if (operands.length < 2) return false
+    const aggregateCount = (formula.match(/\b(SUM|AVG|COUNT|MAX|MIN)\s*\(/gi) || []).length
+    const isComplexFormula = operands.length < 2 || /\bROUND\s*\(/i.test(formula) || aggregateCount > 2
+    if (isComplexFormula) {
+      config.derived_formula_mode = "advanced"
+      config.derived_custom_expression = formula
+      return true
+    }
+    config.derived_formula_mode = "simple"
     config.derived_left_field = operands[0].field
     config.derived_right_field = operands[1].field
     if (formula.includes("/")) config.derived_operator = "/"
@@ -3934,6 +4087,30 @@ onMounted(() => {
   line-height: 1.45;
 }
 
+.derived-formula-mode-switcher {
+  margin-bottom: 10px;
+}
+
+.derived-advanced-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.derived-advanced-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.derived-expression-input :deep(.el-textarea__inner) {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .field-candidate-panel {
   margin-bottom: 12px;
   padding: 10px 12px;
@@ -4689,6 +4866,10 @@ onMounted(() => {
 
   .derived-operator-button {
     flex: 1 1 0;
+  }
+
+  .derived-advanced-toolbar {
+    grid-template-columns: 1fr;
   }
 
   .formula-preview-panel__head {

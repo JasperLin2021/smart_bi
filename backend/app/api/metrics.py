@@ -252,6 +252,34 @@ def _metric_scope(metric: Metric) -> dict[str, Any]:
     }
 
 
+_SQL_EXPRESSION_KEYWORDS = {
+    "SUM", "AVG", "COUNT", "MAX", "MIN", "ROUND", "DISTINCT", "NULLIF",
+    "CASE", "WHEN", "THEN", "ELSE", "END", "ABS", "COALESCE", "IFNULL",
+    "CONCAT", "CAST", "AS", "AND", "OR", "NOT", "IN", "IS", "NULL",
+    "BETWEEN", "LIKE", "OVER", "PARTITION", "ORDER", "BY", "GROUP",
+    "SELECT", "FROM", "WHERE", "LAG", "LEAD", "RANK", "DENSE_RANK", "ROW_NUMBER",
+    "TRUE", "FALSE", "ASC", "DESC",
+}
+
+
+def _expression_source_fields(expression: str) -> list[str]:
+    """从高级派生表达式中提取字段标识符（跳过 SQL 函数/关键字与 metric:NNN 引用）。"""
+    text = str(expression or "").strip()
+    if not text:
+        return []
+    text = re.sub(r"metric:\d+", " ", text, flags=re.I)
+    identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", text)
+    seen: set[str] = set()
+    result: list[str] = []
+    for ident in identifiers:
+        if ident.upper() in _SQL_EXPRESSION_KEYWORDS:
+            continue
+        if ident not in seen:
+            seen.add(ident)
+            result.append(ident)
+    return result
+
+
 def _metric_source_fields(metric: Metric) -> list[str]:
     config = _calculation_config(metric)
     fields = [
@@ -263,6 +291,8 @@ def _metric_source_fields(metric: Metric) -> list[str]:
         config.get("derived_right_field"),
         config.get("time_field"),
     ]
+    if config.get("derived_formula_mode") == "advanced":
+        fields.extend(_expression_source_fields(config.get("derived_custom_expression")))
     fields.extend(_split_field_list(config.get("partition_by")))
     fields.extend(_split_field_list(config.get("order_by")))
     fields.extend(rule.get("field") for rule in _as_list(config.get("filters")) if isinstance(rule, dict))
@@ -293,6 +323,8 @@ def _metric_calculation_summary(metric: Metric) -> dict[str, Any]:
         "derived_left_field",
         "derived_operator",
         "derived_right_field",
+        "derived_formula_mode",
+        "derived_custom_expression",
         "dependency_metrics",
         "window_function",
         "partition_by",
@@ -313,6 +345,10 @@ def _dependency_metric_refs(metric: Metric) -> tuple[list[int], list[str]]:
         config.get("derived_left_field"),
         config.get("derived_right_field"),
     ]
+    if config.get("derived_formula_mode") == "advanced":
+        custom_expression = str(config.get("derived_custom_expression") or "")
+        for token in re.findall(r"metric:\d+", custom_expression, flags=re.I):
+            operand_refs.append(token)
     ids: list[int] = []
     names: list[str] = []
     for raw in operand_refs:

@@ -136,6 +136,23 @@ test("derived trusted metrics can use existing trusted metrics as operands", () 
   assert.doesNotMatch(derivedBuilderBlock, /v-for="group in metricFieldOptionGroups"/)
 })
 
+test("derived metrics support advanced custom formula mode with dependency extraction", () => {
+  const view = read("src/views/MetricSettings.vue")
+
+  assert.match(view, /derived_formula_mode/)
+  assert.match(view, /derived_custom_expression/)
+  assert.match(view, /derivedFormulaModeOptions/)
+  assert.match(view, /derivedAdvancedAggregationOptions/)
+  assert.match(view, /derived-formula-mode-switcher/)
+  assert.match(view, /derived-advanced-builder/)
+  assert.match(view, /derived-advanced-toolbar/)
+  assert.match(view, /insertDerivedExpression/)
+  assert.match(view, /resolveDerivedCustomExpression/)
+  assert.match(view, /extractDerivedExpressionDependencies/)
+  assert.match(view, /ROUND\(SUM\(delivery_completion\) \/ COUNT\(order_id\), 2\)/)
+  assert.match(view, /v-model="form\.calculation_config\.derived_custom_expression"/)
+})
+
 test("metric formula AI generation uses a conversational candidate modal", () => {
   const view = read("src/views/MetricSettings.vue")
 

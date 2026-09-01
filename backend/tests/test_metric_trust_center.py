@@ -388,6 +388,115 @@ class MetricTrustCenterTests(unittest.TestCase):
         self.assertEqual(lineage["calculation"]["mode"], "derived")
         self.assertEqual([item["name"] for item in lineage["dependencies"]], ["完成订单销售额", "完成订单数"])
 
+    def test_metric_lineage_resolves_advanced_derived_formula_dependencies(self):
+        from app.api.metrics import _metric_source_fields, create_metric, get_metric_lineage
+        from app.models.audit_log import AuditLog
+        from app.models.catalog import DataAsset
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricCreate
+
+        db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__, DataAsset.__table__, AuditLog.__table__])
+        datasource = DataSource(
+            name="Sales",
+            slug="sales-advanced-derived",
+            database_url="sqlite:///:memory:",
+            metadata_prompt="",
+            org_id=2,
+        )
+        db.add(datasource)
+        db.flush()
+        dataset = Dataset(
+            name="Sales Dataset",
+            datasource_id=datasource.id,
+            fields_json={
+                "table": "orders",
+                "metrics": ["orders.total_amount", "orders.order_id", "orders.delivery_completion"],
+                "dimensions": ["orders.region", "orders.order_date"],
+            },
+            org_id=2,
+            owner_id=1,
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+
+        revenue = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="完成订单销售额",
+                definition="已完成订单金额合计",
+                formula="SUM(orders.total_amount)",
+                column_name="orders.total_amount",
+                aggregation="sum",
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+        orders = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="完成订单数",
+                definition="已完成订单去重数量",
+                formula="COUNT(DISTINCT orders.order_id)",
+                column_name="orders.order_id",
+                aggregation="count_distinct",
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+        custom_expression = f"ROUND(metric:{revenue.id} / metric:{orders.id}, 2)"
+        metric = create_metric(
+            MetricCreate(
+                dataset_id=dataset.id,
+                name="平均成交客单价(高级公式)",
+                definition="完成订单销售额 / 完成订单数",
+                formula="ROUND(SUM(orders.total_amount) / NULLIF(COUNT(DISTINCT orders.order_id), 0), 2)",
+                column_name="avg_deal_amount",
+                aggregation="custom",
+                calculation_config={
+                    "calculation_mode": "derived",
+                    "derived_formula_mode": "advanced",
+                    "derived_custom_expression": custom_expression,
+                    "dependency_metrics": "完成订单销售额, 完成订单数",
+                    "statistical_window": "自然月",
+                    "time_field": "orders.order_date",
+                    "time_grain": "month",
+                    "refresh_sla": "T+1 08:00 前完成刷新",
+                },
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=1, username="root", role="super_admin", org_id=None),
+        )
+
+        lineage = get_metric_lineage(
+            metric.id,
+            db=db,
+            current_user=SimpleNamespace(id=2, username="analyst", role="org_admin", org_id=2),
+        )
+
+        self.assertEqual(lineage["calculation"]["mode"], "derived")
+        self.assertEqual(lineage["calculation"]["derived_formula_mode"], "advanced")
+        self.assertEqual(lineage["calculation"]["derived_custom_expression"], custom_expression)
+        self.assertEqual([item["name"] for item in lineage["dependencies"]], ["完成订单销售额", "完成订单数"])
+
+        source_fields = _metric_source_fields(metric)
+        self.assertIn("avg_deal_amount", source_fields)
+
+    def test_expression_source_fields_skip_sql_keywords_and_metric_refs(self):
+        from app.api.metrics import _expression_source_fields
+
+        self.assertEqual(
+            _expression_source_fields("ROUND(SUM(orders.delivery_completion)/COUNT(orders.order_id), 2)"),
+            ["orders.delivery_completion", "orders.order_id"],
+        )
+        self.assertEqual(
+            _expression_source_fields("ROUND(metric:5 / metric:6, 2)"),
+            [],
+        )
+        self.assertEqual(_expression_source_fields(""), [])
+
     def test_metric_certifiers_are_permission_controlled_system_users(self):
         from app.api.metrics import list_metric_certifiers
         from app.models.organization import Organization
