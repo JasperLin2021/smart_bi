@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import time
 import httpx
@@ -46,6 +47,8 @@ from app.schemas.query import DrillPreviewRequest, DrillPreviewResponse
 from app.core.drill_runtime import build_drill_actions
 from app.core.drill_suggester import suggest_drill_actions
 from app.core.rls_enforcer import get_rls_clauses, apply_rls_to_sql
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -819,6 +822,20 @@ def _build_business_semantic_context(
     }
 
 
+def _metric_match_log_detail(metric_matches: list[dict]) -> list[dict]:
+    """指标命中详情（用于日志排查：命中了哪些指标、得分、认证状态）。"""
+    return [
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "match_score": item.get("match_score"),
+            "certification_status": item.get("certification_status"),
+            "source": item.get("source"),
+        }
+        for item in metric_matches
+    ]
+
+
 async def _generate_safe_sql(
     question: str,
     datasource: DataSource,
@@ -1205,6 +1222,12 @@ async def ask(
     try:
         if mode == "agentic":
             metric_matches = match_metrics_from_question(db, question, datasource)
+            logger.info(
+                "探索模式指标命中 question=%r datasource_id=%s matched=%s",
+                question[:150],
+                datasource.id,
+                json.dumps(_metric_match_log_detail(metric_matches), ensure_ascii=False),
+            )
             _, value_probe_context = await _append_agentic_value_probe(
                 datasource,
                 question,
@@ -1230,6 +1253,13 @@ async def ask(
                 question,
                 datasource,
                 dataset_id=dataset.id if dataset else None,
+            )
+            logger.info(
+                "业务问数指标命中 question=%r datasource_id=%s dataset_id=%s matched=%s",
+                question[:150],
+                datasource.id,
+                dataset.id if dataset else None,
+                json.dumps(_metric_match_log_detail(metric_matches), ensure_ascii=False),
             )
             metric_match = metric_matches[0] if metric_matches else None
             sql_query = await _generate_safe_sql(

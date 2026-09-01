@@ -167,6 +167,51 @@ class MetricAstValidationTests(unittest.TestCase):
             )
         )
 
+    def test_accepts_numeric_cast_in_ratio_formula(self):
+        """交付完成率场景：LLM 为避免整数除法加的 ::numeric 属数值类型提升，应视为口径等价。"""
+        from app.core.metric_binding import sql_uses_metric_formula
+
+        formula = "ROUND(SUM(delivery_completion)/COUNT(order_id), 2)"
+        sql = (
+            "SELECT DATE(order_purchase_timestamp) AS stat_date, "
+            "ROUND(SUM(delivery_completion)::numeric / COUNT(order_id), 2) AS delivery_completion_rate "
+            "FROM orders "
+            "WHERE order_purchase_timestamp >= '2016-10-09' AND order_purchase_timestamp < '2016-10-10' "
+            "GROUP BY DATE(order_purchase_timestamp)"
+        )
+        self.assertTrue(sql_uses_metric_formula(sql, formula))
+
+    def test_accepts_common_numeric_cast_variants(self):
+        """float / double precision / decimal(精度) / int 等数值类型提升 CAST 均不应误判为口径偏离。"""
+        from app.core.metric_binding import sql_uses_metric_formula
+
+        formula = "SUM(amount) / SUM(qty)"
+        for cast in ("::float", "::double precision", "::decimal(10,2)", "::numeric", "::int"):
+            self.assertTrue(
+                sql_uses_metric_formula(
+                    f"SELECT SUM(amount){cast} / SUM(qty) AS avg_price FROM sales",
+                    formula,
+                ),
+                f"cast {cast} 应被放行",
+            )
+
+    def test_still_rejects_semantic_cast_tampering(self):
+        """::text / ::date 等语义转换不属于数值类型提升，加在公式上仍应判为口径偏离。"""
+        from app.core.metric_binding import sql_uses_metric_formula
+
+        self.assertFalse(
+            sql_uses_metric_formula(
+                "SELECT SUM(amount)::text AS total FROM orders",
+                "SUM(amount)",
+            )
+        )
+        self.assertFalse(
+            sql_uses_metric_formula(
+                "SELECT SUM(amount)::date AS total FROM orders",
+                "SUM(amount)",
+            )
+        )
+
     def test_rejects_where_filter_tampering(self):
         from app.core.metric_binding import sql_uses_metric_formula
 
@@ -336,6 +381,27 @@ class MetricTableMatchingTests(unittest.TestCase):
             db.commit()
             datasource = SimpleNamespace(id=1)
             matched = match_metrics_from_question(db, "查询销售额和订单量", datasource)
+            self.assertEqual(matched, [])
+        finally:
+            engine.dispose()
+
+    def test_excludes_unpublished_draft_status_metrics(self):
+        """未发布（status=draft）的指标不会被问数命中——这是"指标未注入口径"的常见根因。"""
+        from app.core.metric_binding import match_metrics_from_question
+
+        db, engine = self._session()
+        try:
+            db.add(
+                self._metric(
+                    "交付完成率",
+                    "ROUND(SUM(delivery_completion)/COUNT(order_id), 2)",
+                    status="draft",
+                    certification_status="certified",
+                )
+            )
+            db.commit()
+            datasource = SimpleNamespace(id=1)
+            matched = match_metrics_from_question(db, "2016-10-9的交付完成率是多少", datasource)
             self.assertEqual(matched, [])
         finally:
             engine.dispose()

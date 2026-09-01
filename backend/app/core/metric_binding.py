@@ -261,13 +261,75 @@ def _is_zero_literal(node: exp.Expression) -> bool:
         return False
 
 
+# 数值类型提升型 CAST 类型名（sqlglot DataType.Type 枚举名）。
+# 这类转换只改变数值的存储/计算精度，不改变业务口径（如避免整数除法截断的 ::numeric），
+# 在口径校验时允许剥离；而 ::text / ::date / ::timestamp 等语义转换不属于此列，不能放行。
+_NUMERIC_CAST_TYPE_NAMES = frozenset(
+    {
+        "DECIMAL",
+        "FLOAT",
+        "DOUBLE",
+        "REAL",
+        "INT",
+        "INTEGER",
+        "BIGINT",
+        "SMALLINT",
+        "TINYINT",
+    }
+)
+# 兜底：不同 sqlglot 版本 DataType.this 可能是字符串时的低层类型名（已去空格、去精度）
+_NUMERIC_CAST_TEXT_HINTS = frozenset(
+    {
+        "numeric",
+        "decimal",
+        "number",
+        "float",
+        "double",
+        "doubleprecision",
+        "real",
+        "int",
+        "integer",
+        "bigint",
+        "smallint",
+        "tinyint",
+        "dec",
+        "fixed",
+    }
+)
+
+
+def _is_numeric_type_cast(node: exp.Cast) -> bool:
+    """判断 CAST 是否为不影响业务口径的数值类型提升（如 ::numeric、::float）。"""
+    to_type = node.args.get("to")
+    if not isinstance(to_type, exp.DataType):
+        return False
+    type_enum = getattr(to_type, "this", None)
+    type_name = str(getattr(type_enum, "name", "")).upper()
+    if type_name in _NUMERIC_CAST_TYPE_NAMES:
+        return True
+    try:
+        text = to_type.sql().lower().replace(" ", "").split("(")[0].strip()
+    except Exception:
+        text = ""
+    return text in _NUMERIC_CAST_TEXT_HINTS
+
+
+def _strip_numeric_casts(node: exp.Expression) -> exp.Expression:
+    """剥离表达式中所有数值类型提升 CAST（返回新副本），保留其他 CAST 语义。"""
+    for cast in list(node.find_all(exp.Cast)):
+        if _is_numeric_type_cast(cast):
+            cast.replace(cast.this)
+    return node
+
+
 def _normalize_ast(node: exp.Expression) -> exp.Expression:
-    """规范化表达式 AST（返回副本）：去表限定符、去别名、解包 NULLIF/COALESCE(x,0)。"""
+    """规范化表达式 AST（返回副本）：去表限定符、去别名、剥离数值 CAST、解包 NULLIF/COALESCE(x,0)。"""
     node = node.copy()
     if isinstance(node, exp.Alias):
         node = node.this
     for column in list(node.find_all(exp.Column)):
         column.set("table", "")
+    _strip_numeric_casts(node)
     for nullif in list(node.find_all(exp.Nullif)):
         second = nullif.args.get("expression")
         if second is not None and _is_zero_literal(second):
@@ -283,11 +345,17 @@ def _normalize_ast(node: exp.Expression) -> exp.Expression:
 
 
 def _unwrap_safe_wrappers(node: exp.Expression) -> exp.Expression | None:
-    """剥离不影响业务口径的顶层包裹：ROUND、CAST、单参 COALESCE。"""
+    """剥离不影响业务口径的顶层包裹：ROUND、数值类型提升 CAST、单参 COALESCE。
+
+    注意：顶层 CAST 仅放行数值类型提升（::numeric/::float 等），
+    ::text / ::date 等语义转换会改变口径，不得剥离。
+    """
     for _ in range(3):
         if isinstance(node, exp.Round):
             node = node.args.get("this")
         elif isinstance(node, exp.Cast):
+            if not _is_numeric_type_cast(node):
+                break
             node = node.this
         elif isinstance(node, exp.Coalesce):
             node = node.args.get("this")
