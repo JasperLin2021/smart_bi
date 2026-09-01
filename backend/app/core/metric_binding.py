@@ -173,6 +173,96 @@ def _metric_time_field(metric: Any) -> str:
     return ""
 
 
+def _extract_derived_source_column(expression: str, dataset: Any) -> str:
+    """从派生列表达式（如 TO_CHAR(order_approved_at, 'YYYY年MM月DD日')）中提取底层列名。
+
+    返回时尽量带上表限定（如 orders.order_approved_at），避免多表同名列歧义；
+    无法确定表名时回退为裸列名；解析失败返回空串。
+    """
+    try:
+        parsed = sqlglot.parse_one(expression)
+    except Exception:
+        return ""
+    columns = [column for column in parsed.find_all(exp.Column) if column.name]
+    if not columns:
+        return ""
+    source = columns[0].name
+    table = (columns[0].table or "").strip()
+    if table:
+        return f"{table}.{source}"
+    try:
+        fields = getattr(dataset, "fields_json", None) or {}
+        field_list = fields.get("fields") if isinstance(fields, dict) else None
+        if isinstance(field_list, list):
+            matches = [
+                field for field in field_list
+                if isinstance(field, str) and field.split(".", 1)[-1] == source
+            ]
+            if len(matches) == 1:
+                return matches[0]
+    except Exception:
+        pass
+    return source
+
+
+def _resolve_time_field(db: Any, metric: Any) -> str:
+    """解析指标配置的时间字段；若为数据集派生列则还原为底层真实列。
+
+    时间字段可能被配置为数据集派生列（如 Datetime_YMD = TO_CHAR(order_approved_at, ...)），
+    这类列名在底层业务表中不存在：LLM 基于元数据表结构生成的 SQL 无法在 WHERE 中使用
+    该列名，时间口径校验会必然失败（表现为"生成结果未使用目标指标公式"重试后仍报错）。
+    这里把派生列解析为其依赖的底层时间列，使提示注入与 SQL 校验都基于真实列；
+    解析失败或无法解析时回退原值。
+    """
+    time_field = _metric_time_field(metric)
+    if not time_field:
+        return ""
+    dataset_id = getattr(metric, "dataset_id", None)
+    if not dataset_id or db is None:
+        return time_field
+    try:
+        from app.models.dataset import Dataset
+
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    except Exception:
+        return time_field
+    if dataset is None:
+        return time_field
+    derived = getattr(dataset, "derived_columns_json", None) or {}
+    if not isinstance(derived, dict):
+        return time_field
+
+    target_name = str(time_field).strip()
+
+    def _match_named_expression(name: str, body: Any) -> str | None:
+        if name.strip() != target_name or not body:
+            return None
+        return _extract_derived_source_column(str(body), dataset) or None
+
+    # 结构一：{"expressions": ["name = expr", ...]}（前端派生列构建器的保存形态）
+    raw_expressions = derived.get("expressions") or derived.get("columns") or []
+    if not isinstance(raw_expressions, list):
+        raw_expressions = [raw_expressions]
+    for raw in raw_expressions:
+        expr_str = str(raw)
+        name, _, body = expr_str.partition("=")
+        if not body:
+            continue
+        resolved = _match_named_expression(name, body)
+        if resolved:
+            return resolved
+
+    # 结构二：{"name": "expr", ...}
+    for name, body in derived.items():
+        if name in ("expressions", "columns"):
+            continue
+        resolved = _match_named_expression(name, body)
+        if resolved:
+            return resolved
+
+    return time_field
+
+
 def _metric_match_score(metric: Any, question: str, lowered: str) -> int:
     """计算指标与问题的文本匹配得分；0 表示不命中。certified 指标在同分时优先。"""
     name = str(metric.name or "").strip()
@@ -253,7 +343,9 @@ def match_metrics_from_question(
                     # 确保生成 SQL 与校验都遵循指标自带筛选，不漏口径。
                     "formula": metric_caliber_formula(metric),
                     "filters": fixed_filters,
-                    "time_field": _metric_time_field(metric),
+                    # time_field 为派生列时解析为底层真实列（如 Datetime_YMD -> orders.order_approved_at），
+                    # 否则 LLM 生成的 SQL 无法在 WHERE 中使用派生列名，时间口径校验必然失败。
+                    "time_field": _resolve_time_field(db, metric),
                     "definition": metric.definition,
                     "aggregation": metric.aggregation,
                     "column_name": metric.column_name,

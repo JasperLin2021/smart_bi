@@ -2060,8 +2060,9 @@ const isTimeLikeField = (field: DatasetFieldOption) => {
   return /(date|time|日期|时间|day|month|year|created|updated|biz_date)/.test(text)
 }
 const timeFieldOptions = computed(() => {
-  const matches = datasetFieldOptions.value.filter(isTimeLikeField)
-  return matches.length ? matches : datasetFieldOptions.value
+  // 从维度字段（含数据集已配置维度、时间维度、派生列）中筛选时间含义字段，不再回退到指标列表
+  const matches = dimensionFieldOptions.value.filter(isTimeLikeField)
+  return matches.length ? matches : dimensionFieldOptions.value
 })
 const fieldCandidateFilterOptions = computed(() => [
   { label: "全部字段", value: "all" as const, count: allDatasetFieldOptions.value.length },

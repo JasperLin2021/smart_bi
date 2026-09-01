@@ -895,7 +895,13 @@ async def _generate_safe_sql(
         )
         retried_sql = retry_response.get("sql", "")
         if not _metric_caliber_matches(retried_sql, metric_formula, metric_time_field):
-            raise ValueError(f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}")
+            formula_ok = sql_uses_metric_formula(retried_sql, metric_formula)
+            time_ok = sql_uses_metric_time_field(retried_sql, metric_time_field)
+            raise ValueError(
+                f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}"
+                f"（公式达标={formula_ok}，时间字段达标={time_ok}；"
+                f"指标时间字段={metric_time_field or '(未配置)'}；生成SQL：{retried_sql}）"
+            )
         sql_query = retried_sql
 
     if datasource.source_type != "excel":
@@ -921,7 +927,13 @@ async def _generate_safe_sql(
     )
     retried_sql = retry_response.get("sql", "")
     if primary and not _metric_caliber_matches(retried_sql, metric_formula, metric_time_field):
-        raise ValueError(f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}")
+        formula_ok = sql_uses_metric_formula(retried_sql, metric_formula)
+        time_ok = sql_uses_metric_time_field(retried_sql, metric_time_field)
+        raise ValueError(
+            f"生成结果未使用目标指标公式：{primary.get('name', '未命名指标')}"
+            f"（公式达标={formula_ok}，时间字段达标={time_ok}；"
+            f"指标时间字段={metric_time_field or '(未配置)'}；生成SQL：{retried_sql}）"
+        )
     retry_risk = detect_excel_join_risk(datasource.database_url, retried_sql)
     if retry_risk:
         raise ValueError(f"检测到高风险JOIN。{retry_risk['message']}")

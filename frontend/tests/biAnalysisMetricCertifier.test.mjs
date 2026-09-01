@@ -121,6 +121,18 @@ test("trusted metric field candidates are limited to metrics from the selected d
   assert.doesNotMatch(candidateFilterOptionsBlock, /time/)
 })
 
+test("metric time field candidates come from time-like dimensions, not metrics", () => {
+  const view = read("src/views/MetricSettings.vue")
+  const timeFieldOptionsBlock = view.match(/const timeFieldOptions = computed[\s\S]*?const fieldCandidateFilterOptions/)?.[0] || ""
+
+  // 数据源为维度字段（含时间维度与派生列），而非指标字段
+  assert.match(timeFieldOptionsBlock, /dimensionFieldOptions\.value\.filter\(isTimeLikeField\)/)
+  assert.doesNotMatch(timeFieldOptionsBlock, /datasetFieldOptions\.value\.filter\(isTimeLikeField\)/)
+  // 无匹配时回退到维度字段，而不是列出所有指标
+  assert.match(timeFieldOptionsBlock, /matches\.length \? matches : dimensionFieldOptions\.value/)
+  assert.doesNotMatch(timeFieldOptionsBlock, /matches\.length \? matches : datasetFieldOptions\.value/)
+})
+
 test("derived trusted metrics can use existing trusted metrics as operands", () => {
   const view = read("src/views/MetricSettings.vue")
   const derivedBuilderBlock = view.match(/<div v-if="isCalculationMode\('derived'\)"[\s\S]*?<small class="builder-hint"/)?.[0] || ""

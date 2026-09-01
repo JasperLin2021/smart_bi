@@ -185,6 +185,83 @@ class MetricBindingTests(unittest.TestCase):
             "orders.order_approved_at",
         )
 
+    def test_resolve_time_field_derived_column_maps_to_source_column(self):
+        from app.core.metric_binding import _resolve_time_field
+
+        dataset = SimpleNamespace(
+            id=110,
+            fields_json={
+                "fields": [
+                    "orders.order_status",
+                    "orders.order_approved_at",
+                    "customers.customer_id",
+                ]
+            },
+            derived_columns_json={
+                "expressions": [
+                    "Datetime_YMD = TO_CHAR(order_approved_at, 'YYYY\"年\"MM\"月\"DD\"日\"')",
+                    "Delivery_Completion_Rate = ROUND(SUM(Delivery_completion)/COUNT(order_id),2)",
+                ]
+            },
+        )
+        db = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **k: SimpleNamespace(first=lambda: dataset)
+            )
+        )
+        metric = SimpleNamespace(dataset_id=110, calculation_config={"time_field": "Datetime_YMD"})
+        self.assertEqual(_resolve_time_field(db, metric), "orders.order_approved_at")
+
+        # 派生列表达式无法解析出列 -> 回退原值
+        bad_dataset = SimpleNamespace(
+            id=110,
+            fields_json={},
+            derived_columns_json={"expressions": ["Custom = 1 + 2"]},
+        )
+        bad_db = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **k: SimpleNamespace(first=lambda: bad_dataset)
+            )
+        )
+        self.assertEqual(_resolve_time_field(bad_db, metric), "Datetime_YMD")
+
+        # 结构二：{"name": "expr"} 直接映射
+        dict_dataset = SimpleNamespace(
+            id=110,
+            fields_json={},
+            derived_columns_json={"Datetime": "TO_CHAR(order_approved_at, 'YYYY\"年\"MM\"月\"')"},
+        )
+        dict_db = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **k: SimpleNamespace(first=lambda: dict_dataset)
+            )
+        )
+        metric5 = SimpleNamespace(dataset_id=110, calculation_config={"time_field": "Datetime"})
+        self.assertEqual(_resolve_time_field(dict_db, metric5), "order_approved_at")
+
+        # 非派生列 -> 原样返回
+        metric2 = SimpleNamespace(
+            dataset_id=110,
+            calculation_config={"time_field": "orders.order_approved_at"},
+        )
+        self.assertEqual(_resolve_time_field(db, metric2), "orders.order_approved_at")
+
+        # 未配置时间字段 -> 空
+        metric3 = SimpleNamespace(dataset_id=110, calculation_config={})
+        self.assertEqual(_resolve_time_field(db, metric3), "")
+
+        # 数据集不存在 -> 原样返回
+        empty_db = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **k: SimpleNamespace(first=lambda: None)
+            )
+        )
+        metric4 = SimpleNamespace(
+            dataset_id=999,
+            calculation_config={"time_field": "Datetime_YMD"},
+        )
+        self.assertEqual(_resolve_time_field(empty_db, metric4), "Datetime_YMD")
+
     def test_sql_uses_metric_time_field_checks_where_column(self):
         from app.core.metric_binding import sql_uses_metric_time_field
 
