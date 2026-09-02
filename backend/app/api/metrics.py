@@ -586,9 +586,8 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
     if filters_sql:
         where_parts.append(filters_sql)
 
-    is_window_metric = str(_calculation_config(metric).get("calculation_mode") or "").lower() == "window" or re.search(r"\bover\s*\(", metric_expression, flags=re.I)
     group_parts = []
-    if selected_dimensions and not is_window_metric:
+    if selected_dimensions:
         for item in selected_dimensions:
             derived_expr = derived_columns.get(item["field"].split(".")[-1])
             group_parts.append(f"({derived_expr})" if derived_expr is not None else item["field"])

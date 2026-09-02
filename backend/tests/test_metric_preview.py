@@ -488,6 +488,86 @@ class MetricPreviewTests(unittest.TestCase):
         finally:
             self._cleanup_preview(source_path)
 
+    def test_metric_preview_window_function_includes_group_by(self):
+        """窗口函数指标在选择维度时，SQL 仍需包含 GROUP BY。"""
+        from app.api.metrics import preview_metric
+        from app.models.dataset import Dataset
+        from app.models.datasource import DataSource
+        from app.models.metric import Metric
+        from app.schemas.metric import MetricPreviewRequest
+
+        source_path = self._source_database()
+        try:
+            db = self._db([DataSource.__table__, Dataset.__table__, Metric.__table__])
+            datasource = DataSource(
+                name="销售库",
+                slug="sales-window",
+                source_type="database",
+                database_url=f"sqlite:///{source_path}",
+                metadata_prompt="",
+                org_id=2,
+            )
+            db.add(datasource)
+            db.flush()
+            dataset = Dataset(
+                name="销售订单",
+                datasource_id=datasource.id,
+                fields_json={
+                    "table": "sales",
+                    "dimensions": [{"name": "sales.region", "alias": "大区", "type": "string"}],
+                    "metrics": [{"name": "sales.amount", "alias": "订单金额", "type": "decimal", "aggregation": "sum"}],
+                },
+                status="published",
+                visibility="org",
+                org_id=2,
+                owner_id=10,
+            )
+            db.add(dataset)
+            db.flush()
+            metric = Metric(
+                dataset_id=dataset.id,
+                datasource_id=datasource.id,
+                name="销售额占比",
+                definition="各地区销售额占总销售额比例",
+                formula="ROUND(SUM(sales.amount)*1.0/SUM(SUM(sales.amount)) OVER(),2)",
+                column_name="sales.amount",
+                aggregation="sum",
+                calculation_config={
+                    "calculation_mode": "window",
+                    "metric_field": "sales.amount",
+                },
+                status="published",
+                certification_status="certified",
+                quality_status="normal",
+            )
+            db.add(metric)
+            db.commit()
+            db.refresh(metric)
+
+            result = preview_metric(
+                metric.id,
+                MetricPreviewRequest(dimensions=["sales.region"], limit=10),
+                db=db,
+                current_user=SimpleNamespace(id=11, username="analyst", role="org_admin", org_id=2),
+            )
+
+            self.assertIn("GROUP BY", result["query"]["sql"])
+            self.assertEqual(result["columns"], ["大区", "销售额占比"])
+            rows = result["rows"]
+            self.assertEqual(len(rows), 2)
+            # 华东 120+50+999=1169, 华南 80, 总计 1249
+            self.assertEqual(rows[0]["大区"], "华东")
+            self.assertAlmostEqual(rows[0]["销售额占比"], round(1169 / 1249, 2), places=2)
+            self.assertEqual(rows[1]["大区"], "华南")
+            self.assertAlmostEqual(rows[1]["销售额占比"], round(80 / 1249, 2), places=2)
+        finally:
+            from app.db.session import _datasource_engines
+
+            engine = _datasource_engines.pop(f"sqlite:///{source_path}", None)
+            if engine is not None:
+                engine.dispose()
+            os.unlink(source_path)
+
 
 if __name__ == "__main__":
     unittest.main()
