@@ -78,12 +78,15 @@
         <el-table-column label="更新时间" min-width="150">
           <template #default="{ row }">{{ formatDate(row.updated_at || row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <div class="icon-actions">
               <template v-if="row.report_type === 'ai_html'">
                 <el-tooltip content="预览报表">
                   <el-button :icon="View" circle :loading="previewLoadingId === row.id" @click="openAiPreview(row)" />
+                </el-tooltip>
+                <el-tooltip content="下载 HTML 文件">
+                  <el-button :icon="Download" circle :loading="isExporting(row, 'html')" @click="exportReport(row, 'html')" />
                 </el-tooltip>
               </template>
               <template v-else>
@@ -93,16 +96,20 @@
                 <el-tooltip content="编辑模板">
                   <el-button :icon="Edit" circle @click="openDesigner(row)" />
                 </el-tooltip>
-                <el-tooltip content="导出 Excel">
-                  <el-button :icon="Download" circle :loading="exportingId === `${row.id}:excel`" @click="exportTemplate(row, 'excel')" />
-                </el-tooltip>
-                <el-tooltip content="导出 PDF">
-                  <el-button circle :loading="exportingId === `${row.id}:pdf`" @click="exportTemplate(row, 'pdf')">PDF</el-button>
-                </el-tooltip>
-                <el-tooltip content="导出 Word">
-                  <el-button circle :loading="exportingId === `${row.id}:word`" @click="exportTemplate(row, 'word')">W</el-button>
-                </el-tooltip>
+                <el-dropdown trigger="click" @command="(type: string) => exportReport(row, type)">
+                  <el-button circle :loading="isExporting(row, '')" :icon="Download" aria-label="导出报表" />
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="excel">导出 Excel</el-dropdown-item>
+                      <el-dropdown-item command="pdf">导出 PDF</el-dropdown-item>
+                      <el-dropdown-item command="word">导出 Word</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
+              <el-tooltip content="导出记录">
+                <el-button :icon="Tickets" circle @click="openRunsDrawer(row)" />
+              </el-tooltip>
               <el-tooltip v-if="canDeleteReport" content="删除报表">
                 <el-button text type="danger" :icon="Delete" aria-label="删除报表" @click="deleteReport(row)" />
               </el-tooltip>
@@ -122,6 +129,59 @@
       ></iframe>
       <el-empty v-else description="该模板没有可预览的 HTML 内容" />
     </el-dialog>
+
+    <el-drawer v-model="runsVisible" :title="runsTitle" size="min(560px, 100vw)">
+      <div v-loading="runsLoading" class="runs-drawer">
+        <div class="runs-toolbar">
+          <el-dropdown v-if="runsTemplate?.report_type !== 'ai_html'" trigger="click" @command="(type: string) => quickExport(type)">
+            <el-button type="primary" :icon="Download" :loading="Boolean(exportingId)">导出报表</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="excel">导出 Excel</el-dropdown-item>
+                <el-dropdown-item command="pdf">导出 PDF</el-dropdown-item>
+                <el-dropdown-item command="word">导出 Word</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button
+            v-else
+            type="primary"
+            :icon="Download"
+            :loading="Boolean(exportingId)"
+            @click="runsTemplate && exportReport(runsTemplate, 'html')"
+          >
+            下载 HTML
+          </el-button>
+          <span class="muted">最近 100 条导出记录</span>
+        </div>
+        <el-empty v-if="!runsLoading && runsList.length === 0" description="暂无导出记录" :image-size="80" />
+        <div v-else class="run-list">
+          <div v-for="item in runsList" :key="item.id" class="run-item">
+            <div class="run-item-main">
+              <div class="run-item-title">
+                <strong>{{ formatExportType(item.export_type) }} 导出 · v{{ item.version || 1 }}</strong>
+                <el-tag :type="runStatusType(item.status)" size="small" effect="plain">
+                  {{ runStatusLabel(item.status) }}
+                </el-tag>
+              </div>
+              <p v-if="item.content_preview" class="run-item-preview">{{ item.content_preview }}</p>
+              <p v-if="item.error_message" class="run-item-error" :title="item.error_message">{{ item.error_message }}</p>
+              <span class="run-item-time">{{ formatDate(item.finished_at || item.started_at) }}</span>
+            </div>
+            <el-button
+              v-if="item.status === 'completed' && item.output_uri"
+              text
+              type="primary"
+              :loading="runsDownloadingId === item.id"
+              :disabled="Boolean(runsDownloadingId)"
+              @click="downloadRun(item)"
+            >
+              下载
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-drawer>
 
     <el-dialog v-model="dialogVisible" title="新建复杂报表" width="min(760px, calc(100vw - 32px))" destroy-on-close>
       <el-form label-position="top">
@@ -176,7 +236,8 @@ import { useRouter } from "vue-router"
 import axios from "axios"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { useAuthStore } from "@/store/auth"
-import { Delete, Download, Edit, Plus, Refresh, Search, View } from "@element-plus/icons-vue"
+import { Delete, Download, Edit, Plus, Refresh, Search, Tickets, View } from "@element-plus/icons-vue"
+import { saveAs } from "file-saver"
 
 type DatasetItem = { id: number; name: string }
 type ReportTemplate = {
@@ -196,12 +257,31 @@ type ReportTemplate = {
   updated_at?: string | null
 }
 
+type ExportRunItem = {
+  id: number
+  template_id: number
+  version?: number | null
+  run_type: string
+  export_type?: string | null
+  status: string
+  output_uri?: string | null
+  content_preview?: string | null
+  error_message?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+}
+
 const router = useRouter()
 const authStore = useAuthStore()
 const canDeleteReport = computed(() => authStore.isOrgAdmin)
 const loading = ref(false)
 const saving = ref(false)
 const exportingId = ref("")
+const runsVisible = ref(false)
+const runsLoading = ref(false)
+const runsList = ref<ExportRunItem[]>([])
+const runsTemplate = ref<ReportTemplate | null>(null)
+const runsDownloadingId = ref<number | null>(null)
 const dialogVisible = ref(false)
 const keyword = ref("")
 const datasetFilter = ref<number | null>(null)
@@ -327,15 +407,125 @@ const openAiPreview = async (row: ReportTemplate) => {
   }
 }
 
-const exportTemplate = async (row: ReportTemplate, exportType: "excel" | "pdf" | "word") => {
+const exportFormats: Record<string, { label: string; ext: string }> = {
+  excel: { label: "Excel", ext: "xlsx" },
+  pdf: { label: "PDF", ext: "pdf" },
+  word: { label: "Word", ext: "docx" },
+  html: { label: "HTML", ext: "html" },
+}
+
+const formatExportType = (type?: string | null) => (type ? exportFormats[type]?.label || type : "—")
+
+const runStatusLabel = (status: string) =>
+  ({ completed: "成功", failed: "失败", running: "处理中", queued: "排队中" } as Record<string, string>)[status] || status
+
+const runStatusType = (status: string) =>
+  ({ completed: "success", failed: "danger", running: "warning", queued: "info" } as Record<string, string>)[status] || "info"
+
+const isExporting = (row: ReportTemplate, exportType: string) =>
+  exportType ? exportingId.value === `${row.id}:${exportType}` : exportingId.value.startsWith(`${row.id}:`)
+
+const friendlyFileName = (row: ReportTemplate, exportType: string) => {
+  const base = (row.name || "报表").replace(/[\\/:*?"<>|]/g, "_").trim() || "report"
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "")
+  const ext = exportFormats[exportType]?.ext || "bin"
+  return `${base}-v${row.version || 1}-${stamp}.${ext}`
+}
+
+const fetchRunBlob = async (runId: number): Promise<Blob> => {
+  // blob 请求仍需携带 Bearer Token；错误体也是 Blob，交给 blobErrorMessage 解析。
+  const { data } = await axios.get(`/api/report-templates/runs/${runId}/download`, {
+    responseType: "blob",
+    suppressGlobalError: true,
+  } as any)
+  return data as Blob
+}
+
+const blobErrorMessage = async (error: unknown): Promise<string | null> => {
+  const axiosError = error as { response?: { data?: unknown }; message?: string } | null
+  const responseData = axiosError?.response?.data
+  if (responseData instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await responseData.text()) as { detail?: string; message?: string }
+      return parsed?.detail || parsed?.message || "下载失败"
+    } catch {
+      return "下载失败"
+    }
+  }
+  return (responseData as { detail?: string } | undefined)?.detail || axiosError?.message || null
+}
+
+const exportReport = async (row: ReportTemplate, exportType: string) => {
+  if (!exportFormats[exportType]) {
+    ElMessage.warning("不支持的导出格式")
+    return
+  }
   exportingId.value = `${row.id}:${exportType}`
   try {
-    await axios.post(`/api/report-templates/${row.id}/export`, { export_type: exportType, parameters: {} })
-    ElMessage.success(`${exportType.toUpperCase()} 导出任务已提交`)
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.detail || "导出失败")
+    const { data } = await axios.post(`/api/report-templates/${row.id}/export`, {
+      export_type: exportType,
+      parameters: {},
+    })
+    if (data.status !== "completed" || !data.run_id) {
+      throw new Error(data.message || "导出任务未完成，请稍后在「导出记录」中下载")
+    }
+    const blob = await fetchRunBlob(data.run_id)
+    saveAs(blob, friendlyFileName(row, exportType))
+    ElMessage.success(`${formatExportType(exportType)} 报表已生成并开始下载`)
+  } catch (error) {
+    const message = await blobErrorMessage(error)
+    ElMessage.error(message || "导出失败")
   } finally {
     exportingId.value = ""
+    if (runsVisible.value && runsTemplate.value?.id === row.id) {
+      await loadRuns()
+    }
+  }
+}
+
+const runsTitle = computed(() => (runsTemplate.value ? `导出记录 · ${runsTemplate.value.name}` : "导出记录"))
+
+const openRunsDrawer = async (row: ReportTemplate) => {
+  runsTemplate.value = row
+  runsVisible.value = true
+  await loadRuns()
+}
+
+const loadRuns = async () => {
+  const template = runsTemplate.value
+  if (!template) return
+  runsLoading.value = true
+  try {
+    const { data } = await axios.get(`/api/report-templates/${template.id}/runs`)
+    runsList.value = Array.isArray(data) ? data : data.items || []
+  } catch {
+    runsList.value = []
+  } finally {
+    runsLoading.value = false
+  }
+}
+
+const quickExport = (exportType: string) => {
+  if (runsTemplate.value) void exportReport(runsTemplate.value, exportType)
+}
+
+const extFromUri = (uri?: string | null) => {
+  const matched = /\.(\w+)$/.exec(uri || "")
+  return matched ? matched[1] : "bin"
+}
+
+const downloadRun = async (item: ExportRunItem) => {
+  runsDownloadingId.value = item.id
+  try {
+    const blob = await fetchRunBlob(item.id)
+    const base = ((runsTemplate.value?.name || "报表") + `-run${item.id}`).replace(/[\\/:*?"<>|]/g, "_")
+    saveAs(blob, `${base}.${extFromUri(item.output_uri)}`)
+    ElMessage.success("文件已开始下载")
+  } catch (error) {
+    const message = await blobErrorMessage(error)
+    ElMessage.error(message || "下载失败")
+  } finally {
+    runsDownloadingId.value = null
   }
 }
 
@@ -468,6 +658,72 @@ onMounted(loadAll)
   border: 1px solid var(--app-border-light);
   border-radius: var(--app-radius-sm);
   background: #ffffff;
+}
+
+.runs-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.runs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.runs-toolbar .muted {
+  font-size: 12px;
+}
+
+.run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.run-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  background: var(--app-surface-muted);
+  border: 1px solid var(--app-border-light);
+  border-radius: var(--app-radius-sm);
+}
+
+.run-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.run-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-item-preview {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.run-item-error {
+  margin: 0;
+  color: var(--app-danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.run-item-time {
+  color: var(--app-text-light);
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {

@@ -37,6 +37,14 @@ VALID_STATUSES = {"draft", "published", "archived"}
 VALID_VISIBILITIES = {"private", "org"}
 VALID_EXPORT_TYPES = {"html", "excel", "pdf", "word"}
 
+# 下载接口按导出文件扩展名返回对应的 MIME 类型。
+_EXPORT_MEDIA_TYPES = {
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".html": "text/html; charset=utf-8",
+}
+
 
 def _ensure_values(report_type: str | None = None, status: str | None = None, visibility: str | None = None) -> None:
     if report_type is not None and report_type not in VALID_REPORT_TYPES:
@@ -282,6 +290,8 @@ def export_report_template(
     if payload.export_type not in SUPPORTED_EXPORT_TYPES:
         raise HTTPException(status_code=400, detail=f"暂不支持 {payload.export_type} 导出，当前仅支持 excel")
     template = _get_template_for_user(db, template_id, current_user)
+    if template.dataset_id is None and payload.export_type != "html":
+        raise HTTPException(status_code=400, detail="该报表未绑定数据集，仅支持导出 HTML 文件")
     run = ReportRun(
         template_id=template.id,
         version=template.version,
@@ -311,7 +321,10 @@ def export_report_template(
         run.output_uri = output_path.name
         run.error_message = None
         run.finished_at = datetime.now()
-        run.content_preview = f"{template.name} v{template.version} {payload.export_type} 导出完成，共 {row_count} 行数据"
+        if run.export_type == "html":
+            run.content_preview = f"{template.name} v{template.version} HTML 报表导出完成"
+        else:
+            run.content_preview = f"{template.name} v{template.version} {payload.export_type} 导出完成，共 {row_count} 行数据"
     db.commit()
     db.refresh(run)
     try_record_audit_log(
@@ -354,7 +367,7 @@ def download_report_run(
     return FileResponse(
         path,
         filename=path.name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=_EXPORT_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
     )
 
 

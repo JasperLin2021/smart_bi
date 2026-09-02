@@ -16,7 +16,6 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base_class import Base
 from app.models.dataset import Dataset
 from app.models.datasource import DataSource
 from app.models.report_template import ReportFillRecord, ReportRun, ReportTemplate
@@ -169,6 +168,208 @@ class ReportExportTests(unittest.TestCase):
                 with self.assertRaises(HTTPException) as ctx:
                     download_report_run(run.id, db=db, current_user=user)
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_execute_report_export_writes_pdf_and_word(self):
+        """PDF/Word 渲染器与 Excel 共用取数结果，产物后缀与内容正确。"""
+        from app.core.report_exporter import execute_report_export
+
+        db = _db()
+        template = _make_template(db, layout={"paper": "A4", "cells": [{"row": 1, "col": 1, "value": "区域: {{region}}"}]})
+        db.add_all(
+            [
+                DataSource(id=1, name="主库", slug="main", database_url="sqlite:///:memory:", is_active=1, org_id=1, metadata_prompt="schema"),
+                Dataset(id=1, name="销售明细", datasource_id=1, org_id=1),
+            ]
+        )
+        db.commit()
+        fake_result = {
+            "columns": ["region", "amount"],
+            "rows": [
+                {"region": "华东", "amount": 100},
+                {"region": "华北", "amount": None},
+            ],
+        }
+        for export_type, suffix in (("pdf", ".pdf"), ("word", ".docx")):
+            run = ReportRun(
+                template_id=template.id,
+                version=template.version,
+                run_type="export",
+                export_type=export_type,
+                status="running",
+                parameters_json={"region": "华东"},
+                org_id=1,
+            )
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            with patch("app.api.datasets._execute_dataset_preview", return_value=fake_result):
+                path, row_count = execute_report_export(db, template, run)
+            self.assertEqual(row_count, 2)
+            self.assertTrue(Path(path).exists())
+            self.assertGreater(Path(path).stat().st_size, 0)
+            self.assertTrue(path.name.endswith(suffix))
+            Path(path).unlink(missing_ok=True)
+
+    def test_execute_report_export_writes_html_for_unbound_ai_template(self):
+        """无数据集的 ai_html 模板：导出 html 时落盘 layout html，并内联 echarts 使其离线可用。"""
+        from app.core.report_exporter import execute_report_export
+
+        db = _db()
+        source_html = (
+            "<!DOCTYPE html><html><head>"
+            '<script src="/report-libs/echarts.min.js"></script>'
+            "</head><body><h1>经营分析</h1>"
+            '<div id="chart" style="height:300px"></div>'
+            '<script>echarts.init(document.getElementById("chart"))</script>'
+            "</body></html>"
+        )
+        template = ReportTemplate(
+            name="AI 经营分析",
+            dataset_id=None,
+            version=1,
+            layout_json={"kind": "html", "html": source_html},
+            org_id=1,
+        )
+        db.add(template)
+        db.commit()
+        db.refresh(template)
+        run = ReportRun(
+            template_id=template.id,
+            version=1,
+            run_type="export",
+            export_type="html",
+            status="running",
+            org_id=1,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+        path, row_count = execute_report_export(db, template, run)
+        self.assertEqual(row_count, 0)
+        self.assertTrue(Path(path).exists())
+        self.assertTrue(path.name.endswith(".html"))
+        content = Path(path).read_text(encoding="utf-8")
+        self.assertIn("经营分析", content)
+        # 站内相对路径在 file:// 下无法加载，导出时必须替换为内联 echarts 运行库
+        self.assertNotIn("/report-libs/echarts.min.js", content)
+        self.assertNotIn("<script src=", content)
+        self.assertIn("<script>\n", content)
+        Path(path).unlink(missing_ok=True)
+
+    def test_html_export_inlines_echarts_runtime(self):
+        """无 echarts 引用的 html 原样返回；有引用的被替换为内联内容（后端已 vendor 该库）。"""
+        from app.core.report_exporter import _ECHARTS_RELATIVE_SRC, _inline_echarts_runtime
+
+        plain = "<p>无图表内容</p>"
+        self.assertEqual(_inline_echarts_runtime(plain), plain)
+
+        source = f"<p>before</p><script src=\"{_ECHARTS_RELATIVE_SRC}\"></script><p>after</p>"
+        result = _inline_echarts_runtime(source)
+        self.assertNotIn(_ECHARTS_RELATIVE_SRC, result)
+        # 内联脚本替换原位置，且保留前后内容与内联库主体
+        self.assertIn("<p>before</p><script>\n", result)
+        self.assertIn("</script><p>after</p>", result)
+        self.assertGreater(len(result), 100_000)
+
+    def test_execute_report_export_html_without_html_content_raises(self):
+        """layout 中没有 html 内容时，html 导出应明确报错而非生成空文件。"""
+        from app.core.report_exporter import execute_report_export
+
+        db = _db()
+        template = _make_template(db, layout={"paper": "A4"})  # 无 html 字段
+        run = ReportRun(
+            template_id=template.id,
+            version=1,
+            run_type="export",
+            export_type="html",
+            status="running",
+            org_id=1,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        with self.assertRaises(ValueError) as ctx:
+            execute_report_export(db, template, run)
+        self.assertIn("HTML", str(ctx.exception))
+
+    def test_export_endpoint_rejects_bounded_formats_for_unbound_template(self):
+        """无数据集模板只能导出 html；excel/pdf/word 在端点上应早期返回 400。"""
+        from fastapi import HTTPException
+
+        from app.api.report_templates import export_report_template
+        from app.schemas.report_template import ReportExportRequest
+
+        db = _db()
+        template = ReportTemplate(
+            name="AI 经营分析",
+            dataset_id=None,
+            version=1,
+            layout_json={"kind": "html", "html": "<h1>经营分析</h1>"},
+            org_id=1,
+        )
+        db.add(template)
+        db.commit()
+        db.refresh(template)
+        user = SimpleNamespace(id=5, role="org_admin", org_id=1)
+
+        with patch("app.core.permissions.require_action", return_value=None):
+            with patch("app.api.report_templates._get_template_for_user", return_value=template):
+                for export_type in ("excel", "pdf", "word"):
+                    with self.assertRaises(HTTPException) as ctx:
+                        export_report_template(
+                            template.id,
+                            ReportExportRequest(export_type=export_type),
+                            db=db,
+                            current_user=user,
+                        )
+                    self.assertEqual(ctx.exception.status_code, 400)
+                    self.assertIn("HTML", ctx.exception.detail)
+        # 空运行记录：拒绝发生在创建 ReportRun 之前
+        self.assertEqual(db.query(ReportRun).count(), 0)
+
+    def test_download_endpoint_returns_media_type_by_suffix(self):
+        """下载响应按导出文件后缀返回对应 MIME（pdf/docx/html 不再固定为 xlsx）。"""
+        from fastapi.responses import FileResponse
+
+        from app.api.report_templates import download_report_run
+
+        db = _db()
+        template = _make_template(db)
+        export_dir = Path(__file__).resolve().parents[1] / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        cases = {
+            "sample.pdf": "application/pdf",
+            "sample.docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "sample.html": "text/html; charset=utf-8",
+        }
+        try:
+            for filename, expected_media_type in cases.items():
+                fake_file = export_dir / filename
+                fake_file.write_bytes(b"fake")
+                run = ReportRun(
+                    template_id=template.id,
+                    version=1,
+                    run_type="export",
+                    export_type="excel",
+                    status="completed",
+                    output_uri=filename,
+                    org_id=1,
+                )
+                db.add(run)
+                db.commit()
+                db.refresh(run)
+                user = SimpleNamespace(id=5, role="org_admin", org_id=1)
+                with patch("app.core.permissions.require_action", return_value=None):
+                    with patch("app.api.report_templates._get_template_for_user", return_value=template):
+                        response = download_report_run(run.id, db=db, current_user=user)
+                self.assertIsInstance(response, FileResponse)
+                self.assertEqual(response.media_type, expected_media_type)
+                db.delete(run)
+                db.commit()
+        finally:
+            for filename in cases:
+                Path(export_dir / filename).unlink(missing_ok=True)
 
 
 class ReportFillWritebackTests(unittest.TestCase):

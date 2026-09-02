@@ -26,6 +26,8 @@ dependencies = [
     "clickhouse-sqlalchemy>=0.3.2",
     "cryptography>=42.0.0",
     "sqlglot>=25.0.0,<28",
+    "python-docx>=1.2.0",
+    "reportlab>=5.0.1",
 ]
 
 [dependency-groups]
