@@ -60,25 +60,47 @@ export function buildTools(cfg: AgentConfig, ctx: SessionContext): AgentTool<any
   const getDatasetSchema: AgentTool<typeof getDatasetSchemaParams> = {
     name: "get_dataset_schema",
     label: "查看数据集结构",
-    description: "查看指定数据集的字段结构（维度、指标及其类型），用于规划查询。",
+    description:
+      "查看指定数据集的字段结构与语义模型（维度/时间维度/指标及其 ID、标签、关联表），用于规划查询。" +
+      "返回内容包含 semantic_model：其时间维度除原 ID 外，还开放 <时间维度ID>_year（年）、<时间维度ID>_month（月）派生维度，可直接作为维度按年/月分组统计。",
     parameters: getDatasetSchemaParams,
     execute: async (_id, params) => {
-      const data = await callBackend(cfg, ctx, `/api/datasets/${encodeURIComponent(params.dataset_id)}`);
-      return textResult(JSON.stringify(data));
+      const encodedId = encodeURIComponent(params.dataset_id);
+      const [dataset, semanticModel] = await Promise.all([
+        callBackend(cfg, ctx, `/api/datasets/${encodedId}`),
+        callBackend(cfg, ctx, `/api/datasets/${encodedId}/semantic-model`).catch(() => null),
+      ]);
+      const semantic = (semanticModel as { semantic_model?: unknown } | null)?.semantic_model ?? null;
+      return textResult(
+        JSON.stringify({
+          dataset,
+          semantic_model: semantic,
+        }),
+      );
     },
   };
 
   const queryDatasetParams = Type.Object({
     dataset_id: Type.String({ description: "数据集 ID" }),
-    dimensions: Type.Array(Type.String(), { description: "分组维度字段名列表，可为空数组" }),
-    metrics: Type.Array(Type.String(), { description: "聚合指标字段名列表" }),
-    filters: Type.Array(Type.String(), { description: "过滤条件列表，可为空数组" }),
+    dimensions: Type.Array(Type.String(), {
+      description:
+        "分组维度字段名列表，可为空数组。时间字段支持粒度后缀：<时间维度ID> 为原始时间，或 <时间维度ID>_year / <时间维度ID>_month 表示按年/月聚合（如 order_date_year、Datetime_month）",
+    }),
+    metrics: Type.Array(Type.String(), {
+      description: "聚合指标字段名列表（取 get_dataset_schema 返回的 semantic_model 中的指标 ID）",
+    }),
+    filters: Type.Array(Type.String(), {
+      description:
+        "过滤条件字符串列表，可为空数组。格式为 \"字段 运算符 值\"，支持 =、!=、>、>=、<、<=、LIKE；值可加单引号。区间用两条条件成对表达，例如 \"order_date >= 2017-01-01\" 与 \"order_date < 2018-01-01\"",
+    }),
     limit: Type.Number({ description: "最大返回行数" }),
   });
   const queryDataset: AgentTool<typeof queryDatasetParams> = {
     name: "query_dataset",
     label: "查询数据集",
-    description: "按维度/指标/过滤条件查询数据集，返回结构化数据行。报表中的所有数据必须来自该工具的返回结果。",
+    description:
+      "按维度/指标/过滤条件查询数据集，返回结构化数据行。报表中的所有数据必须来自该工具的返回结果。" +
+      "需要统计自然年度（如 2017 年度）数据时，推荐用 filters 限定时间范围（如 order_date >= 2017-01-01、order_date < 2018-01-01）；需要按年/月分组时，使用 <时间维度ID>_year 或 <时间维度ID>_month 维度。",
     parameters: queryDatasetParams,
     execute: async (_id, params) => {
       const data = await callBackend(cfg, ctx, "/api/query/semantic", {

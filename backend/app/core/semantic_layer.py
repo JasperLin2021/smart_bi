@@ -31,6 +31,45 @@ AGGREGATIONS = {
     "count_distinct": "COUNT",
 }
 
+# 时间字段启发词（参考 app/core/dataset_ai_config.py 的 TIME_HINTS，保持口径一致）
+TIME_HINTS = ("time", "date", "datetime", "dt", "day", "month", "year", "ymd")
+_TIME_HINT_CN = ("日期", "时间", "年月", "年度", "年份", "月份")
+
+# 时间粒度 -> 各方言的时间表达式模板。year/month 输出文本便于展示（YYYY / YYYY-MM）；
+# sqlite: strftime(format, col)；duckdb: strftime(col, format)（参数顺序与 sqlite 相反）；
+# mysql/doris: DATE_FORMAT(col, format)；postgresql: to_char(col, format)。
+_TIME_EXPRESSIONS = {
+    "sqlite": {
+        "year": "strftime('%Y', {col})",
+        "month": "strftime('%Y-%m', {col})",
+    },
+    "duckdb": {
+        "year": "strftime({col}, '%Y')",
+        "month": "strftime({col}, '%Y-%m')",
+    },
+    "mysql": {
+        "year": "DATE_FORMAT({col}, '%Y')",
+        "month": "DATE_FORMAT({col}, '%Y-%m')",
+    },
+    "postgresql": {
+        "year": "to_char({col}, 'YYYY')",
+        "month": "to_char({col}, 'YYYY-MM')",
+    },
+}
+TIME_GRANULARITY_SUFFIX = (("year", "_year", "年份"), ("month", "_month", "月份"))
+
+JOIN_CLAUSE_RE = re.compile(
+    r"^\s*(?P<type>(?:(?:LEFT|RIGHT|INNER|FULL|CROSS)\s+(?:OUTER\s+)?)?JOIN)\s+(?P<body>.+?)\s*$",
+    re.IGNORECASE,
+)
+JOIN_ON_PREFIX_RE = re.compile(r"^ON\s+(?P<body>.+?)\s*$", re.IGNORECASE)
+JOIN_FIELD_TOKEN = r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*"
+JOIN_CONDITION_RE = re.compile(
+    rf"^(?P<left>{JOIN_FIELD_TOKEN})\s*(?P<op>=|!=|>|>=|<|<=)\s*(?P<right>{JOIN_FIELD_TOKEN})$",
+    re.IGNORECASE,
+)
+QUALIFIED_COLUMN_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b")
+
 
 @dataclass
 class SemanticSqlPlan:
@@ -212,15 +251,88 @@ def _unique_id(candidate: str, seen: set[str]) -> str:
     return value
 
 
+def _is_time_column(column: str) -> bool:
+    """按字段名启发式判断是否为时间字段（与 dataset_ai_config 的口径保持一致）。"""
+    lowered = column.lower()
+    return any(hint in lowered for hint in TIME_HINTS)
+
+
+def _is_time_label(label: str) -> bool:
+    return any(token in label for token in _TIME_HINT_CN)
+
+
+def _time_expression(dialect: str, column_ref: str, granularity: str) -> str:
+    """生成方言感知的时间聚合表达式；未知方言/粒度回退为原列，保证 SQL 合法。"""
+    template = _TIME_EXPRESSIONS.get(dialect or "", {}).get(granularity)
+    if not template:
+        return column_ref
+    return template.format(col=column_ref)
+
+
+def _dialect_name(datasource: Any) -> str:
+    """根据数据源推断 SQL 方言；无法识别时返回空串（时间聚合回退原列）。"""
+    if datasource is None:
+        return ""
+    if getattr(datasource, "source_type", None) == "excel":
+        return "duckdb"
+    url = str(getattr(datasource, "database_url", "") or "").lower()
+    if not url:
+        return ""
+    if "mariadb" in url or "doris" in url or "mysql" in url:
+        return "mysql"
+    if "postgres" in url:
+        return "postgresql"
+    if url.startswith("sqlite") or "sqlite" in url:
+        return "sqlite"
+    if "duckdb" in url:
+        return "duckdb"
+    try:
+        engine = get_datasource_engine(str(getattr(datasource, "database_url", "")))
+        return engine.dialect.name if engine.dialect.name in _TIME_EXPRESSIONS else ""
+    except Exception:
+        return ""
+
+
+def expand_time_dimensions(model: dict[str, Any]) -> dict[str, Any]:
+    """在规范化语义模型之上幂等展开派生时间维度（day/year/month）。
+
+    仅在读取/查询构建出口使用、不落库；目标 ID 已存在时自动跳过，可安全重复调用。
+    """
+    normalized = normalize_semantic_model(model)
+    existing_ids = {
+        item["id"]
+        for item in normalized["dimensions"] + normalized["metrics"] + normalized["time_dimensions"]
+    }
+    expanded: list[dict[str, Any]] = []
+    for item in normalized["time_dimensions"]:
+        expanded.append(item)
+        for granularity, suffix, tail in TIME_GRANULARITY_SUFFIX:
+            derived_id = f"{item['id']}{suffix}"
+            if derived_id in existing_ids:
+                continue
+            label = item.get("label") or item["id"]
+            derived = dict(item)
+            derived.update(id=derived_id, granularity=granularity, label=f"{label}（{tail}）")
+            expanded.append(derived)
+            existing_ids.add(derived_id)
+    normalized["time_dimensions"] = expanded
+    return normalized
+
+
 def infer_semantic_model(dataset: Any) -> dict[str, Any]:
+    """推断（或直接读取）数据集的语义模型，并展开时间粒度为 day/year/month。
+
+    本函数只用于读取/查询路径，其结果不用于持久化，存储仍保留用户编辑的原始语义模型。
+    """
     if isinstance(getattr(dataset, "semantic_model_json", None), dict):
-        return normalize_semantic_model(dataset.semantic_model_json, dataset)
+        return expand_time_dimensions(normalize_semantic_model(dataset.semantic_model_json, dataset))
 
     table = _infer_table(dataset)
     fields_json = dataset.fields_json if isinstance(dataset.fields_json, dict) else {}
     aggregations_json = dataset.aggregations_json if isinstance(dataset.aggregations_json, dict) else {}
     seen: set[str] = set()
     dimensions: list[dict[str, Any]] = []
+    time_dimensions: list[dict[str, Any]] = []
     metrics: list[dict[str, Any]] = []
 
     dimension_fields = _as_list(fields_json.get("dimensions")) or _as_list(fields_json.get("fields"))
@@ -231,7 +343,19 @@ def infer_semantic_model(dataset: Any) -> dict[str, Any]:
         label = _field_label(field, clean)
         column = _column_name(clean, table) if table else _field_column_name(clean)
         item_id = _unique_id(column, seen)
-        dimensions.append({"id": item_id, "field": _assert_field(clean, "字段"), "label": label})
+        # 名称/别名命中时间启发词的字段归入时间维度（granularity day），
+        # 使查询构建时可展开为 _year/_month 派生粒度进行年/月聚合
+        if _is_time_column(column) or _is_time_label(label):
+            time_dimensions.append(
+                {
+                    "id": item_id,
+                    "field": _assert_field(clean, "字段"),
+                    "label": label,
+                    "granularity": "day",
+                }
+            )
+        else:
+            dimensions.append({"id": item_id, "field": _assert_field(clean, "字段"), "label": label})
 
     metric_expressions = _as_list(fields_json.get("metrics")) or _as_list(aggregations_json.get("aggregations"))
     for expression in metric_expressions:
@@ -261,14 +385,16 @@ def infer_semantic_model(dataset: Any) -> dict[str, Any]:
             }
         )
 
-    return normalize_semantic_model(
-        {
-            "dimensions": dimensions,
-            "metrics": metrics,
-            "time_dimensions": [],
-            "synonyms": [],
-        },
-        dataset,
+    return expand_time_dimensions(
+        normalize_semantic_model(
+            {
+                "dimensions": dimensions,
+                "metrics": metrics,
+                "time_dimensions": time_dimensions,
+                "synonyms": [],
+            },
+            dataset,
+        )
     )
 
 
@@ -350,27 +476,156 @@ def _render_metric(metric: dict[str, Any], default_table: str) -> str:
     return f"{AGGREGATIONS[aggregation]}({field}) AS {alias}"
 
 
-def build_semantic_query_plan(dataset: Any, payload: Any) -> SemanticSqlPlan:
+def _normalize_join_type(value: Any) -> str:
+    raw = re.sub(r"\s+", " ", _clean_text(value).upper())
+    if raw not in {
+        "JOIN",
+        "INNER JOIN",
+        "LEFT JOIN",
+        "LEFT OUTER JOIN",
+        "RIGHT JOIN",
+        "RIGHT OUTER JOIN",
+        "FULL JOIN",
+        "FULL OUTER JOIN",
+        "CROSS JOIN",
+    }:
+        raise ValueError(f"Join 类型不合法: {raw or '(空)'}")
+    return raw
+
+
+def _qualify_join_field(field: str, default_table: str) -> str:
+    clean = _assert_field(field, "Join 关联字段")
+    if "." not in clean:
+        return f"{default_table}.{clean}"
+    return clean
+
+
+def _join_condition_parts(condition: str, default_table: str) -> tuple[str, str, str]:
+    match = JOIN_CONDITION_RE.match(condition.strip())
+    if not match:
+        raise ValueError(f"Join 关联条件不合法: {condition}")
+    left = _qualify_join_field(match.group("left"), default_table)
+    right = _qualify_join_field(match.group("right"), default_table)
+    return left, match.group("op").strip(), right
+
+
+def _join_clause_parts(dataset: Any, default_table: str) -> tuple[list[str], list[str]]:
+    """从数据集 joins_json 渲染 JOIN 子句（兼容 left/right、right+on、字符串三种存储格式）。
+
+    返回 (JOIN 子句列表, FROM+JOIN 引入的表名列表)，引用顺序错误的关联会给出明确报错。
+    """
+    joins_json = dataset.joins_json if isinstance(getattr(dataset, "joins_json", None), dict) else {}
+    known_tables: list[str] = [default_table]
+    known_set: set[str] = {default_table}
+    clauses: list[str] = []
+    for item in _as_list(joins_json.get("joins")):
+        declared_table = ""
+        if isinstance(item, dict):
+            join_type = _normalize_join_type(item.get("type") or item.get("join_type") or "LEFT JOIN")
+            raw_left = _clean_text(item.get("left"))
+            raw_right = _clean_text(item.get("right"))
+            raw_on = _clean_text(item.get("on") or item.get("join_on"))
+            if raw_on:
+                condition = raw_on
+            elif raw_left and raw_right:
+                condition = f"{raw_left} {_clean_text(item.get('op') or '=')} {raw_right}"
+            else:
+                raise ValueError("Join 配置缺少关联条件（需要 on 或 left/right 字段）")
+            declared_table = _clean_text(item.get("table"))
+        else:
+            match = JOIN_CLAUSE_RE.match(_clean_text(item))
+            if not match:
+                raise ValueError(f"Join 关系不合法: {item}")
+            join_type = _normalize_join_type(match.group("type"))
+            body = match.group("body").strip()
+            table_match = re.match(
+                rf"^(?P<table>[A-Za-z_][A-Za-z0-9_]*)\s+ON\s+(?P<cond>.+)$",
+                body,
+                re.IGNORECASE,
+            )
+            if table_match:
+                declared_table = table_match.group("table")
+                condition = table_match.group("cond")
+            else:
+                condition = body
+        if declared_table:
+            declared_table = _assert_identifier(declared_table, "Join 表名")
+        left_field, op, right_field = _join_condition_parts(condition, default_table)
+        left_table, right_table = left_field.split(".", 1)[0], right_field.split(".", 1)[0]
+        if declared_table:
+            target_table = declared_table
+        elif right_table not in known_set:
+            target_table = right_table
+        else:
+            target_table = left_table
+        if target_table not in {left_table, right_table}:
+            raise ValueError(f"Join 表 {target_table} 未出现在关联条件 {left_field} {op} {right_field} 中")
+        if target_table in known_set:
+            raise ValueError(f"Join 目标表重复或已作为主表: {target_table}")
+        other_table = right_table if target_table == left_table else left_table
+        if other_table not in known_set:
+            raise ValueError(
+                f"Join 关联表 {other_table} 尚未引入（数据集主表或更早的 JOIN 必须先出现），"
+                f"请检查数据集关联配置顺序"
+            )
+        known_tables.append(target_table)
+        known_set.add(target_table)
+        clauses.append(f"{join_type} {target_table} ON {left_field} {op} {right_field}")
+    return clauses, known_tables
+
+
+def _match_requested(requested_ids: list[str], defs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """按 ID 精确匹配，失败时做大小写不敏感回退，返回 (命中的定义, 缺失 ID 列表)。"""
+    by_exact = {item["id"]: item for item in defs}
+    by_lower: dict[str, dict[str, Any]] = {}
+    for item in defs:
+        by_lower.setdefault(item["id"].lower(), item)
+    matched: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for requested in requested_ids:
+        if requested in by_exact:
+            matched.append(by_exact[requested])
+        elif requested.lower() in by_lower:
+            matched.append(by_lower[requested.lower()])
+        else:
+            missing.append(requested)
+    return matched, missing
+
+
+def _available_id_hint(defs: list[dict[str, Any]]) -> str:
+    ids = [item["id"] for item in defs]
+    preview = ", ".join(ids[:30])
+    if len(ids) > 30:
+        preview += ", ..."
+    return preview or "无"
+
+
+def build_semantic_query_plan(dataset: Any, payload: Any, datasource: Any | None = None) -> SemanticSqlPlan:
     table = _source_table(dataset)
+    dialect = _dialect_name(datasource)
     model = infer_semantic_model(dataset)
     targets = _semantic_targets(model)
-    dimensions_by_id = {item["id"]: item for item in model["dimensions"] + model["time_dimensions"]}
-    metrics_by_id = {item["id"]: item for item in model["metrics"]}
+    dimension_defs_all = model["dimensions"] + model["time_dimensions"]
+    metric_defs_all = model["metrics"]
+    time_dimension_ids = {item["id"] for item in model["time_dimensions"]}
 
     requested_dimensions = [_assert_identifier(item, "维度ID") for item in _payload_list(payload, "dimensions")]
     requested_metrics = [_assert_identifier(item, "指标ID") for item in _payload_list(payload, "metrics")]
     if not requested_dimensions and not requested_metrics:
         raise ValueError("请至少选择一个维度或指标")
 
-    missing_dimensions = [item for item in requested_dimensions if item not in dimensions_by_id]
-    missing_metrics = [item for item in requested_metrics if item not in metrics_by_id]
+    dimension_defs, missing_dimensions = _match_requested(requested_dimensions, dimension_defs_all)
+    metric_defs, missing_metrics = _match_requested(requested_metrics, metric_defs_all)
     if missing_dimensions:
-        raise ValueError(f"维度不存在: {', '.join(missing_dimensions)}")
+        raise ValueError(
+            f"维度不存在: {', '.join(missing_dimensions)}。"
+            f"可用维度/时间维度: {_available_id_hint(dimension_defs_all)}"
+        )
     if missing_metrics:
-        raise ValueError(f"指标不存在: {', '.join(missing_metrics)}")
+        raise ValueError(f"指标不存在: {', '.join(missing_metrics)}。可用指标: {_available_id_hint(metric_defs_all)}")
 
-    dimension_defs = [dimensions_by_id[item] for item in requested_dimensions]
-    metric_defs = [metrics_by_id[item] for item in requested_metrics]
+    join_clauses, joined_tables = _join_clause_parts(dataset, table)
+
     select_parts: list[str] = []
     group_by_parts: list[str] = []
     order_by_parts: list[str] = []
@@ -380,6 +635,9 @@ def build_semantic_query_plan(dataset: Any, payload: Any) -> SemanticSqlPlan:
     for dimension in dimension_defs:
         alias = _assert_identifier(dimension["id"], "维度ID")
         column_ref = _column_ref(dimension["field"], table)
+        if dimension["id"] in time_dimension_ids and dimension.get("granularity") in {"year", "month"}:
+            # 按年/月聚合：SELECT 与 GROUP BY 都使用方言时间表达式
+            column_ref = _time_expression(dialect, column_ref, dimension["granularity"])
         select_parts.append(f"{column_ref} AS {alias}")
         group_by_parts.append(column_ref)
         order_by_parts.append(alias)
@@ -411,11 +669,12 @@ def build_semantic_query_plan(dataset: Any, payload: Any) -> SemanticSqlPlan:
     limit = max(1, min(_payload_int(payload, "limit", 100), 5000))
     params["limit"] = limit
 
+    where_parts = dataset_filters + request_filters
     sql_parts = [
         f"{'SELECT DISTINCT' if dimension_defs and not metric_defs else 'SELECT'} {', '.join(select_parts)}",
         f"FROM {table}",
+        *join_clauses,
     ]
-    where_parts = dataset_filters + request_filters
     if where_parts:
         sql_parts.append(f"WHERE {' AND '.join(where_parts)}")
     if group_by_parts and metric_defs:
@@ -423,6 +682,18 @@ def build_semantic_query_plan(dataset: Any, payload: Any) -> SemanticSqlPlan:
     if order_by_parts:
         sql_parts.append(f"ORDER BY {', '.join(order_by_parts)}")
     sql_parts.append("LIMIT :limit")
+
+    # 跨表引用校验：SELECT/WHERE/GROUP BY 中出现的限定表必须位于 FROM+JOIN 集合内
+    allowed_tables = set(joined_tables)
+    rendered_body = "\n".join(select_parts + group_by_parts + where_parts + join_clauses)
+    referenced_tables = {match.group(1) for match in QUALIFIED_COLUMN_RE.finditer(rendered_body)} - allowed_tables
+    if referenced_tables:
+        raise ValueError(
+            "字段引用了未关联的表: "
+            + ", ".join(sorted(referenced_tables))
+            + f"。数据集主表/已关联表: {', '.join(joined_tables)}；"
+            "请在数据集的“关联”中配置相应 JOIN 后重试"
+        )
 
     return SemanticSqlPlan(
         sql="\n".join(sql_parts),

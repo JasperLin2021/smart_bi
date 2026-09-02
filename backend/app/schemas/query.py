@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Union
 
 
 class QueryAskRequest(BaseModel):
@@ -20,7 +20,9 @@ class SemanticQueryRequest(BaseModel):
     dataset_id: int
     dimensions: List[str] = []
     metrics: List[str] = []
-    filters: List[Dict[str, Any]] = []
+    # 兼容字符串（如 "sales.status = paid" / "order_date >= 2017-01-01"）与
+    # 对象（{"field": ..., "op": ..., "value": ...}）两种过滤条件表示
+    filters: List[Union[str, Dict[str, Any]]] = []
     limit: int = 100
 
 

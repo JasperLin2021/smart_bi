@@ -204,7 +204,7 @@ def semantic_query(
     if not datasource:
         raise HTTPException(status_code=404, detail="数据源不存在")
     try:
-        plan = build_semantic_query_plan(dataset, payload)
+        plan = build_semantic_query_plan(dataset, payload, datasource=datasource)
         sql_query = plan.sql
         rls_clauses = get_rls_clauses(db, datasource.id, current_user)
         if rls_clauses:
