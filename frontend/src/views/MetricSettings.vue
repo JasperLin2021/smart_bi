@@ -2016,9 +2016,12 @@ const metricPreviewSortOptions = computed(() => {
   const editingMetric = metrics.value.find((metric) => metric.id === editingId.value)
   const metricName = String(editingMetric?.name || "").trim()
   const outputAlias = String(editingMetric?.calculation_config?.output_alias || "").trim()
+  const columnName = String(editingMetric?.column_name || "").trim()
   const metricColumn = outputAlias || metricName
+  // 下拉显示名称：输出字段 > 输出别名 > 指标名
+  const displayName = columnName || outputAlias || metricName
   if (metricColumn) {
-    options.push({ label: `${metricName}（指标）`, value: metricColumn })
+    options.push({ label: `${displayName}（指标）`, value: metricColumn })
   }
   return options
 })
