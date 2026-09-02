@@ -566,7 +566,7 @@ def _metric_preview_plan(metric: Metric, dataset: Dataset, datasource: DataSourc
             raise HTTPException(status_code=400, detail=f"预览维度不属于当前指标数据集: {raw_dimension}")
         selected_dimensions.append({"field": field, "label": _metric_preview_alias(label)})
 
-    output_alias = str(_calculation_config(metric).get("output_alias") or "").strip()
+    output_alias = str(_calculation_config(metric).get("output_alias") or "").strip() or str(metric.column_name or "").strip()
     metric_alias = _metric_preview_alias(output_alias or metric.name)
     formula_expression, formula_where_parts = _sanitize_formula_expression(metric.formula or "")
     metric_expression = formula_expression or _aggregation_expression(metric)

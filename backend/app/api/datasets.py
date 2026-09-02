@@ -61,9 +61,10 @@ VALID_DATASET_STATUSES = {
 }
 VALID_VISIBILITIES = {"private", "org"}
 SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-# 派生列表达式字符白名单：允许标识符、引号、百分号格式符及中文（字符串字面量与日期格式化文本）。
+# 派生列表达式字符白名单：允许标识符、引号、百分号格式符及中文（字符串字面量与日期格式化文本），
+# 以及 `||` 字符串连接符与 HH24:MI 等时间格式冒号（均为标准 SQL 常见表达式字符）。
 # 注入防护依赖黑名单拦截 ; -- /* */ 与字段引用/别名的既有转义机制，二者保持不变。
-ALLOWED_DERIVED_CHARS = re.compile(r"[A-Za-z0-9_\u4e00-\u9fff\.\"`\[\]\s\+\-\*/\(\),'%]+")
+ALLOWED_DERIVED_CHARS = re.compile(r"[A-Za-z0-9_\u4e00-\u9fff\.\"`\[\]\s\+\-\*/\(\),'%|:]+")
 FILTER_RE = re.compile(
     r"^\s*(?P<field>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*"
     r"(?P<op>IS\s+NOT\s+NULL|IS\s+NULL|>=|<=|!=|=|>|<|LIKE)\s*"
