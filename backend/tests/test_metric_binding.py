@@ -483,6 +483,53 @@ class MetricAstValidationTests(unittest.TestCase):
             )
         )
 
+    def test_accepts_metric_formula_inside_cte(self):
+        """LLM 用 WITH ... AS (SELECT 聚合...) 时公式位于 CTE 内层、顶层只引用别名，应判定为已使用。"""
+        from app.core.metric_binding import sql_uses_metric_formula
+
+        sql = (
+            "WITH payment_stats AS ("
+            "SELECT payment_type, "
+            "COUNT(order_payments.order_id) AS order_count, "
+            "ROUND(COUNT(order_payments.order_id)::numeric / "
+            "SUM(COUNT(order_payments.order_id)) OVER ()::numeric, 2) AS payment_ratio "
+            "FROM order_payments GROUP BY payment_type"
+            ") "
+            "SELECT order_count, payment_ratio FROM payment_stats "
+            "WHERE payment_type = 'credit_card'"
+        )
+        self.assertTrue(sql_uses_metric_formula(sql, "COUNT(order_payments.order_id)"))
+        # 公式带别名写法也应放行
+        self.assertTrue(
+            sql_uses_metric_formula(sql, "COUNT(order_payments.order_id) AS order_count")
+        )
+
+    def test_accepts_cte_when_fixed_filter_is_inner_layer(self):
+        """公式自带固定筛选、筛选被 LLM 放进 CTE 内层 WHERE 时，也应判定为已使用。"""
+        from app.core.metric_binding import sql_uses_metric_formula
+
+        formula = "COUNT(orders.order_id) WHERE orders.order_status = 'delivered'"
+        sql = (
+            "WITH delivered_orders AS ("
+            "SELECT orders.order_id FROM orders WHERE order_status = 'delivered'"
+            ") "
+            "SELECT COUNT(order_id) AS c FROM delivered_orders"
+        )
+        self.assertTrue(sql_uses_metric_formula(sql, formula))
+
+    def test_rejects_cte_sql_still_missing_metric_fixed_filter(self):
+        """CTE 场景下公式自带固定筛选但 SQL 漏掉筛选（顶层/内层均无），仍应判定为未使用。"""
+        from app.core.metric_binding import sql_uses_metric_formula
+
+        formula = "COUNT(orders.order_id) WHERE orders.order_status = 'delivered'"
+        sql = (
+            "WITH all_orders AS ("
+            "SELECT order_id FROM orders"
+            ") "
+            "SELECT COUNT(order_id) AS c FROM all_orders"
+        )
+        self.assertFalse(sql_uses_metric_formula(sql, formula))
+
 
 class MetricTableMatchingTests(unittest.TestCase):
     """match_metrics_from_question：直接读 Metric 表、certified 优先、多候选。"""

@@ -506,9 +506,10 @@ def sql_uses_metric_formula_ast(sql: str, formula: str | None) -> bool | None:
 
     规则：
     - 公式解析为 `SELECT <expr> FROM __src [WHERE ...]`，提取 select 聚合表达式与 where 条件；
-    - SQL 的最终 SELECT 中必须存在一个与公式表达式"结构等价"的投影项
+    - SQL 的 SELECT（顶层以及所有 CTE/子查询，如 WITH ... AS (SELECT 聚合...) 的内层）
+      中必须存在一个与公式表达式"结构等价"的投影项
       （可带表限定符/别名，允许 ROUND/CAST/单参 COALESCE 包裹、NULLIF(x,0) 解包）；
-    - 公式自带 WHERE 筛选时，SQL 的 WHERE 必须覆盖公式的每个筛选条件
+    - 公式自带 WHERE 筛选时，SQL 任一查询层的 WHERE 必须覆盖公式的每个筛选条件
       （结构精确匹配；无法精确匹配时回退宽松校验：字符串字面量与列名子集，兼容 JOIN 等价改写）。
 
     返回 True/False 表示判定结果；解析失败返回 None，由调用方决定回退策略。
@@ -524,7 +525,13 @@ def sql_uses_metric_formula_ast(sql: str, formula: str | None) -> bool | None:
     try:
         formula_selects = [item for item in formula_query.selects if item is not None]
         formula_where = formula_query.args.get("where")
-        sql_selects = [item for item in sql_ast.selects if item is not None]
+        # 顶层 SELECT + 所有 CTE/子查询中的 SELECT（find_all 在部分版本包含根节点，用 is not 去重）
+        select_nodes = [sql_ast] + [
+            node for node in sql_ast.find_all(exp.Select) if node is not sql_ast
+        ]
+        sql_selects: list[exp.Expression] = []
+        for node in select_nodes:
+            sql_selects.extend(item for item in node.selects if item is not None)
         if not formula_selects or not sql_selects:
             return None
     except Exception:
@@ -551,10 +558,14 @@ def sql_uses_metric_formula_ast(sql: str, formula: str | None) -> bool | None:
     if formula_where is None:
         return True
 
-    # 公式自带筛选：要求 SQL 的 WHERE 覆盖公式的每个条件。
-    sql_where = sql_ast.args.get("where")
+    # 公式自带筛选：要求 SQL 任一查询层的 WHERE 覆盖公式的每个条件
+    # （过滤可能被 LLM 放进 CTE 内层而非顶层，两层都检查）。
     formula_conditions = _split_and_conditions(formula_where.this)
-    sql_conditions = _split_and_conditions(sql_where.this) if sql_where is not None else []
+    sql_conditions: list[exp.Expression] = []
+    for node in select_nodes:
+        sql_where = node.args.get("where")
+        if sql_where is not None:
+            sql_conditions.extend(_split_and_conditions(sql_where.this))
     normalized_sql_conditions = {_ast_sql_text(_normalize_ast(cond)) for cond in sql_conditions}
 
     strict_matched = True

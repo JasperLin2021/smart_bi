@@ -897,15 +897,52 @@ const buildSingleSeriesOption = () => {
     }))
     if (sortOrder.value === "desc") data.sort((a, b) => b.value - a.value)
     else if (sortOrder.value === "asc") data.sort((a, b) => a.value - b.value)
-    
+
+    const singleRow = rows.length === 1 ? rows[0] : null
+    const metricSeriesFields = selectedMetricSeriesFields.value.length > 0
+      ? selectedMetricSeriesFields.value
+      : (singleRow ? numericColumns.value.filter(c => c !== xField && c !== yField) : [])
+
+    const labelFormatter = (params: any) => {
+      let text = `${params.name}: ${params.value}`
+      if (singleRow && metricSeriesFields.length) {
+        metricSeriesFields.forEach((field) => {
+          const v = singleRow[field]
+          if (v !== undefined && v !== null) {
+            text += `\n${field}: ${v}`
+          }
+        })
+      }
+      return text
+    }
+
+    const tooltipFormatter = (params: any) => {
+      let text = `${params.name}: ${params.value}`
+      if (singleRow && metricSeriesFields.length) {
+        metricSeriesFields.forEach((field) => {
+          const v = singleRow[field]
+          if (v !== undefined && v !== null) {
+            text += `<br/>${field}: ${v}`
+          }
+        })
+      }
+      return text
+    }
+
     return {
       color: CHART_COLOR_PALETTE,
-      tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+      tooltip: {
+        trigger: "item",
+        formatter: tooltipFormatter,
+      },
       series: [{
         type: "pie",
         radius: ["30%", "60%"],
         data: data.slice(0, 15),
         itemStyle: { borderRadius: 4, borderWidth: 1, borderColor: "#fff" },
+        label: {
+          formatter: labelFormatter,
+        },
       }]
     }
   }
