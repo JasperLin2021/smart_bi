@@ -144,27 +144,43 @@
     <el-drawer v-model="historyVisible" title="历史报表" size="380px">
       <div v-loading="historyLoading" class="history-list">
         <el-empty v-if="!historyLoading && historyList.length === 0" description="暂无已保存的报表" :image-size="80" />
-        <button
+        <div
           v-for="item in historyList"
           :key="item.id"
-          type="button"
           class="history-item"
-          :disabled="loadingHistoryId === item.id"
-          @click="loadHistoryReport(item)"
         >
-          <strong>{{ item.title }}</strong>
-          <span>{{ formatDate(item.updated_at || item.created_at) }}</span>
-        </button>
+          <button
+            type="button"
+            class="history-item-main"
+            :disabled="loadingHistoryId === item.id"
+            @click="loadHistoryReport(item)"
+          >
+            <strong>{{ item.title }}</strong>
+            <span>{{ formatDate(item.updated_at || item.created_at) }}</span>
+          </button>
+          <el-button
+            v-if="canDeleteHistoryItem(item)"
+            class="history-delete-btn"
+            type="danger"
+            text
+            :icon="Delete"
+            :loading="deletingHistoryId === item.id"
+            :disabled="loadingHistoryId === item.id"
+            aria-label="删除该历史报表"
+            @click="deleteHistoryReport(item)"
+          />
+        </div>
       </div>
     </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref } from "vue"
+import { computed, nextTick, ref } from "vue"
 import { useRouter } from "vue-router"
 import axios from "axios"
-import { ElMessage } from "element-plus"
+import { ElMessage, ElMessageBox } from "element-plus"
+import { useAuthStore } from "@/store/auth"
 import {
   ArrowDown,
   ArrowRight,
@@ -172,6 +188,7 @@ import {
   Clock,
   Collection,
   DataAnalysis,
+  Delete,
   MagicStick,
   Promotion,
   Share,
@@ -192,6 +209,7 @@ type ChatMessage = {
 type AiReportSummary = {
   id: number
   title: string
+  owner_id?: number | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -214,7 +232,18 @@ const historyVisible = ref(false)
 const historyLoading = ref(false)
 const historyList = ref<AiReportSummary[]>([])
 const loadingHistoryId = ref<number | null>(null)
+const deletingHistoryId = ref<number | null>(null)
 const chatContainerRef = ref<HTMLElement | null>(null)
+
+const authStore = useAuthStore()
+const currentUserId = computed(() => authStore.profile?.id)
+const canManageOrgReports = computed(() =>
+  ["super_admin", "org_admin"].includes(authStore.profile?.role || "")
+)
+
+/** 仅本人或组织管理员/超管可删除对应历史报表（与后端 _can_manage_report 权限一致） */
+const canDeleteHistoryItem = (item: AiReportSummary) =>
+  canManageOrgReports.value || (item.owner_id != null && item.owner_id === currentUserId.value)
 
 const examplePrompts = [
   "生成本月销售经营分析报表",
@@ -482,6 +511,32 @@ const loadHistoryReport = async (item: AiReportSummary) => {
     ElMessage.error(error.response?.data?.detail || "载入失败")
   } finally {
     loadingHistoryId.value = null
+  }
+}
+
+const deleteHistoryReport = async (item: AiReportSummary) => {
+  try {
+    await ElMessageBox.confirm(`确定删除历史报表「${item.title}」吗？删除后不可恢复。`, "删除历史报表", {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      type: "warning",
+    })
+  } catch {
+    return // 用户取消
+  }
+  deletingHistoryId.value = item.id
+  try {
+    await axios.delete(`/api/ai-reports/${item.id}`)
+    historyList.value = historyList.value.filter((entry) => entry.id !== item.id)
+    if (savedReportId.value === item.id) {
+      savedReportId.value = null
+      savedSnapshot.value = ""
+    }
+    ElMessage.success("报表已删除")
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.detail || "删除失败")
+  } finally {
+    deletingHistoryId.value = null
   }
 }
 </script>
@@ -754,14 +809,12 @@ const loadHistoryReport = async (item: AiReportSummary) => {
 
 .history-item {
   display: flex;
-  flex-direction: column;
+  align-items: stretch;
   gap: 4px;
-  padding: 12px;
-  text-align: left;
+  padding: 2px;
   background: var(--app-surface-muted);
   border: 1px solid var(--app-border-light);
   border-radius: var(--app-radius-sm);
-  cursor: pointer;
   transition: border-color var(--app-transition);
 }
 
@@ -769,13 +822,41 @@ const loadHistoryReport = async (item: AiReportSummary) => {
   border-color: var(--app-primary-light);
 }
 
+.history-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 2px 10px 10px;
+  color: var(--app-text);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.history-item-main:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .history-item strong {
   color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-item span {
   color: var(--app-text-muted);
   font-size: 12px;
+}
+
+.history-delete-btn {
+  align-self: center;
+  flex-shrink: 0;
 }
 
 @media (max-width: 1100px) {
